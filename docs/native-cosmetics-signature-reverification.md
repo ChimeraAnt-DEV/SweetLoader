@@ -13,16 +13,16 @@ hooks rely on was **re-verified from the fresh binary**, not inherited from olde
 
 | Target | Expected | Measured | Verdict |
 |---|---|---|---|
-| `imageLoaderSig` match | exactly once @ `0x14df7ce4` | exactly once @ `0x14df7ce4` | ✔ |
-| Loader ABI | sret in x8, args x0=x1=x2=x3=x4 | `mov x19,x8` / `mov x20,x0` / `mov w21,w1` / `mov x24,x2` / `mov x23,x3` / `mov w22,w4` | ✔ |
-| Payload byte | `[x19, #0x10]` | `strb w21, [x19, #0x10]` (success), `strb wzr, ...` (errors) | ✔ |
-| Format dispatch | `{0,1,3,4}` | `sub w8,w21,#3; cmp w8,#2; b.lo` + `cmp w21,#1; b.eq` + `cbnz w21, ...` | ✔ |
-| SIMD head store | `str q0, [out]` | `str q0, [x20]` | ✔ |
-| `SerializedSkinRef::getImageData` | `+0x78` | constant-folded `add x0,x0,#0x78; ret` | ✔ |
-| `SerializedSkinRef::getCapeImageData` | `+0xa8` | constant-folded `add x0,x0,#0xa8; ret` | ✔ |
-| `SerializedSkinRef::getAnimatedImageData` | `+0xd8` | constant-folded `add x0,x0,#0xd8; ret` | ✔ |
-| `LivePlayerRenderer` slot 17 | `0xaeaefb4` | `0xaeaefb4` (RTTI-resolved) | ✔ |
-| `ClientNetworkHandler` slot 40 | `0xb80f518` | `0xb80f518` (RTTI-resolved) | ✔ |
+| `imageLoaderSig` match | exactly once @ `0x14df7ce4` | exactly once @ `0x14df7ce4` | yes |
+| Loader ABI | sret in x8, args x0=x1=x2=x3=x4 | `mov x19,x8` / `mov x20,x0` / `mov w21,w1` / `mov x24,x2` / `mov x23,x3` / `mov w22,w4` | yes |
+| Payload byte | `[x19, #0x10]` | `strb w21, [x19, #0x10]` (success), `strb wzr, ...` (errors) | yes |
+| Format dispatch | `{0,1,3,4}` | `sub w8,w21,#3; cmp w8,#2; b.lo` + `cmp w21,#1; b.eq` + `cbnz w21, ...` | yes |
+| SIMD head store | `str q0, [out]` | `str q0, [x20]` | yes |
+| `SerializedSkinRef::getImageData` | `+0x78` | constant-folded `add x0,x0,#0x78; ret` | yes |
+| `SerializedSkinRef::getCapeImageData` | `+0xa8` | constant-folded `add x0,x0,#0xa8; ret` | yes |
+| `SerializedSkinRef::getAnimatedImageData` | `+0xd8` | constant-folded `add x0,x0,#0xd8; ret` | yes |
+| `LivePlayerRenderer` slot 17 | `0xaeaefb4` | `0xaeaefb4` (RTTI-resolved) | yes |
+| `ClientNetworkHandler` slot 40 | `0xb80f518` | `0xb80f518` (RTTI-resolved) | yes |
 
 ## The relocation gotcha (read this before scanning `.data.rel.ro`)
 
