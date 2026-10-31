@@ -76,6 +76,8 @@ set(PRELOADER_SOURCES
         src/pl/runtime/InputJni.cpp
         src/pl/runtime/JavaRuntime.cpp
         src/pl/runtime/ModMenuBridge.cpp
+        src/pl/runtime/BerryApiBridge.cpp
+        src/pl/runtime/BerryApiJni.cpp
 )
 
 add_library(preloader SHARED ${PRELOADER_SOURCES})
@@ -152,6 +154,9 @@ find_library(android-lib android REQUIRED)
 find_library(egl-lib EGL REQUIRED)
 find_library(gles-lib GLESv3 REQUIRED)
 find_library(z-lib z REQUIRED)
+# dlopen/dlsym for the BerryAPI bridge. On the Android NDK these live in libdl, which is a separate
+# stub library even though the implementation is in libc.
+find_library(dl-lib dl REQUIRED)
 
 # arm64-v8a is the only ABI the client ships (see the client's `ndk abiFilters`), and the only one
 # GlossHook is vendored for here. A 32-bit build is not supported; refusing it is clearer than
@@ -178,6 +183,7 @@ target_link_libraries(preloader
         ${egl-lib}
         ${gles-lib}
         ${z-lib}
+        ${dl-lib}
         nlohmann_json::nlohmann_json
         Boost::pfr
         magic_enum::magic_enum
