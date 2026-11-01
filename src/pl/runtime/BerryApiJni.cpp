@@ -59,4 +59,14 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeSummary(JNIEnv *env, jclass) 
   return NewJString(env, pl::berry::Summary());
 }
 
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeBindWorldSeam(JNIEnv *, jclass) {
+  return pl::berry::BindWorldSeam() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeWorldSeamBound(JNIEnv *, jclass) {
+  return pl::berry::WorldSeamBound() ? JNI_TRUE : JNI_FALSE;
+}
+
 } // extern "C"

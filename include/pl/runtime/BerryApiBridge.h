@@ -108,4 +108,25 @@ PL_EXPORT Capability Capabilities();
  */
 PL_EXPORT std::string Summary();
 
+/**
+ * @brief Binds the launcher's local-player world seam into BerryAPI, if it can.
+ *
+ * <p>BerryAPI's World/Combat/Render modules read game state through a `LevelSeam`; without one
+ * every world/entity read fails closed and the dependent modules stay unavailable. This binds the
+ * one seam this build can honestly supply — the local player's position and view rotation, read
+ * from the same `ClientInstance` vtable slot the render feed uses (see `GameLocalPlayer`).
+ *
+ * <p>Order: load BerryAPI, query `BERRY_WorldSeamStructSize`/`BERRY_WorldSeamAbiVersion`, and bind
+ * only when the host's mirrored struct matches both. A mismatch (a library built against another
+ * ABI) is reported and nothing is bound, so a layout drift can never be bound through. The
+ * `WorldFeed` capability turns on only after a successful bind.
+ *
+ * <p>Idempotent and fail-closed: a missing library, a missing symbol or a mismatch returns false
+ * and leaves the world feed off. Safe to call once at session start, after {@link EnsureAttached}.
+ */
+PL_EXPORT bool BindWorldSeam();
+
+/** True when the launcher's local-player seam is bound into BerryAPI. */
+PL_EXPORT bool WorldSeamBound();
+
 } // namespace pl::berry
