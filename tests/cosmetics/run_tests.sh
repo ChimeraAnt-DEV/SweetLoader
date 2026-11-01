@@ -174,6 +174,10 @@ compile_run OptifineConfigBoundsTest \
 compile_run SkinSeamObservationTest \
   "$here/SkinSeamObservationTest.cpp"
 
+# The BerryAPI world-seam provider is a pure header, so it needs no source file of its own.
+compile_run BerrySeamProviderTest \
+  "$here/BerrySeamProviderTest.cpp"
+
 compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"

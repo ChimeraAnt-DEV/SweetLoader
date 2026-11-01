@@ -10,6 +10,16 @@
 #include <atomic>
 #include <mutex>
 
+#include "pl/runtime/BerrySeamProvider.hpp"
+
+// The local-player reading the seam provider marshals. Declared in GameLocalPlayer.h; forward
+// declared here so this bridge does not pull the whole runtime in.
+namespace pl::runtime {
+bool IsLocalPlayerAvailable();
+bool ReadLocalPlayerPosition(float out[3]);
+bool ReadLocalPlayerRotation(float out[2]);
+} // namespace pl::runtime
+
 namespace pl::berry {
 namespace {
 
@@ -20,6 +30,11 @@ constexpr const char *kLibraryName = "libBerryAPI.so";
 using InjectFn = bool (*)();
 using IsAttachedFn = bool (*)();
 using VersionFn = const char *(*)();
+using SetWorldSeamFn = std::int32_t (*)(const void *);
+using ClearWorldSeamFn = void (*)();
+using HasWorldSeamFn = std::int32_t (*)();
+using WorldSeamStructSizeFn = std::uint32_t (*)();
+using WorldSeamAbiVersionFn = std::uint32_t (*)();
 
 std::mutex g_loadMutex;
 std::atomic<bool> g_attempted{false};
@@ -29,6 +44,12 @@ std::atomic<bool> g_attachAttempted{false};
 InjectFn g_inject = nullptr;
 IsAttachedFn g_isAttached = nullptr;
 VersionFn g_version = nullptr;
+SetWorldSeamFn g_setWorldSeam = nullptr;
+ClearWorldSeamFn g_clearWorldSeam = nullptr;
+HasWorldSeamFn g_hasWorldSeam = nullptr;
+WorldSeamStructSizeFn g_worldSeamStructSize = nullptr;
+WorldSeamAbiVersionFn g_worldSeamAbiVersion = nullptr;
+std::atomic<bool> g_seamBound{false};
 std::string g_loadError;
 
 /**
@@ -57,6 +78,13 @@ void LoadOnce() {
   g_version = Resolve<VersionFn>(handle, "BERRY_Version");
   g_isAttached = Resolve<IsAttachedFn>(handle, "BERRY_IsAttached");
   g_inject = Resolve<InjectFn>(handle, "BERRY_Inject");
+  // The world-seam surface (BerryAPI ABI v8). Optional: a library without it still loads and
+  // attaches, and the world feed simply stays off.
+  g_setWorldSeam = Resolve<SetWorldSeamFn>(handle, "BERRY_SetWorldSeam");
+  g_clearWorldSeam = Resolve<ClearWorldSeamFn>(handle, "BERRY_ClearWorldSeam");
+  g_hasWorldSeam = Resolve<HasWorldSeamFn>(handle, "BERRY_HasWorldSeam");
+  g_worldSeamStructSize = Resolve<WorldSeamStructSizeFn>(handle, "BERRY_WorldSeamStructSize");
+  g_worldSeamAbiVersion = Resolve<WorldSeamAbiVersionFn>(handle, "BERRY_WorldSeamAbiVersion");
 
   // The version string is the cheapest proof the ABI is the one we expect; without it the library
   // is not BerryAPI as this bridge understands it, so it is treated as absent.
@@ -129,7 +157,9 @@ Capability Capabilities() {
   if (!g_loaded.load(std::memory_order_acquire)) return mask;
   mask = mask | Capability::LibraryLoaded;
   if (Attached()) mask = mask | Capability::Attached;
-  // Capability::WorldFeed stays clear: no LevelSeam is bound in this build.
+  // WorldFeed is set only once the launcher's local-player seam is actually bound, so a module
+  // that needs a feed is never advertised as working on a promise.
+  if (g_seamBound.load(std::memory_order_acquire)) mask = mask | Capability::WorldFeed;
   return mask;
 }
 
@@ -144,10 +174,53 @@ std::string Summary() {
   // the client arms it at session start. Say so, rather than reporting a bare "not attached" that
   // reads like a failure.
   line += Attached() ? ", attached" : ", armed at game launch";
-  if (!HasCapability(Capabilities(), Capability::WorldFeed)) {
-    line += ", world feed unavailable";
-  }
+  line += HasCapability(Capabilities(), Capability::WorldFeed) ? ", world feed bound"
+                                                               : ", world feed unavailable";
   return line;
+}
+
+bool WorldSeamBound() { return g_seamBound.load(std::memory_order_acquire); }
+
+bool BindWorldSeam() {
+  if (!EnsureLoaded()) return false;
+  if (g_setWorldSeam == nullptr || g_worldSeamStructSize == nullptr ||
+      g_worldSeamAbiVersion == nullptr) {
+    // The library predates the seam ABI (or was built without it): the world feed stays off.
+    return false;
+  }
+
+  // Verify the host's mirrored struct against the library's own numbers before binding, so a
+  // layout drift is caught by a number rather than by a misread function pointer.
+  const SeamAbi reported{g_worldSeamStructSize(), g_worldSeamAbiVersion()};
+  if (!MirrorMatches(reported, static_cast<std::uint32_t>(sizeof(SeamMirror)),
+                     static_cast<std::uint32_t>(kHostSeamAbiVersion))) {
+    return false;
+  }
+
+  // Fill only the slot this build can answer. Every other slot stays null, which BerryAPI reads as
+  // its fail-closed default, so an unreachable read is "no data" rather than an invention.
+  static SeamMirror seam{};
+  seam.size = reported.struct_size;
+  seam.abi_version = reported.abi_version;
+  seam.user = nullptr;
+  seam.get_local_player = [](LocalPlayerMirror *out, void *) -> std::int32_t {
+    if (out == nullptr) return 0;
+    float position[3] = {0.0f, 0.0f, 0.0f};
+    float rotation[2] = {0.0f, 0.0f};
+    // A reading is "have data" only when both the position and the view rotation were read; a
+    // partial read (one of the two) is reported as no data rather than a half-filled pose.
+    const bool have = pl::runtime::ReadLocalPlayerPosition(position) &&
+                      pl::runtime::ReadLocalPlayerRotation(rotation);
+    *out = BuildLocalPlayerState(have, position, rotation);
+    return 1;
+  };
+
+  if (g_setWorldSeam(&seam) == 0) {
+    g_seamBound.store(false, std::memory_order_release);
+    return false;
+  }
+  g_seamBound.store(true, std::memory_order_release);
+  return true;
 }
 
 } // namespace pl::berry
