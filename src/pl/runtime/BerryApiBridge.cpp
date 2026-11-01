@@ -140,7 +140,10 @@ std::string Summary() {
   const std::string version = Version();
   std::string line = "BerryAPI: loaded";
   if (!version.empty()) line += " v" + version;
-  line += Attached() ? ", attached" : ", not attached";
+  // In the launcher process the library loads but is not attached: attaching needs the game, so
+  // the client arms it at session start. Say so, rather than reporting a bare "not attached" that
+  // reads like a failure.
+  line += Attached() ? ", attached" : ", armed at game launch";
   if (!HasCapability(Capabilities(), Capability::WorldFeed)) {
     line += ", world feed unavailable";
   }
