@@ -6,7 +6,7 @@
  *
  * Two animation sources drive a cosmetic:
  *
- *  - **Authored keyframes** from a Bedrock animation JSON (`animations` → `bones` → `rotation` /
+ *  - **Authored keyframes** from a Bedrock animation JSON (`animations` -> `bones` -> `rotation` /
  *    `position` / `scale`). {@link AnimationSolver} parses them and samples a value at a time,
  *    honouring the per-key interpolation mode (step, linear, Catmull-Rom). Catmull-Rom is the
  *    "smooth" curve Blockbench emits; treating it as linear is the difference between cloth that
