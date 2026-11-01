@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 
+#include "pl/Export.hpp"
 #include "pl/Logger.hpp"
 #include "pl/internal/ModManager.h"
 #include "pl/runtime/GameHooks.h"
@@ -135,29 +136,6 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeDisableAndUnloadLoadedMods(
   ModManager::DisableAndUnloadLoadedMods();
 }
 
-// The JNI symbol for nativeSetupRuntime must match the declaring class exactly. The Java
-// declaration lives in org.levimc.launcher.core.minecraft.MinecraftRuntimePreparer (a retained
-// bridge: the prebuilt libgxcore.so hardcodes the levimc path in its own lookup), so the
-// exported name is the levimc one. An earlier rebrand renamed this symbol to the chimeramc
-// path, which left no class declaring it -- a dead symbol and an UnsatisfiedLinkError on every
-// launch. Keep it levimc; the chimeramc package is the host, not the declaration.
-JNIEXPORT void JNICALL
-Java_org_levimc_launcher_core_minecraft_MinecraftRuntimePreparer_nativeSetupRuntime(
-    JNIEnv *env, jclass clazz, jstring modsPath) {
-  (void)clazz;
-  if (!modsPath) {
-    return;
-  }
-
-  const char *path = env->GetStringUTFChars(modsPath, nullptr);
-  if (!path) {
-    return;
-  }
-
-  preloaderLogger.debug("Native runtime mod directory: {}", path);
-  env->ReleaseStringUTFChars(modsPath, path);
-}
-
 // Fail-safe health read for the replay death trigger. This build has no verified health field
 // offset, so it reports "no data" (null) rather than inventing a reading -- the caller's
 // DeathWatcher treats null as unavailable and never fires a highlight from it. The signature is
@@ -168,6 +146,25 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadLocalPlayerHealth(
   (void)env;
   (void)clazz;
   return nullptr;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stable C ABI surface
+// ---------------------------------------------------------------------------------------------
+// These are the entry points a mod or embedder may rely on by name. They are versioned so a
+// mismatch is refused with a clear message rather than a missing symbol or a silent misread.
+
+/// The preloader's C ABI version. Bump when a signature in this file changes meaning.
+#define PL_PRELOADER_ABI_VERSION 1
+
+// Returns the ABI version this preloader was built with. A host that loaded a preloader expecting a
+// newer ABI compares this and refuses to use the surface rather than calling into it blind.
+extern "C" PL_EXPORT int pl_get_abi_version() { return PL_PRELOADER_ABI_VERSION; }
+
+// The Java-side read of the same value, so the launcher can compare before it uses the surface.
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeAbiVersion(JNIEnv *, jclass) {
+  return PL_PRELOADER_ABI_VERSION;
 }
 
 } // extern "C"
