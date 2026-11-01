@@ -25,6 +25,7 @@ std::mutex g_loadMutex;
 std::atomic<bool> g_attempted{false};
 std::atomic<bool> g_loaded{false};
 std::atomic<bool> g_hasAttachQuery{false};
+std::atomic<bool> g_attachAttempted{false};
 InjectFn g_inject = nullptr;
 IsAttachedFn g_isAttached = nullptr;
 VersionFn g_version = nullptr;
@@ -108,6 +109,19 @@ bool Attached() {
   if (!g_loaded.load(std::memory_order_acquire)) return false;
   if (!g_hasAttachQuery.load(std::memory_order_relaxed) || g_isAttached == nullptr) return false;
   return g_isAttached();
+}
+
+bool EnsureAttached() {
+  // Idempotent: attempt the attach at most once per process. A second attempt after a failure
+  // would install a half-built hook set, which is worse than reporting the failure.
+  if (g_attachAttempted.exchange(true, std::memory_order_acq_rel)) return Attached();
+  if (!EnsureLoaded()) return false;
+  if (Attached()) return true;
+  if (g_inject == nullptr) return false;
+  // BerryAPI checks its own hook backend and returns false when it has none; a false here is a
+  // reported failure, not a crash, so the caller can grey the dependent features.
+  g_inject();
+  return Attached();
 }
 
 Capability Capabilities() {

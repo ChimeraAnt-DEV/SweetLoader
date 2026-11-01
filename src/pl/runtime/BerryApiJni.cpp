@@ -38,6 +38,11 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeIsAttached(JNIEnv *, jclass) 
   return pl::berry::Attached() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeEnsureAttached(JNIEnv *, jclass) {
+  return pl::berry::EnsureAttached() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jstring JNICALL
 Java_org_chimeramc_client_preloader_BerryApi_nativeVersion(JNIEnv *env, jclass) {
   return NewJString(env, pl::berry::Version());

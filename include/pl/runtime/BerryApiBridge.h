@@ -82,6 +82,16 @@ PL_EXPORT std::string Version();
 PL_EXPORT bool Attached();
 
 /**
+ * @brief Attaches BerryAPI if it is not already attached, at most once per process.
+ *
+ * <p>Loads the library if needed, then calls `BERRY_Inject`. Idempotent: a second call after a
+ * successful attach is a cheap query, and a second call after a failure does not retry (a retry
+ * would install a half-built hook set). Returns whether BerryAPI now reports an attached hook
+ * backend. Safe to call from the launcher's session start; a failure is reported, never fatal.
+ */
+PL_EXPORT bool EnsureAttached();
+
+/**
  * @brief The capability mask, built only from readings that succeeded.
  *
  * <p>`LibraryLoaded` is set once the ABI resolves; `Attached` mirrors {@link Attached}. `WorldFeed`
