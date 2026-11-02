@@ -250,4 +250,13 @@ compile_run AntEggManifestTest \
   "$root/src/pl/runtime/AntEggLoader.cpp" \
   "$here/AntEggManifestTest.cpp" "$zlib_link"
 
+# Fuzz-shaped invariants for the three parsers that read untrusted data (item 458): the signature
+# parser, the egg.json reader and the Bedrock geometry parser. Deterministic and seeded, so a
+# failure reproduces from the seed alone.
+compile_run FuzzParseTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/AntEggLoader.cpp" \
+  "$root/src/pl/cosmetics/geometry/BedrockModelParser.cpp" \
+  "$here/FuzzParseTest.cpp" "$zlib_link"
+
 echo "all cosmetics host tests passed"
