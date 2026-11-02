@@ -120,6 +120,9 @@ compile_run VersionCompareTest \
 compile_run CallbackSnapshotTest \
   "$here/CallbackSnapshotTest.cpp"
 
+compile_run OnceReportTest \
+  "$here/OnceReportTest.cpp"
+
 # The image-override stores are a pure header too.
 compile_run ImageOverrideRegistryTest \
   "$here/ImageOverrideRegistryTest.cpp"
