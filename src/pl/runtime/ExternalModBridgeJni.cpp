@@ -56,6 +56,33 @@ static nlohmann::json hudEditorElementPayload(
     };
 }
 
+namespace {
+
+// Item 455: an id/key/value string from Java is untrusted input. A sane ceiling bounds the work
+// the registry does with it and stops a multi-megabyte string from being copied into a lookup;
+// anything longer is refused rather than truncated, because a truncated id is a different id.
+constexpr jsize kMaxIdentifierChars = 4096;
+constexpr jsize kMaxValueChars = 64 * 1024;
+
+/**
+ * Reads a jstring into a std::string, refusing an over-long one.
+ *
+ * @param maxChars the longest acceptable string; a longer one reads as absent (false)
+ * @return true when the string was read; false when it was null, over-long, or unreadable
+ */
+bool ReadString(JNIEnv *env, jstring value, jsize maxChars, std::string &out) {
+    if (!value) return false;
+    const jsize length = env->GetStringUTFLength(value);
+    if (length < 0 || length > maxChars) return false;
+    const char *chars = env->GetStringUTFChars(value, nullptr);
+    if (!chars) return false;
+    out.assign(chars, static_cast<size_t>(length));
+    env->ReleaseStringUTFChars(value, chars);
+    return true;
+}
+
+} // namespace
+
 extern "C" {
 
 JNIEXPORT jint JNICALL
@@ -95,12 +122,12 @@ JNIEXPORT jstring JNICALL
 Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeGetExternalModConfigSchema(
         JNIEnv *env, jclass clazz, jstring moduleId) {
     (void)clazz;
-    if (!moduleId) return pl::jni::NewString(env, "");
-    const char *id = env->GetStringUTFChars(moduleId, nullptr);
-    if (!id) return pl::jni::NewString(env, "");
+    std::string id;
+    if (!ReadString(env, moduleId, kMaxIdentifierChars, id)) {
+        return pl::jni::NewString(env, "");
+    }
     std::string schema;
-    pl::runtime::GetRegisteredModuleConfigSchema(id, schema);
-    env->ReleaseStringUTFChars(moduleId, id);
+    pl::runtime::GetRegisteredModuleConfigSchema(id.c_str(), schema);
     return pl::jni::NewString(env, schema.c_str());
 }
 
@@ -108,50 +135,38 @@ JNIEXPORT jlong JNICALL
 Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeGetExternalModConfigSchemaRevision(
         JNIEnv *env, jclass clazz, jstring moduleId) {
     (void)clazz;
-    if (!moduleId) return 0;
-    const char *id = env->GetStringUTFChars(moduleId, nullptr);
-    if (!id) return 0;
-    const auto revision = pl::runtime::GetRegisteredModuleConfigSchemaRevision(id);
-    env->ReleaseStringUTFChars(moduleId, id);
-    return static_cast<jlong>(revision);
+    std::string id;
+    if (!ReadString(env, moduleId, kMaxIdentifierChars, id)) return 0;
+    return static_cast<jlong>(pl::runtime::GetRegisteredModuleConfigSchemaRevision(id.c_str()));
 }
 
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeToggleExternalMod(
         JNIEnv *env, jclass clazz, jstring moduleId, jboolean enabled) {
 (void)clazz;
-if (!moduleId) {
+std::string id;
+if (!ReadString(env, moduleId, kMaxIdentifierChars, id)) {
 return;
 }
-const char *id = env->GetStringUTFChars(moduleId, nullptr);
-if (id) {
-pl::runtime::ToggleRegisteredModule(id, enabled == JNI_TRUE);
-env->ReleaseStringUTFChars(moduleId, id);
-}
+pl::runtime::ToggleRegisteredModule(id.c_str(), enabled == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeSetExternalModConfig(
         JNIEnv *env, jclass clazz, jstring moduleId, jstring key, jstring value) {
 (void)clazz;
-if (!moduleId || !key) {
-return;
+std::string id;
+std::string configKey;
+if (!ReadString(env, moduleId, kMaxIdentifierChars, id) ||
+    !ReadString(env, key, kMaxIdentifierChars, configKey)) {
+    return;
 }
-const char *idStr = env->GetStringUTFChars(moduleId, nullptr);
-const char *keyStr = env->GetStringUTFChars(key, nullptr);
-const char *valStr = value ? env->GetStringUTFChars(value, nullptr) : nullptr;
-if (idStr && keyStr && (!value || valStr)) {
-pl::runtime::SetRegisteredModuleConfig(idStr, keyStr, valStr ? valStr : "");
+// A null value is legal (it clears the key); a present but over-long one is refused.
+std::string configValue;
+if (value && !ReadString(env, value, kMaxValueChars, configValue)) {
+    return;
 }
-if (valStr) {
-env->ReleaseStringUTFChars(value, valStr);
-}
-if (keyStr) {
-env->ReleaseStringUTFChars(key, keyStr);
-}
-if (idStr) {
-env->ReleaseStringUTFChars(moduleId, idStr);
-}
+pl::runtime::SetRegisteredModuleConfig(id.c_str(), configKey.c_str(), configValue.c_str());
 }
 
 JNIEXPORT jint JNICALL
@@ -202,19 +217,14 @@ JNIEXPORT jbyteArray JNICALL
         Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeGetExternalButtonIconBytes(
         JNIEnv *env, jclass clazz, jstring buttonId, jint width, jint height, jboolean active) {
 (void)clazz;
-if (!buttonId) {
-return nullptr;
-}
-
-const char *id = env->GetStringUTFChars(buttonId, nullptr);
-if (!id) {
-return nullptr;
+std::string id;
+if (!ReadString(env, buttonId, kMaxIdentifierChars, id)) {
+    return nullptr;
 }
 
 std::vector<unsigned char> iconData;
 const bool found =
-        pl::runtime::GetRegisteredButtonIconBytes(id, width, height, active, iconData);
-env->ReleaseStringUTFChars(buttonId, id);
+        pl::runtime::GetRegisteredButtonIconBytes(id.c_str(), width, height, active, iconData);
 
 if (!found || iconData.empty()) {
 return nullptr;
@@ -246,16 +256,12 @@ JNIEXPORT void JNICALL
 Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeDispatchExternalButtonEvent(
         JNIEnv *env, jclass clazz, jstring buttonId, jint event, jfloat value) {
 (void)clazz;
-if (!buttonId) {
-return;
+std::string id;
+if (!ReadString(env, buttonId, kMaxIdentifierChars, id)) {
+    return;
 }
-
-const char *id = env->GetStringUTFChars(buttonId, nullptr);
-if (id) {
 pl::runtime::DispatchRegisteredButtonEvent(
-        id, static_cast<pl::modmenu::ButtonEvent>(event), value);
-env->ReleaseStringUTFChars(buttonId, id);
-}
+        id.c_str(), static_cast<pl::modmenu::ButtonEvent>(event), value);
 }
 
 JNIEXPORT jbyteArray JNICALL
@@ -481,17 +487,13 @@ JNIEXPORT jbyteArray JNICALL
         Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeGetRegisteredFontBytes(
         JNIEnv *env, jclass clazz, jstring fontId) {
 (void)clazz;
-if (!fontId) {
-return nullptr;
-}
-const char *idStr = env->GetStringUTFChars(fontId, nullptr);
-if (!idStr) {
-return nullptr;
+std::string idStr;
+if (!ReadString(env, fontId, kMaxIdentifierChars, idStr)) {
+    return nullptr;
 }
 
 std::vector<unsigned char> fontData;
-const bool found = pl::runtime::GetRegisteredFontBytes(idStr, fontData);
-env->ReleaseStringUTFChars(fontId, idStr);
+const bool found = pl::runtime::GetRegisteredFontBytes(idStr.c_str(), fontData);
 
 if (!found || fontData.empty()) {
 return nullptr;
@@ -522,20 +524,16 @@ JNIEXPORT jobjectArray JNICALL
         Java_org_chimeramc_client_core_mods_inbuilt_ExternalModBridge_nativeGetRegisteredImage(
         JNIEnv *env, jclass clazz, jstring imageId) {
 (void)clazz;
-if (!imageId) {
-return nullptr;
-}
-const char *idStr = env->GetStringUTFChars(imageId, nullptr);
-if (!idStr) {
-return nullptr;
+std::string idStr;
+if (!ReadString(env, imageId, kMaxIdentifierChars, idStr)) {
+    return nullptr;
 }
 
 std::vector<unsigned char> imageData;
 int width = 0;
 int height = 0;
 const bool found =
-        pl::runtime::GetRegisteredImageBytes(idStr, imageData, width, height);
-env->ReleaseStringUTFChars(imageId, idStr);
+        pl::runtime::GetRegisteredImageBytes(idStr.c_str(), imageData, width, height);
 
 if (!found || imageData.empty() || width <= 0 || height <= 0) {
 return nullptr;
