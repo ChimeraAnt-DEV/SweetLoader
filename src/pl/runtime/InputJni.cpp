@@ -9,6 +9,7 @@
 #include "pl/runtime/GameLocalPlayer.h"
 #include "pl/runtime/GamePlayerRender.h"
 #include "pl/runtime/GameResourcePackReload.h"
+#include "pl/memory/Signature.hpp"
 #include "pl/runtime/InputBridge.h"
 #include "pl/runtime/JavaRuntime.h"
 
@@ -218,6 +219,14 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeConfigureSignatureRules
 
   pl::runtime::ConfigureGameHooks(ToStdString(env, rulesPath),
                                   ToStdString(env, minecraftVersion));
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetSignatureCacheDir(JNIEnv *env,
+                                                                             jclass clazz,
+                                                                             jstring directory) {
+  (void)clazz;
+  pl::memory::SetSignatureCacheDirectory(ToStdString(env, directory));
 }
 
 JNIEXPORT jboolean JNICALL

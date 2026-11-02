@@ -17,6 +17,7 @@ using pl::memory::MapsLine;
 using pl::memory::MapsPathNamesModule;
 using pl::memory::MapsPermsExecutable;
 using pl::memory::MapsPermsReadable;
+using pl::memory::MapsPermsWritable;
 using pl::memory::ParseMapsLine;
 
 namespace {
@@ -76,6 +77,9 @@ int main() {
   expect(!MapsPermsExecutable("r-"), "a short permission string is not executable");
   expect(MapsPermsReadable("r-xp"), "r-xp is readable");
   expect(!MapsPermsReadable("-w-p"), "a non-readable mapping is not readable");
+  expect(MapsPermsWritable("rw-p"), "rw-p is writable");
+  expect(!MapsPermsWritable("r-xp"), "r-xp is not writable");
+  expect(!MapsPermsWritable("r-"), "a short permission string is not writable");
 
   // The tag form of an anonymous mapping keeps its text but never matches a module name.
   MapsLine tagged{};

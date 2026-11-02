@@ -28,6 +28,7 @@ set(PRELOADER_SOURCES
         src/pl/memory/ModulePathMatch.cpp
         src/pl/memory/Patch.cpp
         src/pl/memory/Signature.cpp
+        src/pl/memory/SignatureScanCache.cpp
         src/pl/memory/Vtable.cpp
         src/pl/cosmetics/geometry/BedrockModelParser.cpp
         src/pl/cosmetics/NativeModelMatrix.cpp

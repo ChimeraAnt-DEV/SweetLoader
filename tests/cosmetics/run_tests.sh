@@ -149,6 +149,13 @@ compile_run ElfBuildIdTest \
   "$here/ElfBuildIdTest.cpp" \
   "$root/src/pl/memory/ElfBuildId.cpp"
 
+# The on-disk scan cache is a pure serialiser (items 436, 437): it stores offsets from the load
+# base, keyed by the ELF build id, so a repeat launch skips the scan and a game update cannot read
+# the previous build's offsets.
+compile_run SignatureScanCacheTest \
+  "$root/src/pl/memory/SignatureScanCache.cpp" \
+  "$here/SignatureScanCacheTest.cpp"
+
 # The exported C ABI is compile-time-pinned, so a rename fails the build.
 compile_run LegacyAbiTest \
   "$here/LegacyAbiTest.cpp"

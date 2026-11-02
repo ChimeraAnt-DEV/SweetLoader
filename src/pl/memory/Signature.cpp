@@ -21,6 +21,10 @@
 #include "pl/memory/ElfBuildId.hpp"
 #include "pl/memory/ModulePathMatch.hpp"
 #include "pl/memory/SignaturePattern.hpp"
+#include "pl/memory/SignatureScanCache.hpp"
+
+#include <filesystem>
+#include <fstream>
 
 namespace pl::memory {
 namespace {
@@ -35,6 +39,7 @@ struct MemoryRegion {
   uintptr_t start = 0;
   uintptr_t end = 0;
   bool executable = false;
+  bool writable = false;
 };
 
 struct ModuleInfo {
@@ -42,6 +47,11 @@ struct ModuleInfo {
   std::vector<MemoryRegion> regions;
   /** The executable subset of `regions`; code signatures are scanned only here. */
   std::vector<MemoryRegion> execRegions;
+  /**
+   * The read-only, non-executable subset. A code signature is scanned in `execRegions`; this is the
+   * fallback for a module with no executable mapping, so the fallback never reads a writable buffer.
+   */
+  std::vector<MemoryRegion> readOnlyRegions;
   /** The lowest mapped address, used as the identity of this load. */
   uintptr_t base = 0;
   /** The ELF build id, or empty when it could not be read. Changes on every relink. */
@@ -81,7 +91,16 @@ inline void selectAnchor(ParsedPattern &pattern) { pl::memory::SelectAnchor(patt
 // Defined below; forward-declared so module collection can probe the ELF header.
 size_t ReadRegionSafely(uintptr_t start, size_t size, uint8_t *out);
 
-// Whether a module's regions are actually mapped at the addresses we would scan.
+// Whether a module is still mapped at the cached addresses, so a cached region list can be reused.
+//
+// Two checks, both cheap and both without re-parsing `/proc/self/maps`:
+//   1. every cached region still answers a one-byte fault-safe read, and
+//   2. the load base still starts with the ELF magic.
+//
+// The second is what catches a module that was unmapped and reloaded at a *different* base: the old
+// addresses may still be mapped (by another library, or by the reloaded copy at an address that
+// happens to cover the probe), so a probe alone is not enough. A non-ELF first word means the cached
+// region list no longer describes this module, and the caller re-reads it.
 bool RegionsAreMapped(const ModuleInfo &module) {
   if (module.regions.empty()) return false;
   unsigned char probe = 0;
@@ -92,7 +111,11 @@ bool RegionsAreMapped(const ModuleInfo &module) {
       return false;
     }
   }
-  return true;
+
+  unsigned char magic[4] = {};
+  const size_t magicRead = ReadRegionSafely(module.base, sizeof(magic), magic);
+  if (magicRead != sizeof(magic)) return false;
+  return magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
 }
 
 // Collects a module's readable regions, and its executable subset, by matching the **basename** of
@@ -112,17 +135,26 @@ bool getModuleInfo(const std::string &name, ModuleInfo &out) {
     if (!MapsPermsReadable(parsed.perms)) continue;
 
     const bool executable = MapsPermsExecutable(parsed.perms);
+    const bool writable = MapsPermsWritable(parsed.perms);
     if (!out.regions.empty() && out.regions.back().end == parsed.start &&
-        out.regions.back().executable == executable) {
+        out.regions.back().executable == executable &&
+        out.regions.back().writable == writable) {
       out.regions.back().end = parsed.end;
     } else {
-      out.regions.push_back(MemoryRegion{parsed.start, parsed.end, executable});
+      out.regions.push_back(MemoryRegion{parsed.start, parsed.end, executable, writable});
     }
     if (executable) {
-      if (!out.execRegions.empty() && out.execRegions.back().end == parsed.start) {
+      if (!out.execRegions.empty() && out.execRegions.back().end == parsed.start &&
+          out.execRegions.back().writable == writable) {
         out.execRegions.back().end = parsed.end;
       } else {
-        out.execRegions.push_back(MemoryRegion{parsed.start, parsed.end, true});
+        out.execRegions.push_back(MemoryRegion{parsed.start, parsed.end, true, writable});
+      }
+    } else if (!writable) {
+      if (!out.readOnlyRegions.empty() && out.readOnlyRegions.back().end == parsed.start) {
+        out.readOnlyRegions.back().end = parsed.end;
+      } else {
+        out.readOnlyRegions.push_back(MemoryRegion{parsed.start, parsed.end, false, false});
       }
     }
     if (first || parsed.start < out.base) out.base = parsed.start;
@@ -169,6 +201,108 @@ void *ResolveExportedSymbol(std::string_view moduleName, std::string_view signat
 // a module that was unmapped or reloaded at different addresses is re-read instead of answering from
 // a stale region list.
 std::unordered_map<std::string, ModuleInfo> moduleCache;
+
+// The on-disk scan cache directory (items 436, 437). Empty until the launcher sets it, which keeps
+// the default behaviour exactly as before: no file is read and none is written.
+std::mutex g_cacheDirMutex;
+std::string g_cacheDir;
+
+std::string CacheDirectory() {
+  std::lock_guard lock(g_cacheDirMutex);
+  return g_cacheDir;
+}
+
+// One file per module build id. The name is derived from the module name and the build id, both of
+// which come from the rules and `/proc/self/maps`; the build id is hex, so it is safe in a path.
+std::filesystem::path CacheFilePath(const std::string &directory,
+                                    std::string_view moduleName,
+                                    std::string_view buildId) {
+  std::string fileName;
+  fileName.reserve(moduleName.size() + buildId.size() + 16);
+  fileName.append(moduleName).append(".").append(buildId).append(".sigcache");
+  return std::filesystem::path(directory) / fileName;
+}
+
+// Loads the cached offsets for a module and adds the ones inside the module's current load base.
+// A cached offset that would fall outside every region is dropped rather than returned: it would
+// resolve to an unrelated address after a partial reload.
+void ApplyDiskCache(const ModuleInfo &module, std::string_view moduleName,
+                    const std::vector<std::string> &signatures,
+                    std::unordered_map<std::string, uintptr_t> &results) {
+  const std::string directory = CacheDirectory();
+  if (directory.empty() || module.buildId.empty()) return;
+
+  const std::filesystem::path path = CacheFilePath(directory, moduleName, module.buildId);
+  std::ifstream file(path, std::ios::binary);
+  if (!file) return;
+  const std::string text((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+
+  std::unordered_map<std::string, uintptr_t> cached;
+  if (!ParseSignatureScanCache(text, module.buildId, cached) || cached.empty()) return;
+
+  auto insideModule = [&module](uintptr_t address) {
+    for (const auto &region : module.regions) {
+      if (address >= region.start && address < region.end) return true;
+    }
+    return false;
+  };
+
+  size_t applied = 0;
+  for (const auto &signature : signatures) {
+    const auto it = cached.find(signature);
+    if (it == cached.end()) continue;
+    const uintptr_t address = module.base + it->second;
+    if (!insideModule(address)) continue;
+    results[signature] = address;
+    ++applied;
+  }
+  if (applied > 0) {
+    preloaderLogger.debug("signature scan cache: {} of {} resolved for {} (build {})", applied,
+                          signatures.size(), moduleName, module.buildId);
+  }
+}
+
+// Merges the freshly resolved offsets into the cache file for this module build. Only non-zero
+// results are written; a miss is re-derived next launch because a scan is cheaper than trusting a
+// stale "not found" after the launcher changes its rules.
+void UpdateDiskCache(const ModuleInfo &module, std::string_view moduleName,
+                     const std::vector<std::string> &signatures,
+                     const std::unordered_map<std::string, uintptr_t> &results) {
+  const std::string directory = CacheDirectory();
+  if (directory.empty() || module.buildId.empty() || module.base == 0) return;
+
+  const std::filesystem::path path = CacheFilePath(directory, moduleName, module.buildId);
+
+  std::unordered_map<std::string, uintptr_t> merged;
+  {
+    std::ifstream file(path, std::ios::binary);
+    if (file) {
+      const std::string text((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+      ParseSignatureScanCache(text, module.buildId, merged);
+    }
+  }
+
+  bool changed = false;
+  for (const auto &signature : signatures) {
+    const auto it = results.find(signature);
+    if (it == results.end() || it->second == 0) continue;
+    const uintptr_t offset = it->second - module.base;
+    const auto existing = merged.find(signature);
+    if (existing != merged.end() && existing->second == offset) continue;
+    merged[signature] = offset;
+    changed = true;
+  }
+  if (!changed) return;
+
+  const std::string text = SerializeSignatureScanCache(module.buildId, merged);
+  std::error_code ec;
+  std::filesystem::create_directories(directory, ec);
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out) return;
+  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+}
 
 ModuleInfo getModuleInfoFresh(const std::string &moduleName) {
   {
@@ -468,6 +602,19 @@ resolveSignatures(std::span<const std::string> signatures,
     }
   }
 
+  // The on-disk cache is consulted before the scan (items 436, 437). It stores offsets from the
+  // load base keyed by the ELF build id, so a repeat launch of the same build skips the scan
+  // entirely. A cached entry that now falls outside the module is dropped by ApplyDiskCache.
+  if (!pending.empty() && !module.regions.empty()) {
+    ApplyDiskCache(module, moduleName, pending, results);
+    pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                 [&results](const std::string &signature) {
+                                   const auto it = results.find(signature);
+                                   return it != results.end() && it->second != 0;
+                                 }),
+                  pending.end());
+  }
+
   if (pending.empty()) return results;
 
   if (module.regions.empty()) {
@@ -483,23 +630,43 @@ resolveSignatures(std::span<const std::string> signatures,
       patterns.push_back(signature);
     }
 
-    if (!patterns.empty()) {
+    if (!patterns.empty() && module.execRegions.empty() && module.readOnlyRegions.empty()) {
+      // A module with no executable mapping and no read-only mapping has nothing safe to scan.
+      // Falling back to its writable regions could resolve a code pattern into a mutable buffer.
+      preloaderLogger.warn("signature scan: {} has no executable or read-only region to scan",
+                           std::string(moduleName));
+      for (const auto &signature : patterns) results[signature] = 0;
+    } else if (!patterns.empty()) {
       const auto compiled = compilePatterns(patterns, results);
       // Code signatures are scanned only in the module's executable regions. A data section is
       // never the target of a byte-pattern code signature, and including writable mappings both
       // wastes the scan and can resolve a pattern to a mutable buffer that happens to hold the
       // bytes.
       const std::vector<MemoryRegion> &scanRegions =
-          module.execRegions.empty() ? module.regions : module.execRegions;
+          module.execRegions.empty() ? module.readOnlyRegions : module.execRegions;
       scanCompiledPatterns(scanRegions, compiled, results);
     }
   }
 
-  std::unique_lock lock(cacheMutex);
-  for (const auto &signature : pending) {
-    sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = results[signature];
+  {
+    std::unique_lock lock(cacheMutex);
+    for (const auto &signature : pending) {
+      sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = results[signature];
+    }
+  }
+
+  // Persist the newly resolved offsets for the next launch, outside the cache lock so file IO does
+  // not block a concurrent resolve. Only the signatures this call resolved are merged, so a
+  // concurrent resolve of a different set cannot clobber them.
+  if (!module.regions.empty()) {
+    UpdateDiskCache(module, moduleName, pending, results);
   }
   return results;
+}
+
+void SetSignatureCacheDirectory(std::string_view directory) {
+  std::lock_guard lock(g_cacheDirMutex);
+  g_cacheDir.assign(directory);
 }
 
 uintptr_t resolveSignature(std::string_view signature,

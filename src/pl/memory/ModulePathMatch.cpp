@@ -98,4 +98,8 @@ bool MapsPermsReadable(std::string_view perms) {
   return !perms.empty() && perms[0] == 'r';
 }
 
+bool MapsPermsWritable(std::string_view perms) {
+  return perms.size() >= 2 && perms[1] == 'w';
+}
+
 } // namespace pl::memory

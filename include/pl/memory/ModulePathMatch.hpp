@@ -56,4 +56,13 @@ bool MapsPermsExecutable(std::string_view perms);
 /** @brief Whether a maps permission string grants read (`perms[0] == 'r'`). */
 bool MapsPermsReadable(std::string_view perms);
 
+/**
+ * @brief Whether a maps permission string grants write (`perms[1] == 'w'`).
+ *
+ * A byte-pattern *code* signature must never resolve into a writable mapping: a mutable buffer can
+ * happen to hold the bytes, and a hook installed there would patch data rather than an instruction.
+ * The scanner uses this to keep its fallback off writable regions.
+ */
+bool MapsPermsWritable(std::string_view perms);
+
 } // namespace pl::memory

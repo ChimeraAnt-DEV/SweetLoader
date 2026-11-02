@@ -40,6 +40,20 @@ resolveSignatures(std::span<const std::string> signatures,
 PL_EXPORT bool isExecutableAddress(uintptr_t address, std::string_view moduleName);
 
 /**
+ * @brief Sets the directory the on-disk signature scan cache is read from and written to (items 436,
+ * 437).
+ *
+ * A byte-pattern scan walks every executable mapping, and the offsets it finds are stable for a
+ * given binary, so the result is worth keeping across launches. The cache is keyed by the module's
+ * ELF build id and stores offsets from the load base, so a game update cannot read the previous
+ * build's offsets. An empty directory disables the cache, which is the safe default: nothing is
+ * written and nothing is read.
+ *
+ * The directory should be the app's private storage, so a cache file is not world-writable.
+ */
+PL_EXPORT void SetSignatureCacheDirectory(std::string_view directory);
+
+/**
  * @brief Resolves a vtable slot by the diagnostic string its function references, not by index.
  *
  * The slot index of a virtual function moves between Minecraft builds, so a hardcoded index is
