@@ -11,6 +11,7 @@
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/GameLocalPlayer.h"
 #include "pl/runtime/GamePlayerRender.h"
+#include "pl/runtime/ProcessMemory.hpp"
 #include "pl/runtime/ModuleMap.hpp"
 #include "pl/runtime/mce_image_hook.hpp"
 
@@ -413,6 +414,24 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   jintArray out = env->NewIntArray(kFields);
   if (out == nullptr) return nullptr;
   env->SetIntArrayRegion(out, 0, kFields, values);
+  return out;
+}
+
+// Item 415: this process's own memory footprint as {valid, residentKb, proportionalKb, fromPss},
+// so the Diagnostics report can show whether a session grows. A missing source reads as invalid
+// rather than as 0 KiB, which would look like an empty process.
+JNIEXPORT jintArray JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadProcessMemory(JNIEnv *env, jclass) {
+  const pl::runtime::ProcessMemoryReading reading = pl::runtime::ReadProcessMemory();
+  const bool valid = reading.residentKb > 0 || reading.proportionalKb > 0;
+  jint values[4];
+  values[0] = valid ? 1 : 0;
+  values[1] = valid ? static_cast<jint>(reading.residentKb) : -1;
+  values[2] = valid ? static_cast<jint>(reading.proportionalKb) : -1;
+  values[3] = reading.hasProportional ? 1 : 0;
+  jintArray out = env->NewIntArray(4);
+  if (out == nullptr) return nullptr;
+  env->SetIntArrayRegion(out, 0, 4, values);
   return out;
 }
 

@@ -174,6 +174,11 @@ compile_run RuleProbeTest \
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 
+compile_run ProcessMemoryTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/ProcessMemory.cpp" \
+  "$here/ProcessMemoryTest.cpp"
+
 compile_run PrologueVerifyTest \
   "$here/PrologueVerifyTest.cpp"
 
