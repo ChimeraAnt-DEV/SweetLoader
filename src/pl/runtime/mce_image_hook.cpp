@@ -306,8 +306,11 @@ ImageOverrideRegistry::ImagePtr TakeNextOverride() {
 
 // Looks up a content-addressed override for the incoming bytes. The returned shared pointer keeps
 // the pixels alive for the whole engine call, so the registry lock is not held across it.
-ImageOverrideRegistry::ImagePtr FindContentOverride(std::uint64_t hash) {
-  return g_subRegistry.find(hash);
+//
+// The source size is passed with the hash (item 370): a candidate can only match bytes of the same
+// length, so an entry recorded from a different size is not a match even if the hashes collided.
+ImageOverrideRegistry::ImagePtr FindContentOverride(std::uint64_t hash, std::size_t sourceSize) {
+  return g_subRegistry.find(hash, sourceSize);
 }
 
 // The detour. It runs on whatever thread the engine builds images on (render/skin-load), so it does
@@ -337,10 +340,14 @@ LoaderReturn HookLoader(void *out, std::uint32_t format, const std::uint8_t *dat
   // 1) The explicit single-slot override wins: the launcher armed it for this exact upload. The
   //    shared pointer owns the pixels, so they stay alive across the engine call below.
   ImageOverrideRegistry::ImagePtr override = TakeNextOverride();
-  if (!override && data != nullptr && size != 0) {
-    // 2) Content-addressed substitution: the engine is loading bytes we have a replacement for.
+  if (!override && data != nullptr && size != 0 &&
+      // 2) Content-addressed substitution: the engine is loading bytes we have a replacement for.
+      //    Hashing walks the whole buffer, so only pay it when some entry was registered from a
+      //    buffer this size (item 370); the engine loads hundreds of textures per session and at
+      //    most a couple have overrides, so this skips the hash on almost every load.
+      g_subRegistry.hasSourceSize(size)) {
     const std::uint64_t hash = Fnv1a(data, size);
-    override = FindContentOverride(hash);
+    override = FindContentOverride(hash, size);
     if (override) {
       std::uint32_t capeW = 0, capeH = 0;
       if (CapeEdge(format, data, size, &capeW, &capeH) != 0) {
@@ -565,7 +572,8 @@ void SetContentSubstitution(const std::uint8_t *sourceBytes, std::size_t sourceS
     return;
   }
   const std::size_t bytes = static_cast<std::size_t>(width) * height * 4U;
-  g_subRegistry.set(hash, std::vector<std::uint8_t>(rgba, rgba + bytes), width, height);
+  g_subRegistry.set(hash, sourceSize, std::vector<std::uint8_t>(rgba, rgba + bytes), width,
+                    height);
 }
 
 void ClearContentSubstitutions() { g_subRegistry.clear(); }

@@ -20,6 +20,12 @@
  * lookup is a binary search with no allocation (an earlier shape used a hash map plus a second map
  * for metadata, which is two lookups and two rehash opportunities on the hot path).
  *
+ * Each entry also records the **source byte count** it was registered from (item 370). Hashing the
+ * incoming buffer is the only real cost on the loader path, and a candidate can only match bytes
+ * that are the same length; the registry therefore offers `hasSourceSize()` so the detour can skip
+ * the hash entirely when nothing was registered at that size. That is the common case - the engine
+ * loads hundreds of textures per session and at most a couple have overrides.
+ *
  * `std::atomic<std::shared_ptr<T>>` is not implemented in the NDK's libc++, so the C++20-deprecated
  * `atomic_load`/`atomic_store` free functions are used; their deprecation is suppressed here once.
  */
@@ -68,10 +74,14 @@ public:
   /**
    * @brief Adds or replaces the override for a key.
    *
+   * @param key        the content hash of the source bytes the override replaces.
+   * @param sourceSize the byte count of those source bytes; a lookup only matches an entry whose
+   *                   recorded size equals the incoming buffer's size (item 370).
+   *
    * A zero-size image removes the entry, matching the "clear on empty" contract callers expect.
    */
-  void set(std::uint64_t key, std::vector<std::uint8_t> pixels, std::uint32_t width,
-           std::uint32_t height) {
+  void set(std::uint64_t key, std::size_t sourceSize, std::vector<std::uint8_t> pixels,
+           std::uint32_t width, std::uint32_t height) {
     if (pixels.empty() || width == 0 || height == 0) {
       remove(key);
       return;
@@ -86,9 +96,10 @@ public:
         next->begin(), next->end(), key,
         [](const Entry &entry, std::uint64_t value) { return entry.key < value; });
     if (it != next->end() && it->key == key) {
+      it->sourceSize = sourceSize;
       it->image = std::move(image);
     } else {
-      next->insert(it, Entry{key, std::move(image)});
+      next->insert(it, Entry{key, sourceSize, std::move(image)});
     }
     std::atomic_store(&mEntries, std::shared_ptr<const std::vector<Entry>>(std::move(next)));
   }
@@ -115,17 +126,38 @@ public:
   std::size_t size() const { return std::atomic_load(&mEntries)->size(); }
 
   /**
+   * @brief Whether any entry was registered from a source buffer of this byte count.
+   *
+   * The detour calls this before hashing: a candidate can only match bytes of the same length, so
+   * when no entry shares the incoming size the hash (a full pass over the buffer) is skipped
+   * entirely (item 370). The list holds a handful of entries, so the linear scan is cheaper than
+   * the hash it avoids.
+   */
+  bool hasSourceSize(std::size_t sourceSize) const {
+    const auto snapshot = std::atomic_load(&mEntries);
+    for (const Entry &entry : *snapshot) {
+      if (entry.sourceSize == sourceSize) return true;
+    }
+    return false;
+  }
+
+  /**
    * @brief The override for a key, or null when none.
+   *
+   * @param key        the content hash of the incoming bytes.
+   * @param sourceSize the incoming buffer's byte count; an entry recorded from a different size is
+   *                   not a match, so a hash collision across sizes cannot substitute the wrong
+   *                   image (item 370).
    *
    * The returned pointer owns the pixels, so the caller may keep it across an engine call that
    * happens after this lookup returns.
    */
-  ImagePtr find(std::uint64_t key) const {
+  ImagePtr find(std::uint64_t key, std::size_t sourceSize) const {
     const auto snapshot = std::atomic_load(&mEntries);
     const auto it = std::lower_bound(
         snapshot->begin(), snapshot->end(), key,
         [](const Entry &entry, std::uint64_t value) { return entry.key < value; });
-    if (it == snapshot->end() || it->key != key) {
+    if (it == snapshot->end() || it->key != key || it->sourceSize != sourceSize) {
       return nullptr;
     }
     return it->image;
@@ -134,6 +166,7 @@ public:
 private:
   struct Entry {
     std::uint64_t key = 0;
+    std::size_t sourceSize = 0;
     ImagePtr image;
   };
 

@@ -339,6 +339,10 @@ void InitMceImageHook();
  * `(sourceBytes -> replacementRgba)` means "whenever the engine loads these exact bytes, build the
  * image from this RGBA instead". The engine loads the same source texture bytes on every load, so
  * the hash is stable. The pixels are copied; a zero-size replacement clears the entry.
+ *
+ * The source byte count is recorded with the hash (item 370) and the lookup requires both to match,
+ * so the detour can skip hashing a buffer no entry was registered at that size for, and a hash
+ * collision across two different sizes cannot substitute the wrong image.
  */
 void SetContentSubstitution(const std::uint8_t *sourceBytes, std::size_t sourceSize,
                             const std::uint8_t *rgba, std::uint32_t width, std::uint32_t height);
