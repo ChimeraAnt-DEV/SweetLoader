@@ -187,6 +187,13 @@ compile_run OptifineConfigBoundsTest \
   "$root/src/pl/runtime/OptifineConfig.cpp" \
   "$here/OptifineConfigBoundsTest.cpp"
 
+# The dynamic-render-distance hysteresis rule (items 382, 383). The governor is a header + one
+# translation unit with no Android dependency, so the step, dwell and change-count rules are
+# exercised on the host.
+compile_run RenderDistanceGovernorTest \
+  "$root/src/pl/runtime/optifine/OptifineGovernor.cpp" \
+  "$here/RenderDistanceGovernorTest.cpp"
+
 compile_run SkinSeamObservationTest \
   "$here/SkinSeamObservationTest.cpp"
 

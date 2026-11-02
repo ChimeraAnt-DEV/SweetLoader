@@ -44,8 +44,11 @@ struct Registrar {
       MarkOptifineSkipped(state, "waiting for a frame-rate reading");
       return;
     }
+    // Item 383: the detail carries the current distance and how many times the governor has
+    // moved it, so the Settings row reports each change rather than only the latest value.
     MarkOptifineActive(state, "render distance governor: " +
-                                  std::to_string(gLastDistance) + " chunks");
+                                  std::to_string(gLastDistance) + " chunks, " +
+                                  std::to_string(gState.changeCount) + " changes");
   }
 };
 Registrar gRegistrar;
@@ -60,13 +63,22 @@ int SampleOptifineRenderDistance(int fps, long long nowMs) {
   return gLastDistance;
 }
 
-/** @brief Configures the governor bounds from the launcher's sub-option values. */
-void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsThreshold) {
+/** @brief Configures the governor bounds and step rule from the launcher's sub-option values. */
+void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsThreshold,
+                                     int stepSize, long long minDwellMs) {
   std::lock_guard<std::mutex> lock(gMutex);
   gConfig.minDistance = minDistance;
   gConfig.maxDistance = maxDistance;
   gConfig.fpsThreshold = fpsThreshold;
+  gConfig.stepSize = stepSize;
+  gConfig.minDwellMs = minDwellMs;
   gState = RenderDistanceState{};
+}
+
+/** @brief The number of accepted render-distance changes so far (item 383). */
+int RenderDistanceChangeCount() {
+  std::lock_guard<std::mutex> lock(gMutex);
+  return gState.changeCount;
 }
 
 } // namespace pl::runtime

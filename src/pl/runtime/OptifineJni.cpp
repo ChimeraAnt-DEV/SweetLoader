@@ -94,12 +94,23 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetOptifineRefreshTarge
 
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeConfigureRenderDistance(
-    JNIEnv *env, jclass clazz, jint minDistance, jint maxDistance, jint fpsThreshold) {
+    JNIEnv *env, jclass clazz, jint minDistance, jint maxDistance, jint fpsThreshold,
+    jint stepSize, jlong minDwellMs) {
   (void)env;
   (void)clazz;
   pl::runtime::ConfigureOptifineRenderDistance(static_cast<int>(minDistance),
                                                static_cast<int>(maxDistance),
-                                               static_cast<int>(fpsThreshold));
+                                               static_cast<int>(fpsThreshold),
+                                               static_cast<int>(stepSize),
+                                               static_cast<long long>(minDwellMs));
+}
+
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeRenderDistanceChangeCount(
+    JNIEnv *env, jclass clazz) {
+  (void)env;
+  (void)clazz;
+  return static_cast<jint>(pl::runtime::RenderDistanceChangeCount());
 }
 
 JNIEXPORT jlong JNICALL

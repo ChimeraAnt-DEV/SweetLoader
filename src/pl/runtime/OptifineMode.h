@@ -141,8 +141,25 @@ std::string AppliedOptifineItemsBlob();
 /** @brief Records the refresh rate the launcher requested (Tier-1 refresh item). */
 void SetOptifineRefreshRateTarget(int hz);
 
-/** @brief Configures the dynamic-render-distance governor bounds. */
-void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsThreshold);
+/**
+ * @brief Configures the dynamic-render-distance governor bounds and step rule.
+ *
+ * @param minDistance   never step below this many chunks.
+ * @param maxDistance   start here and never step above it.
+ * @param fpsThreshold  step down while the frame rate sits below this.
+ * @param stepSize      chunks moved per accepted change (>= 1).
+ * @param minDwellMs    minimum ms between two changes (0 disables the dwell).
+ */
+void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsThreshold,
+                                     int stepSize, long long minDwellMs);
+
+/**
+ * @brief The number of accepted render-distance changes so far (item 383).
+ *
+ * The launcher polls this; an increase since the last poll means the governor moved the distance,
+ * which is what the HUD reports. Zero before any sample.
+ */
+int RenderDistanceChangeCount();
 
 /** @brief The tick count observed by the callback-trimming hook (0 when not installed). */
 std::uint64_t OptifineTickCount();
