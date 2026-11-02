@@ -224,6 +224,11 @@ compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"
 
+# The per-mod fault-isolation rule (item 446). Pure header, no source file of its own.
+compile_run ModFaultPolicyTest \
+  -I"$root/src" \
+  "$here/ModFaultPolicyTest.cpp"
+
 # The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
 # central directory); `zlib_link` above resolves it for the host.
 compile_run AntEggManifestTest \

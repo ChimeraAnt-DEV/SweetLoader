@@ -14,6 +14,11 @@ std::unordered_map<std::string, LoadedModEntry> gLoadedModLibraries;
 std::vector<std::string> gLoadedModOrder;
 } // namespace
 
+ModFaultTracker &modFaultTracker() {
+  static ModFaultTracker tracker;
+  return tracker;
+}
+
 bool isModAlreadyRegistered(const std::string &normalizedLibraryPath) {
   std::lock_guard<std::mutex> lock(gLoadedModsMutex);
   const auto it = gLoadedModLibraries.find(normalizedLibraryPath);
