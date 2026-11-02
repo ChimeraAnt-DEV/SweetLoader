@@ -24,6 +24,9 @@
  * <b>Threading.</b> {@link RegisterRenderCallback} may be called from any thread (typically a mod's
  * `load`/`enable`). The callback itself always runs on the render thread, once per rendered frame,
  * so it must be fast and must not block or allocate unboundedly.
+ *
+ * The registry publishes an immutable callback list that the render thread reads with one atomic
+ * load (item 375), so registration never blocks a frame and a frame never blocks a registration.
  */
 
 #include <cstdint>
