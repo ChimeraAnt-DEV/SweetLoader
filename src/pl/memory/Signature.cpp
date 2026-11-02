@@ -46,7 +46,6 @@ struct ModuleInfo {
   uintptr_t base = 0;
   /** The ELF build id, or empty when it could not be read. Changes on every relink. */
   std::string buildId;
-  void *handle = nullptr;
 };
 
 struct CompiledPattern {
@@ -143,11 +142,27 @@ bool getModuleInfo(const std::string &name, ModuleInfo &out) {
     ReadElfBuildId(header.data(), headerRead, out.buildId);
   }
 
-  // `RTLD_NOLOAD` only: a signature lookup must never load a library as a side effect. Without a
-  // handle the module is still scanned by byte pattern, so the handle is an optimisation (dlsym of
-  // an exported name) rather than a requirement.
-  out.handle = dlopen(name.c_str(), RTLD_LAZY | RTLD_NOLOAD);
   return true;
+}
+
+// Looks a signature up as an exported symbol, for the case where a rule names one.
+//
+// The handle is opened with `RTLD_NOLOAD` only, so a lookup can never load a library as a side
+// effect, and it is closed immediately: the previous version kept the handle in the cached module
+// record, so every module the resolver touched leaked a reference for the life of the process and
+// nothing ever released it. The symbol address stays valid after the close because the library was
+// already loaded by someone else — closing only drops the reference this call added. A failed open
+// is not an error: the module is still scanned by byte pattern.
+void *ResolveExportedSymbol(std::string_view moduleName, std::string_view signature) {
+  // Both are NUL-terminated for the duration of this call: a module name and a signature come from
+  // the rules as ordinary strings, and `dlopen`/`dlsym` only read them synchronously.
+  const std::string module(moduleName);
+  const std::string symbolName(signature);
+  void *handle = dlopen(module.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+  if (handle == nullptr) return nullptr;
+  void *symbol = dlsym(handle, symbolName.c_str());
+  dlclose(handle);
+  return symbol;
 }
 
 // The module cache. A cached entry is re-validated by probing that its regions are still mapped, so
@@ -461,11 +476,9 @@ resolveSignatures(std::span<const std::string> signatures,
     std::vector<std::string> patterns;
     patterns.reserve(pending.size());
     for (const auto &signature : pending) {
-      if (module.handle) {
-        if (void *symbol = dlsym(module.handle, signature.c_str())) {
-          results[signature] = reinterpret_cast<uintptr_t>(symbol);
-          continue;
-        }
+      if (void *symbol = ResolveExportedSymbol(moduleName, signature)) {
+        results[signature] = reinterpret_cast<uintptr_t>(symbol);
+        continue;
       }
       patterns.push_back(signature);
     }
