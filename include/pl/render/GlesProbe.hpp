@@ -16,8 +16,10 @@
  */
 
 #include <cstdint>
+#include <string>
 
 #include "pl/Export.hpp"
+#include "pl/render/GpuFamily.hpp"
 
 namespace pl::render {
 
@@ -45,6 +47,7 @@ using GLfloat = float;
  */
 struct GlesFunctions {
   void *GetError = nullptr;
+  void *GetString = nullptr;
   void *GetIntegerv = nullptr;
   void *Enable = nullptr;
   void *Disable = nullptr;
@@ -106,6 +109,39 @@ PL_EXPORT bool IsEglContextCurrent();
 
 /** @brief The GL backend classification, for the diagnostics report. */
 PL_EXPORT GlBackend GlesBackend();
+
+/**
+ * @brief The device GPU's vendor and renderer strings, read once and cached.
+ *
+ * The GLES spec guarantees both are available through `glGetString` while a context is current, and
+ * they never change for a process, so they are read once and kept. An empty string means the read
+ * did not happen (no context, or no GLES table), never a fabricated value.
+ */
+struct GpuStrings {
+  std::string vendor;
+  std::string renderer;
+  /** True when at least one of the two was actually read from the driver. */
+  bool read = false;
+};
+
+/**
+ * @brief The cached vendor/renderer strings, reading them on the first call that has a context.
+ *
+ * Reading them needs a current GLES context, so a call before the surface is up returns what it has
+ * (possibly empty) and a later call retries; once read, the values are kept for the process.
+ */
+PL_EXPORT GpuStrings ReadGpuStrings();
+
+/**
+ * @brief The classified GPU family from the cached strings (item 376).
+ *
+ * Falls back to {@link GpuFamily::Unknown} when the strings have not been read, so a caller never
+ * gets a family derived from nothing.
+ */
+PL_EXPORT GpuFamily GpuFamilyOf();
+
+/** @brief A stable lower-case name for the classified GPU family, for a report field. */
+PL_EXPORT const char *GpuFamilyName();
 
 /** @brief The last GLES error code observed, or 0 when clean. */
 PL_EXPORT int LastGlesError();

@@ -123,6 +123,9 @@ compile_run CallbackSnapshotTest \
 compile_run OnceReportTest \
   "$here/OnceReportTest.cpp"
 
+compile_run GpuFamilyTest \
+  "$here/GpuFamilyTest.cpp"
+
 # The image-override stores are a pure header too.
 compile_run ImageOverrideRegistryTest \
   "$here/ImageOverrideRegistryTest.cpp"

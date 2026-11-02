@@ -337,10 +337,11 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeRequestTextureCacheFlus
 
 JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(JNIEnv *env, jclass) {
-  // 17 fields. The first 9 keep their original meaning so an older report reader still works; the
+  // 18 fields. The first 9 keep their original meaning so an older report reader still works; the
   // additions (indices 9..16) are the rules/install/camera/library-mapping/triangle state the
-  // Stage-1/4/5/6 fixes added. -1 means "unknown / not available".
-  constexpr int kFields = 17;
+  // Stage-1/4/5/6 fixes added, and index 17 is the classified GPU family (item 376). -1 means
+  // "unknown / not available".
+  constexpr int kFields = 18;
   jint values[kFields];
   for (int i = 0; i < kFields; ++i) values[i] = -1;
 
@@ -393,6 +394,15 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
 
   // Index 16 used to carry the GLES rasteriser's triangle count; retired with the rasteriser.
   values[16] = -1;
+
+  // The classified GPU family (item 376), from the vendor/renderer strings read once at the first
+  // call with a GLES context. -1 when the strings have not been read yet.
+  {
+    const pl::render::GpuStrings strings = pl::render::ReadGpuStrings();
+    values[17] = strings.read
+                     ? static_cast<jint>(pl::render::ClassifyGpuFamily(strings.vendor, strings.renderer))
+                     : -1;
+  }
 
   jintArray out = env->NewIntArray(kFields);
   if (out == nullptr) return nullptr;
@@ -465,6 +475,18 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadLocalPlayerFeed(JNI
 JNIEXPORT jint JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeCameraAnchorSource(JNIEnv *, jclass) {
   return pl::cosmetics::LastCameraAnchorFromEngine() ? 1 : 0;
+}
+
+// The classified GPU family (item 376): 0 unknown, 1 Adreno, 2 Mali, 3 Immortalis, 4 PowerVR,
+// 5 Xclipse, 6 NVIDIA, 7 Apple, 8 Software, 9 Generic; -1 when the vendor/renderer strings have not
+// been read yet. This is a plain int accessor rather than a field of the diagnostics array so the
+// client can consult it on a path (choosing a preview quality) that should not allocate the whole
+// 18-field array.
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeGpuFamily(JNIEnv *, jclass) {
+  const pl::render::GpuStrings strings = pl::render::ReadGpuStrings();
+  if (!strings.read) return -1;
+  return static_cast<jint>(pl::render::ClassifyGpuFamily(strings.vendor, strings.renderer));
 }
 
 

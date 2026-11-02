@@ -10,6 +10,8 @@
 #include "pl/render/GlesProbe.hpp"
 
 #include <atomic>
+#include <mutex>
+#include <string>
 
 #include <dlfcn.h>
 
@@ -36,6 +38,24 @@ void *GlesSymbol(void *handle, const char *name) {
 /// Set when {@link LastGlesError} is called, so a clean run reads 0 without touching GL.
 std::atomic<int> g_lastGlesError{0};
 
+// The vendor/renderer strings never change for a process, so they are read once (item 376) and the
+// classification is derived from the cached copy. A mutex guards the one-time read; every later
+// caller takes the fast path (a relaxed load of `g_gpuStringsRead`) and pays nothing.
+std::mutex g_gpuStringsMutex;
+GpuStrings g_gpuStrings;
+std::atomic<bool> g_gpuStringsRead{false};
+std::atomic<int> g_gpuFamily{-1};
+
+/// Reads a GL string into a std::string, or returns empty when the pointer is null.
+std::string ReadGlString(void *fn, GLenum name) {
+  if (fn == nullptr) return {};
+  using GetStringFn = const unsigned char *(*)(GLenum);
+  const auto getString = reinterpret_cast<GetStringFn>(fn);
+  const unsigned char *value = getString(name);
+  if (value == nullptr) return {};
+  return std::string(reinterpret_cast<const char *>(value));
+}
+
 } // namespace
 
 bool GlesFunctions::usable() const {
@@ -58,6 +78,7 @@ GlesFunctions ResolveGles() {
 #define LOAD(name, member) \
   g_gles.member = reinterpret_cast<decltype(g_gles.member)>(GlesSymbol(handle, name))
   LOAD("glGetError", GetError);
+  LOAD("glGetString", GetString);
   LOAD("glGetIntegerv", GetIntegerv);
   LOAD("glEnable", Enable);
   LOAD("glDisable", Disable);
@@ -132,5 +153,47 @@ GlBackend GlesBackend() {
 int LastGlesError() {
   return g_lastGlesError.load(std::memory_order_relaxed);
 }
+
+GpuStrings ReadGpuStrings() {
+  // Fast path: already read, so no lock and no GL call.
+  if (g_gpuStringsRead.load(std::memory_order_acquire)) return g_gpuStrings;
+
+  // Reading needs a current context. Resolve the table first (the caller may not have).
+  const GlesFunctions gles = ResolveGles();
+  if (gles.GetString == nullptr) return g_gpuStrings;
+
+  std::lock_guard<std::mutex> lock(g_gpuStringsMutex);
+  if (g_gpuStringsRead.load(std::memory_order_relaxed)) return g_gpuStrings;
+
+  // GL_VENDOR 0x1F00, GL_RENDERER 0x1F01.
+  const std::string vendor = ReadGlString(gles.GetString, 0x1F00U);
+  const std::string renderer = ReadGlString(gles.GetString, 0x1F01U);
+  if (vendor.empty() && renderer.empty()) {
+    // No context yet: leave it unread so a later call retries rather than caching an empty answer.
+    return g_gpuStrings;
+  }
+  g_gpuStrings.vendor = vendor;
+  g_gpuStrings.renderer = renderer;
+  g_gpuStrings.read = true;
+  g_gpuFamily.store(static_cast<int>(ClassifyGpuFamily(vendor, renderer)), std::memory_order_relaxed);
+  g_gpuStringsRead.store(true, std::memory_order_release);
+
+  const auto family = static_cast<GpuFamily>(g_gpuFamily.load(std::memory_order_relaxed));
+  preloaderLogger.info("GLES probe: GPU vendor '{}', renderer '{}' -> family {}",
+                       g_gpuStrings.vendor, g_gpuStrings.renderer, GpuFamilyName(family));
+  return g_gpuStrings;
+}
+
+GpuFamily GpuFamilyOf() {
+  // Ensure the strings have been read (or attempted); then answer from the cached classification.
+  if (!g_gpuStringsRead.load(std::memory_order_acquire)) {
+    ReadGpuStrings();
+  }
+  const int family = g_gpuFamily.load(std::memory_order_relaxed);
+  if (family < 0) return GpuFamily::Unknown;
+  return static_cast<GpuFamily>(family);
+}
+
+const char *GpuFamilyName() { return pl::render::GpuFamilyName(GpuFamilyOf()); }
 
 } // namespace pl::render
