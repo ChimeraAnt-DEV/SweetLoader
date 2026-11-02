@@ -116,8 +116,9 @@ void CallActivityVoidMethod(const char *methodName) {
       env->CallVoidMethod(g_activity, mid);
     }
   }
-  // The scope's destructor clears the local frame and detaches if it attached; an exception is
-  // cleared before the frame pop so a pending throwable cannot make PopLocalFrame abort.
+  // The scope's destructor pops the local frame (the thread's attachment outlives it, item 364); an
+  // exception is cleared before the frame pop so a pending throwable cannot make PopLocalFrame
+  // abort.
   if (env->ExceptionCheck()) {
     env->ExceptionClear();
   }
@@ -327,7 +328,7 @@ pl::platform::HttpResponse HttpGetImpl(std::string_view url, int timeoutMs) {
     env->CallVoidMethod(connection, disconnect);
     if (env->ExceptionCheck()) env->ExceptionClear();
   }
-  // The scope pops the local frame and detaches if it attached; nothing to do here.
+  // The scope pops the local frame; the thread's attachment outlives it (item 364).
   return result;
 }
 
