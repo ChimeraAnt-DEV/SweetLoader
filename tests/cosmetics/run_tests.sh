@@ -128,6 +128,11 @@ compile_run ImageOverrideRegistryTest \
 compile_run EngineAllocatorTest \
   "$here/EngineAllocatorTest.cpp"
 
+# The signature pattern parser and anchor selection are pure: it decides which bytes a scan searches
+# for, so it is exercised here with wildcards at either end, a fully wild pattern and malformed input.
+compile_run SignaturePatternTest \
+  "$here/SignaturePatternTest.cpp"
+
 # The maps-line parser and basename match are pure too.
 compile_run ModulePathMatchTest \
   "$here/ModulePathMatchTest.cpp" \
