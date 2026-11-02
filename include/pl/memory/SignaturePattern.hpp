@@ -144,6 +144,60 @@ inline bool PatternMatches(PatternByte pattern, std::uint8_t value) {
   return (value & pattern.mask) == pattern.value;
 }
 
+/**
+ * @brief True when `pattern` matches `data` starting exactly at `candidateOffset`.
+ *
+ * The single definition of "this signature is here": the anchor run is compared first (it is what
+ * the scan searched for) and then every masked byte outside the anchor. Keeping it here rather than
+ * beside the `/proc` walk is what makes an overlapping-hit case - two matches at offsets one byte
+ * apart - something a host test can pin, which is the shape a short signature produces in a real
+ * module and the one that used to have no coverage at all.
+ *
+ * @param size the number of readable bytes at `data`; a candidate whose pattern would run past it
+ *             is not a match, so a truncated buffer can never read out of bounds
+ */
+inline bool PatternMatchesAt(const std::uint8_t *data, std::size_t size,
+                             std::size_t candidateOffset, const SignaturePattern &pattern) {
+  if (data == nullptr || !pattern.valid()) return false;
+  if (candidateOffset > size) return false;
+  if (pattern.bytes.size() > size - candidateOffset) return false;
+
+  const std::uint8_t *at = data + candidateOffset;
+  for (std::size_t i = 0; i < pattern.anchorSize; ++i) {
+    if (!PatternMatches(pattern.bytes[pattern.anchorIndex + i],
+                        at[pattern.anchorIndex + i])) {
+      return false;
+    }
+  }
+  for (const std::size_t index : pattern.checkIndices) {
+    if (index >= pattern.anchorIndex &&
+        index < pattern.anchorIndex + pattern.anchorSize) {
+      continue;
+    }
+    if (!PatternMatches(pattern.bytes[index], at[index])) return false;
+  }
+  return true;
+}
+
+/**
+ * @brief Every offset in `data` where `pattern` matches, in ascending order.
+ *
+ * Consecutive matches may overlap: the scan advances one byte at a time, so `aa aa` in `aa aa aa`
+ * is two hits, not one. The list is what a scan over a buffer produces, so a test can assert on
+ * the whole result rather than on a single first hit.
+ */
+inline std::vector<std::size_t> FindAllPatternMatches(const std::uint8_t *data,
+                                                      std::size_t size,
+                                                      const SignaturePattern &pattern) {
+  std::vector<std::size_t> hits;
+  if (data == nullptr || !pattern.valid() || pattern.bytes.size() > size) return hits;
+  const std::size_t last = size - pattern.bytes.size();
+  for (std::size_t offset = 0; offset <= last; ++offset) {
+    if (PatternMatchesAt(data, size, offset, pattern)) hits.push_back(offset);
+  }
+  return hits;
+}
+
 /** True when the byte must match exactly, with no wildcard bits. */
 inline bool IsExactByte(PatternByte byte) { return byte.mask == 0xFF; }
 

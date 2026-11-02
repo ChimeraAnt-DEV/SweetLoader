@@ -338,28 +338,10 @@ ParsedPattern getCachedPattern(const std::string &signature) {
   return inserted ? pattern : it->second;
 }
 
-bool matchesPatternAt(const uint8_t *data, const ParsedPattern &pattern) {
-  for (const size_t index : pattern.checkIndices) {
-    if (index >= pattern.anchorIndex &&
-        index < pattern.anchorIndex + pattern.anchorSize) {
-      continue;
-    }
-    if (!matches(pattern.bytes[index], data[index])) return false;
-  }
-  return true;
-}
-
-bool matchesAnchorAt(const uint8_t *data, size_t regionSize,
-                     size_t anchorOffset, const ParsedPattern &pattern) {
-  if (anchorOffset + pattern.anchorSize > regionSize) return false;
-  for (size_t i = 0; i < pattern.anchorSize; ++i) {
-    if (!matches(pattern.bytes[pattern.anchorIndex + i],
-                 data[anchorOffset + i])) {
-      return false;
-    }
-  }
-  return true;
-}
+// The full "does the signature match here" check lives in SignaturePattern.hpp
+// (PatternMatchesAt), so the scan and the host test agree on one definition and an overlapping-hit
+// case can be pinned without a live process. `matches` remains for the single-byte masked-anchor
+// probe below, which must not build a pattern.
 
 std::vector<CompiledPattern>
 compilePatterns(const std::vector<std::string> &signatures,
@@ -487,14 +469,10 @@ void scanCompiledPatterns(const std::vector<MemoryRegion> &regions,
                       size_t anchorOffset, size_t patternIndex) {
     if (!active[patternIndex]) return;
     const auto &pattern = patterns[patternIndex].pattern;
-    if (bufferSize < pattern.bytes.size() || anchorOffset < pattern.anchorIndex ||
-        !matchesAnchorAt(data, bufferSize, anchorOffset, pattern)) {
-      return;
-    }
+    if (anchorOffset < pattern.anchorIndex) return;
 
     const size_t candidateOffset = anchorOffset - pattern.anchorIndex;
-    if (candidateOffset > bufferSize - pattern.bytes.size() ||
-        !matchesPatternAt(data + candidateOffset, pattern)) {
+    if (!pl::memory::PatternMatchesAt(data, bufferSize, candidateOffset, pattern)) {
       return;
     }
 
