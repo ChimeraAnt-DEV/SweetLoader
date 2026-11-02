@@ -2,6 +2,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 
@@ -34,6 +35,10 @@ struct HookElement {
   FuncPtr *originalFunc{};
   int priority{};
   int id{};
+  // The diagnostic label each detour was installed with. Two mods hooking the same address is legal
+  // (the backend chains) but is worth naming: without the labels the chain log says only that
+  // *something* was already there (item 448).
+  std::string name;
 
   bool operator<(const HookElement &o) const noexcept {
     if (priority != o.priority) {
@@ -136,11 +141,19 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
 
   if (it != map.end()) {
     auto h = it->second;
+    std::string existing;
+    for (const auto &element : h->chain) {
+      if (!existing.empty()) existing.append(", ");
+      existing.append(element.name.empty() ? "<unnamed>" : element.name);
+    }
     h->chain.insert(
-        {detour, original, static_cast<int>(priority), h->nextId()});
+        {detour, original, static_cast<int>(priority), h->nextId(),
+         std::string(name)});
     h->rebuildChain();
-    preloaderLogger.info("hook({}): chained onto existing target {} (original {})",
-                         name, target, h->origin);
+    // Item 448: warn with both names, because "two mods hook the same address" is a real conflict
+    // the user needs to be able to attribute.
+    preloaderLogger.warn("hook({}): target {} already hooked by [{}]; chaining (original {})",
+                         name, target, existing.empty() ? "<unnamed>" : existing, h->origin);
     return 0;
   }
 
@@ -175,7 +188,8 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
       "hook({}): installed, target {} original {} detour {} (region {})", name,
       target, h->origin, detour, queryMemoryRegion(reinterpret_cast<uintptr_t>(target)).describe());
 
-  h->chain.insert({detour, original, static_cast<int>(priority), h->nextId()});
+  h->chain.insert({detour, original, static_cast<int>(priority), h->nextId(),
+                   std::string(name)});
   h->rebuildChain();
   map[target] = h;
   return 0;
@@ -184,6 +198,16 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
 std::size_t hookCount() {
   std::lock_guard<std::mutex> lock(mtx);
   return hooks().size();
+}
+
+std::size_t unhookAll() {
+  std::lock_guard<std::mutex> lock(mtx);
+  auto &map = hooks();
+  const std::size_t removed = map.size();
+  // Dropping the last reference to each HookData runs its destructor, which calls GlossHookDelete
+  // and restores the original bytes at the target.
+  map.clear();
+  return removed;
 }
 
 bool unhook(FuncPtr target, FuncPtr detour) {

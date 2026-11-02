@@ -158,6 +158,21 @@ namespace {
         std::memcpy(reinterpret_cast<void *>(addr), bytes.data(), bytes.size());
         __builtin___clear_cache(reinterpret_cast<char *>(getPageStart(addr)),
                                 reinterpret_cast<char *>(addr + bytes.size()));
+
+        // Item 450: read the bytes back and confirm the write landed before recording the patch.
+        // A patch that silently did not take (a wrong signature hit, a read-only mapping the kernel
+        // ignored) would leave the game running unpatched while the caller believed it succeeded, and
+        // a partially written instruction is worse than none. On mismatch the original bytes are
+        // restored so the target is never left half-patched, and the caller sees the failure.
+        const std::vector<uint8_t> written = readBytesImpl(addr, bytes.size());
+        if (written.size() != bytes.size() ||
+            !std::equal(written.begin(), written.end(), bytes.begin())) {
+            std::memcpy(reinterpret_cast<void *>(addr), original.data(), original.size());
+            __builtin___clear_cache(reinterpret_cast<char *>(getPageStart(addr)),
+                                    reinterpret_cast<char *>(addr + original.size()));
+            return false;
+        }
+
         patches[name] = PatchInfo{addr, original};
         return true;
     }
