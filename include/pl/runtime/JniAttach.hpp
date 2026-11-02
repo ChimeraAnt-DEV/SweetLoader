@@ -55,4 +55,46 @@ constexpr bool CanUseEnv(AttachAction action) {
     return action != AttachAction::Unavailable;
 }
 
+/**
+ * @brief The lifetime rule for one thread's JVM attachment (item 364).
+ *
+ * <p>The decision above says what to do on a *call*. This says what to remember between calls: the
+ * attachment is resolved once per thread and kept for the thread's whole life, so a thread that
+ * calls back into Java repeatedly attaches once instead of once per call, and the detach happens
+ * when the thread exits rather than at the end of every call.
+ *
+ * <p>Two invariants are easy to get wrong and are pinned by {@code JniAttachTest}: a thread we
+ * attached must be detached exactly once (at thread exit), and a thread that was already attached
+ * when we first saw it — the UI thread — must never be detached by us.
+ */
+class ThreadAttachmentLifetime {
+public:
+    /**
+     * @brief Records the outcome of the first resolution on this thread.
+     *
+     * @param action what {@link DecideAttach} returned for this thread
+     * @return true when the caller must perform the attach (once), false otherwise
+     */
+    bool resolve(AttachAction action) {
+        mResolved = true;
+        mAttachedByUs = OwnsAttachment(action);
+        mUsable = CanUseEnv(action);
+        return mAttachedByUs;
+    }
+
+    /** True once {@link #resolve} has run for this thread; later calls must reuse the answer. */
+    bool resolved() const { return mResolved; }
+
+    /** True when the env may be used on this thread. */
+    bool usable() const { return mUsable; }
+
+    /** True when the thread exits must detach: only when we attached it. */
+    bool mustDetachOnThreadExit() const { return mAttachedByUs; }
+
+private:
+    bool mResolved = false;
+    bool mAttachedByUs = false;
+    bool mUsable = false;
+};
+
 } // namespace pl::jni

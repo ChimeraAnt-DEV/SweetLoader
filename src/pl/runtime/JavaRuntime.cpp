@@ -1,4 +1,5 @@
 #include "pl/runtime/JavaRuntime.h"
+#include "pl/runtime/JniAttach.hpp"
 #include "pl/runtime/SafeJni.hpp"
 #include "pl/Platform.hpp"
 #include <algorithm>
@@ -10,6 +11,51 @@ namespace {
 JavaVM *g_vm = nullptr;
 jobject g_activity = nullptr;
 
+// One attachment per native thread, kept for the thread's whole life (item 364).
+//
+// A native thread that calls back into Java repeatedly (the cosmetics receive loop, a mod's worker)
+// used to attach on every call and detach at the end of it, so each call paid an Attach/Detach pair.
+// The attachment is now held in a `thread_local` whose destructor detaches when the thread exits.
+// The JNI spec allows a thread to stay attached for as long as it likes; detaching per call is what
+// is unnecessary. A thread that was already attached when we first saw it (the UI thread) is marked
+// as not ours, so the destructor never detaches a thread we did not attach.
+struct ThreadAttachment {
+  JNIEnv *env = nullptr;
+  pl::jni::ThreadAttachmentLifetime lifetime;
+
+  ~ThreadAttachment() {
+    if (lifetime.mustDetachOnThreadExit() && g_vm != nullptr) {
+      g_vm->DetachCurrentThread();
+    }
+  }
+};
+
+thread_local ThreadAttachment t_attachment;
+
+// Resolves this thread's env once. Returns nullptr when the thread cannot be attached.
+JNIEnv *AcquireThreadEnv() {
+  // No VM yet: do not resolve, so a later SetJavaVm is still picked up by the next call.
+  if (!g_vm) return nullptr;
+  ThreadAttachment &attachment = t_attachment;
+  if (attachment.lifetime.resolved()) return attachment.env;
+
+  JNIEnv *env = nullptr;
+  const jint status = g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4);
+  const pl::jni::AttachAction action = pl::jni::DecideAttach(static_cast<int>(status), true);
+  // The lifetime rule (which thread owns the detach) is the pure, host-tested part; this is only
+  // the JNI call it decides on.
+  if (attachment.lifetime.resolve(action)) {
+#if defined(__ANDROID__)
+    if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+#else
+    if (g_vm->AttachCurrentThread(reinterpret_cast<void **>(&env), nullptr) != JNI_OK) return nullptr;
+#endif
+  }
+  if (!attachment.lifetime.usable()) return nullptr;
+  attachment.env = env;
+  return env;
+}
+
 } // namespace
 
 void SetJavaVm(JavaVM *vm) { g_vm = vm; }
@@ -17,19 +63,10 @@ void SetJavaVm(JavaVM *vm) { g_vm = vm; }
 JavaVM *GetJavaVm() { return g_vm; }
 
 ScopedJniEnv::ScopedJniEnv() {
-  if (!g_vm) return;
-  JNIEnv *env = nullptr;
-  const jint status = g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4);
-  const pl::jni::AttachAction action = pl::jni::DecideAttach(static_cast<int>(status), true);
-  if (!pl::jni::CanUseEnv(action)) return;
-  if (action == pl::jni::AttachAction::AttachAndDetach) {
-#if defined(__ANDROID__)
-    if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
-#else
-    if (g_vm->AttachCurrentThread(reinterpret_cast<void **>(&env), nullptr) != JNI_OK) return;
-#endif
-    ownsAttachment_ = true;
-  }
+  JNIEnv *env = AcquireThreadEnv();
+  if (env == nullptr) return;
+  // The thread owns its attachment now, not this scope: the scope only bounds the local reference
+  // table (see release()), so a thread that outlives it is never detached here.
   env_ = env;
   // Bound the local reference table for the duration. A long-running caller (a receive loop) that
   // never pushed a frame would otherwise accumulate references and eventually fail every call.
@@ -44,9 +81,9 @@ void ScopedJniEnv::release() {
   if (env_ != nullptr && framePushed_) {
     env_->PopLocalFrame(nullptr);
   }
-  if (ownsAttachment_ && g_vm != nullptr) {
-    g_vm->DetachCurrentThread();
-  }
+  // The thread's attachment is released by `ThreadAttachment`'s destructor at thread exit (item
+  // 364), never here: a scope must not detach a thread that other calls on the same thread will
+  // reuse.
 }
 
 ScopedJniEnv::~ScopedJniEnv() { release(); }

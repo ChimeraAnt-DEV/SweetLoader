@@ -53,6 +53,34 @@ int main() {
   expect(DecideAttach(-3, true) == AttachAction::Unavailable, "JNI_EVERSION -> unavailable");
   expect(!CanUseEnv(DecideAttach(-3, true)), "a version error env must not be used");
 
+  // --- The per-thread lifetime rule (item 364) -------------------------------------------------
+  // The attachment is resolved once per thread and kept; the detach happens at thread exit, and
+  // only for a thread we attached.
+  {
+    pl::jni::ThreadAttachmentLifetime lifetime;
+    expect(!lifetime.resolved(), "a fresh thread is unresolved");
+    // A detached thread: we attach it, so it must be detached at thread exit.
+    expect(lifetime.resolve(DecideAttach(-2, true)), "a detached thread must be attached by us");
+    expect(lifetime.resolved(), "resolving marks the thread resolved");
+    expect(lifetime.usable(), "an attached thread is usable");
+    expect(lifetime.mustDetachOnThreadExit(), "a thread we attached is ours to detach at exit");
+  }
+  {
+    pl::jni::ThreadAttachmentLifetime lifetime;
+    // The UI thread is already attached: usable, but never detached by us.
+    expect(!lifetime.resolve(DecideAttach(0, true)), "an already-attached thread is not attached again");
+    expect(lifetime.usable(), "an already-attached thread is usable");
+    expect(!lifetime.mustDetachOnThreadExit(),
+           "a thread we did not attach must never be detached at exit");
+  }
+  {
+    pl::jni::ThreadAttachmentLifetime lifetime;
+    // No VM: unusable, and there is nothing to detach.
+    expect(!lifetime.resolve(DecideAttach(-2, false)), "no VM means we do not attach");
+    expect(!lifetime.usable(), "no VM means the env is unusable");
+    expect(!lifetime.mustDetachOnThreadExit(), "no VM means nothing to detach");
+  }
+
   std::printf("JniAttachTest: %d checks passed\n", checks);
   return 0;
 }
