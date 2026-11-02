@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "pl/cosmetics/NativeRenderHook.hpp"
+#include "pl/memory/Hook.hpp"
 #include "pl/render/GlesProbe.hpp"
 #include "pl/runtime/GameCosmetics.h"
 #include "pl/runtime/GameHookRules.h"
@@ -337,11 +338,11 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeRequestTextureCacheFlus
 
 JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(JNIEnv *env, jclass) {
-  // 18 fields. The first 9 keep their original meaning so an older report reader still works; the
+  // 19 fields. The first 9 keep their original meaning so an older report reader still works; the
   // additions (indices 9..16) are the rules/install/camera/library-mapping/triangle state the
-  // Stage-1/4/5/6 fixes added, and index 17 is the classified GPU family (item 376). -1 means
-  // "unknown / not available".
-  constexpr int kFields = 18;
+  // Stage-1/4/5/6 fixes added, index 17 is the classified GPU family (item 376) and index 18 is the
+  // live hook count (item 396). -1 means "unknown / not available".
+  constexpr int kFields = 19;
   jint values[kFields];
   for (int i = 0; i < kFields; ++i) values[i] = -1;
 
@@ -403,6 +404,11 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
                      ? static_cast<jint>(pl::render::ClassifyGpuFamily(strings.vendor, strings.renderer))
                      : -1;
   }
+
+  // The number of distinct targets currently carrying a detour (item 396). The overlay hooks install
+  // through a std::call_once, so this proves the install happened once: a second init attempt must
+  // not raise it, and a zero after a successful install means something unhooked it.
+  values[18] = static_cast<jint>(pl::memory::hookCount());
 
   jintArray out = env->NewIntArray(kFields);
   if (out == nullptr) return nullptr;

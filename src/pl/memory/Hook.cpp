@@ -181,6 +181,11 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
   return 0;
 }
 
+std::size_t hookCount() {
+  std::lock_guard<std::mutex> lock(mtx);
+  return hooks().size();
+}
+
 bool unhook(FuncPtr target, FuncPtr detour) {
   std::lock_guard<std::mutex> lock(mtx);
   auto &map = hooks();
