@@ -150,6 +150,53 @@ int main() {
     expect(r.sampleCount == 1, "the next real frame is recorded");
   }
 
+  // Items 386/387: percentiles and hitches per minute over the long window.
+  {
+    FramePacingAnalyzer a;
+    long long t = 0;
+    // 100 steady 16.667ms frames, then 5 hitches of 50ms. The median stays ~16667us, so a 50ms
+    // frame is above twice the median and counts as a hitch.
+    for (int i = 0; i < 100; ++i) {
+      t += 16667;
+      a.onFrame(t, 60);
+    }
+    for (int i = 0; i < 5; ++i) {
+      t += 50000;
+      a.onFrame(t, 60);
+    }
+    FramePacingReading r = a.percentiles();
+    expect(r.p50Us == 16667, "p50 is the steady interval");
+    expect(r.p95Us >= r.p50Us, "p95 is at least the median");
+    expect(r.p99Us >= r.p95Us, "p99 is at least p95");
+    expect(r.p99Us == 50000, "the tail is the hitch interval");
+    expect(r.hitchesPerMinute > 0, "the hitch frames produce a non-zero rate");
+    // Span is 105 frames over ~1.75s; 5 hitches in 1.75s is about 171/min. Bound it loosely so the
+    // test pins the rule, not the exact arithmetic.
+    expect(r.hitchesPerMinute > 100 && r.hitchesPerMinute < 250,
+           "the hitch rate is normalised by the window's wall span");
+  }
+
+  // No samples: the percentile reading is empty, not a fabricated zero.
+  {
+    FramePacingAnalyzer a;
+    FramePacingReading r = a.percentiles();
+    expect(r.sampleCount == 0, "no samples means no percentile reading");
+    expect(r.p50Us == 0, "an empty window has no median");
+  }
+
+  // A uniform window has no hitches.
+  {
+    FramePacingAnalyzer a;
+    long long t = 0;
+    for (int i = 0; i < 50; ++i) {
+      t += 16667;
+      a.onFrame(t, 60);
+    }
+    FramePacingReading r = a.percentiles();
+    expect(r.hitchesPerMinute == 0, "a perfectly steady window has no hitches");
+    expect(r.p50Us == 16667 && r.p99Us == 16667, "every percentile is the steady interval");
+  }
+
   std::printf("FramePacingTest: %d checks passed\n", checks);
   return 0;
 }

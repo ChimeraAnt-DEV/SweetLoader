@@ -108,6 +108,17 @@ bool ReadFramePacing(long long &outAverageUs, long long &outWorstUs, bool &outJi
                      bool &outVsyncLocked);
 
 /**
+ * @brief The percentile + hitch reading over the long frame window (items 386, 387), or false
+ *        before any frames have been seen.
+ *
+ * <p>{@code outP50Us}/{@code outP95Us}/{@code outP99Us} are the median and tail frame intervals in
+ * microseconds; {@code outHitchesPerMinute} counts frames above twice the median, normalised by the
+ * window's wall span. Sorts the window, so call it off the render thread (a diagnostics read).
+ */
+bool ReadFramePacingPercentiles(long long &outP50Us, long long &outP95Us, long long &outP99Us,
+                                int &outHitchesPerMinute);
+
+/**
  * @brief A callback that runs once per rendered player model, after the game's own render, on the
  *        render thread with the GL context current.
  *

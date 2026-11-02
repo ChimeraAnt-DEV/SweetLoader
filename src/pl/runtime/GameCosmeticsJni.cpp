@@ -452,6 +452,28 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadFramePacing(JNIEnv 
   return out;
 }
 
+// Items 386/387: the percentile + hitch reading over the long frame window, as
+// {valid, p50Us, p95Us, p99Us, hitchesPerMinute}. A short array (length 1) means "no reading yet".
+JNIEXPORT jintArray JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadFramePacingPercentiles(JNIEnv *env,
+                                                                                    jclass) {
+  long long p50Us = 0;
+  long long p95Us = 0;
+  long long p99Us = 0;
+  int hitchesPerMinute = 0;
+  const bool valid = pl::runtime::ReadFramePacingPercentiles(p50Us, p95Us, p99Us, hitchesPerMinute);
+  jint values[5];
+  values[0] = valid ? 1 : 0;
+  values[1] = valid ? static_cast<jint>(p50Us) : -1;
+  values[2] = valid ? static_cast<jint>(p95Us) : -1;
+  values[3] = valid ? static_cast<jint>(p99Us) : -1;
+  values[4] = valid ? hitchesPerMinute : -1;
+  jintArray out = env->NewIntArray(5);
+  if (out == nullptr) return nullptr;
+  env->SetIntArrayRegion(out, 0, 5, values);
+  return out;
+}
+
 // The local-player feed: {live, xBits, yBits, zBits, yawBits, pitchBits}. Floats are returned as
 // their raw int bits so a single int[] crosses JNI; the caller decodes with Float.intBitsToFloat.
 JNIEXPORT jintArray JNICALL
