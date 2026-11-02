@@ -118,6 +118,20 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
         target, region.describe());
     return -1;
   }
+
+  // Item 451: an inline hook rewrites whole instructions, so the target must be a real instruction
+  // boundary, not an interior byte or a data word a wrong signature landed on. A read that faults
+  // into zeros (or the all-ones word some unmapped reads produce) is the shape that always means the
+  // address is wrong; refusing it here is what stops a bad signature from corrupting code.
+  const volatile std::uint32_t *boundaryWord =
+      reinterpret_cast<const volatile std::uint32_t *>(target);
+  if (!IsPlausibleInstructionBoundary(*boundaryWord)) {
+    preloaderLogger.error(
+        "hook({}): refused, target {} does not look like an instruction boundary ({})", name,
+        target, region.describe());
+    return -1;
+  }
+
   preloaderLogger.info("hook({}): target {} -> {}", name, target,
                        region.describe());
 
@@ -141,6 +155,19 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
 
   if (it != map.end()) {
     auto h = it->second;
+    // Item 396: an install must be idempotent. The chain is a std::set ordered by priority and a
+    // monotonic id, so the same detour inserted twice would be two distinct elements and would run
+    // twice per call -- a double draw or a double state change. A repeated install of the same
+    // detour on the same target is therefore a no-op that reports success, so an init that runs
+    // twice cannot double-hook.
+    for (const auto &element : h->chain) {
+      if (element.detour == detour) {
+        if (original != nullptr) {
+          *original = element.originalFunc != nullptr ? *element.originalFunc : h->origin;
+        }
+        return 0;
+      }
+    }
     std::string existing;
     for (const auto &element : h->chain) {
       if (!existing.empty()) existing.append(", ");
