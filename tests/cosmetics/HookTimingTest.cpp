@@ -58,11 +58,14 @@ void anUnnamedCallbackIsStillReported() {
   expect(report.find("999") != std::string::npos, "the cost is still reported");
 }
 
-void timingIsCompiledOutInRelease() {
-#ifdef NDEBUG
-  expect(!HookTimingEnabled(), "the timing seam is compiled out under NDEBUG");
+void timingFollowsThePreloaderDefine() {
+  // The gate is PRELOADER_HOOK_TIMING, not NDEBUG: the NDK toolchain defines NDEBUG even for the
+  // debug build type, so NDEBUG cannot express "a debug build". The host test does not define it,
+  // so this asserts the release behaviour; the debug build defines it from Gradle.
+#if defined(PRELOADER_HOOK_TIMING)
+  expect(HookTimingEnabled(), "the timing seam is present when the define is set");
 #else
-  expect(HookTimingEnabled(), "the timing seam is present in a debug build");
+  expect(!HookTimingEnabled(), "the timing seam is compiled out without the define");
 #endif
 }
 
@@ -75,7 +78,7 @@ int main() {
   theBudgetIsFiftyMicroseconds();
   theReportNamesTheCallbackAndTheCost();
   anUnnamedCallbackIsStillReported();
-  timingIsCompiledOutInRelease();
+  timingFollowsThePreloaderDefine();
 
   std::printf("HookTimingTest: %d checks passed\n", checks);
   return 0;

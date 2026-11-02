@@ -14,8 +14,11 @@
  * rule is host-tested (`HookTimingTest`) because a threshold bug would silently hide the very
  * problem it exists to expose.
  *
- * <p>Only compiled into a debug build: `HookTimingEnabled()` is false under `NDEBUG`, so a release
- * detour carries neither the clock read nor the branch.
+ * <p>Compiled in only when `PRELOADER_HOOK_TIMING` is defined, which the debug build type turns on
+ * from Gradle. It is a preloader-specific define rather than `NDEBUG` because the NDK toolchain
+ * defines `NDEBUG` for the debug build type too (AGP configures CMake as `RelWithDebInfo`), so
+ * `NDEBUG` cannot express "a debug build". A release detour therefore carries neither the clock read
+ * nor the branch.
  */
 
 #include <cstdint>
@@ -34,10 +37,10 @@ inline constexpr std::int64_t kHookTimeBudgetUs = 50;
 
 /** @brief True when the timing seam is compiled in. False in a release build. */
 constexpr bool HookTimingEnabled() noexcept {
-#ifdef NDEBUG
-  return false;
-#else
+#if defined(PRELOADER_HOOK_TIMING)
   return true;
+#else
+  return false;
 #endif
 }
 

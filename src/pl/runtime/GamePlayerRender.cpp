@@ -17,6 +17,7 @@
 #include "pl/render/RenderDispatch.h"
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/HookTiming.hpp"
+#include "pl/runtime/OnceReport.hpp"
 
 namespace pl::runtime {
 namespace {
