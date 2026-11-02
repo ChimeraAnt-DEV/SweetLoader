@@ -149,6 +149,25 @@ compile_run ElfBuildIdTest \
   "$here/ElfBuildIdTest.cpp" \
   "$root/src/pl/memory/ElfBuildId.cpp"
 
+# The on-disk scan cache is a pure serialiser (items 436, 437): it stores offsets from the load
+# base, keyed by the ELF build id, so a repeat launch skips the scan and a game update cannot read
+# the previous build's offsets.
+compile_run SignatureScanCacheTest \
+  "$root/src/pl/memory/SignatureScanCache.cpp" \
+  "$here/SignatureScanCacheTest.cpp"
+
+# The native-mod manifest validation (item 445) is a pure header: it decides whether a manifest is
+# well formed and names the field that failed, so an author has something to fix.
+compile_run ModManifestValidationTest \
+  -I"$root/src" \
+  "$here/ModManifestValidationTest.cpp"
+
+# The dependency-ordered load rule (item 447) is a pure header too: determinism and cycle detection
+# decide which mod's hook runs first and which is torn down first.
+compile_run ModLoadOrderTest \
+  -I"$root/src" \
+  "$here/ModLoadOrderTest.cpp"
+
 # The exported C ABI is compile-time-pinned, so a rename fails the build.
 compile_run LegacyAbiTest \
   "$here/LegacyAbiTest.cpp"
@@ -205,11 +224,39 @@ compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"
 
+# The per-mod fault-isolation rule (item 446). Pure header, no source file of its own.
+compile_run ModFaultPolicyTest \
+  -I"$root/src" \
+  "$here/ModFaultPolicyTest.cpp"
+
+# The debug-only hook time budget (item 388). Pure header.
+compile_run HookTimingTest \
+  "$here/HookTimingTest.cpp"
+
+# Per-feature hook availability, rendered as one JSON report (item 453).
+compile_run FeatureAvailabilityTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/FeatureAvailability.cpp" \
+  "$here/FeatureAvailabilityTest.cpp"
+
+# The hook self-test report (item 452). Pure header; the runner itself needs a live backend.
+compile_run HookSelfTestTest \
+  "$here/HookSelfTestTest.cpp"
+
 # The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
 # central directory); `zlib_link` above resolves it for the host.
 compile_run AntEggManifestTest \
   -I"$root/src" \
   "$root/src/pl/runtime/AntEggLoader.cpp" \
   "$here/AntEggManifestTest.cpp" "$zlib_link"
+
+# Fuzz-shaped invariants for the three parsers that read untrusted data (item 458): the signature
+# parser, the egg.json reader and the Bedrock geometry parser. Deterministic and seeded, so a
+# failure reproduces from the seed alone.
+compile_run FuzzParseTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/AntEggLoader.cpp" \
+  "$root/src/pl/cosmetics/geometry/BedrockModelParser.cpp" \
+  "$here/FuzzParseTest.cpp" "$zlib_link"
 
 echo "all cosmetics host tests passed"

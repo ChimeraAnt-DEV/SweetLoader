@@ -42,6 +42,25 @@ void InitPlayerRenderSource(std::size_t vtableIndex);
 bool IsPlayerRenderHookLive();
 
 /**
+ * @brief True when the render slot resolved and the detour installed (item 453).
+ *
+ * <p>Distinct from {@link IsPlayerRenderHookLive}: the hook installs before the first frame, so the
+ * availability report says "available" from launch while the live flag stays false until the
+ * renderer runs. The two together distinguish "the seam is missing" from "the seam is there but the
+ * game has not drawn yet".
+ */
+bool IsPlayerRenderHookInstalled();
+
+/**
+ * @brief The resolved {@code LivePlayerRenderer::render} entry address, or 0 if unresolved.
+ *
+ * <p>For the hook self-test (item 452): the self-test round-trips the real addresses the install
+ * will use, so a target that resolves but cannot be patched is reported rather than discovered as
+ * a feature that silently does nothing.
+ */
+std::uintptr_t PlayerRenderHookTarget();
+
+/**
  * @brief Reads the render tick counter and per-frame call count.
  *
  * @param out Receives {renderTick, callsThisFrame, totalCalls, msSinceLastRender}.

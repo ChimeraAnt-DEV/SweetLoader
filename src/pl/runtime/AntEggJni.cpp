@@ -41,8 +41,16 @@ Java_org_chimeramc_client_core_antegg_AntEggBridge_nativeValidate(JNIEnv* env, j
 JNIEXPORT jstring JNICALL
 Java_org_chimeramc_client_core_antegg_AntEggBridge_nativeLoadMod(JNIEnv* env, jclass,
                                                                  jstring file_path,
-                                                                 jstring sandbox_root) {
+                                                                 jstring sandbox_root,
+                                                                 jstring allowed_root) {
   std::string error;
+  // Item 454: the destination is checked here, before anything is written, against the root the
+  // caller owns. The argument arrives from Java, but this is the code that writes files, so it
+  // verifies rather than trusts: a sandbox root outside the app's private directory is refused.
+  if (!pl::runtime::AntEggLoader::ValidateSandboxRoot(ToStdString(env, sandbox_root),
+                                                      ToStdString(env, allowed_root), error)) {
+    return NewErrorMessage(env, error);
+  }
   if (!pl::runtime::AntEggLoader::LoadMod(ToStdString(env, file_path),
                                           ToStdString(env, sandbox_root), error)) {
     return NewErrorMessage(env, error);

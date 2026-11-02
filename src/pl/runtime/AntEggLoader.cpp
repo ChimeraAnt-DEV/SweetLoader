@@ -19,7 +19,14 @@ namespace fs = std::filesystem;
 constexpr const char* kManifestName = "egg.json";
 constexpr const char* kExtension = ".antegg";
 constexpr uint64_t kMaxUncompressedBytes = 256ull * 1024ull * 1024ull;
+// The archive itself is capped too. ReadWholeFile resizes its buffer to the file's size before it
+// reads a byte, so without this a multi-gigabyte (or sparse) "package" is an allocation the caller
+// cannot refuse. A real .AntEgg is a script or a small shared object; the ceiling is generous.
+constexpr uint64_t kMaxArchiveBytes = 512ull * 1024ull * 1024ull;
 constexpr size_t kMaxEntries = 4096;
+// The longest path a package or sandbox root may name. Linux PATH_MAX; a longer one is refused
+// rather than truncated, because a truncated path is a different path.
+constexpr size_t kMaxPathLength = 4096;
 
 std::string ToLower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
@@ -87,10 +94,33 @@ bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
   file.seekg(0, std::ios::end);
   std::streamoff size = file.tellg();
   if (size < 0) return false;
+  // Refuse before resizing: the size is attacker-controlled (it is the file's own length), and a
+  // resize to it is the allocation the cap exists to prevent.
+  if (static_cast<uint64_t>(size) > kMaxArchiveBytes) return false;
   file.seekg(0, std::ios::beg);
   out.resize(static_cast<size_t>(size));
   if (size > 0) file.read(reinterpret_cast<char*>(out.data()), size);
   return file.good() || file.eof();
+}
+
+/// True when `value` is a non-empty, absolute path with no NUL and no `..` segment. Cheap, and it
+/// runs before any filesystem call, so a crafted path is refused rather than resolved.
+bool IsSafeAbsolutePath(const std::string& value) {
+  if (value.empty() || value.size() > kMaxPathLength) return false;
+  if (value.find('\0') != std::string::npos) return false;
+  if (value.front() != '/') return false;
+  // Reject a `..` segment anywhere. A literal `..` in a resolved path is either an escape attempt
+  // or a legitimate directory named "..", and neither belongs in a package or sandbox path.
+  size_t start = 0;
+  while (start <= value.size()) {
+    size_t slash = value.find('/', start);
+    std::string segment =
+        value.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+    if (segment == "..") return false;
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return true;
 }
 
 struct ZipEntryRecord {
@@ -152,11 +182,15 @@ bool ExtractEntryData(const std::vector<uint8_t>& data, const ZipEntryRecord& en
   if (start + entry.compressed_size > data.size()) return false;
 
   if (entry.method == 0) {
+    if (entry.compressed_size > kMaxUncompressedBytes) return false;
     out.assign(data.begin() + start, data.begin() + start + entry.compressed_size);
     return true;
   }
   if (entry.method != 8) return false;
 
+  // Bound the allocation by the entry's *declared* size before inflating into it: the declared
+  // size is attacker-controlled and drives the resize, so an unchecked one is a zip bomb.
+  if (entry.uncompressed_size > kMaxUncompressedBytes) return false;
   out.resize(entry.uncompressed_size);
   z_stream stream{};
   stream.next_in = const_cast<Bytef*>(data.data() + start);
@@ -189,6 +223,27 @@ bool IsInside(const fs::path& root, const fs::path& candidate) {
 }  // namespace
 
 std::string AntEggManifest::Id() const { return Slug(name); }
+
+bool AntEggLoader::ValidateSandboxRoot(const std::string& sandbox_root,
+                                       const std::string& allowed_root,
+                                       std::string& error) {
+  if (!IsSafeAbsolutePath(sandbox_root)) {
+    error = "the sandbox root must be an absolute path with no parent segments";
+    return false;
+  }
+  if (!IsSafeAbsolutePath(allowed_root)) {
+    error = "the allowed root must be an absolute path with no parent segments";
+    return false;
+  }
+  // The extraction target must live under the root the caller owns (the app's private directory).
+  // Checked on the raw paths first, so a root outside the caller's storage is refused without any
+  // filesystem call; the canonical check then catches a symlink that resolves outside.
+  if (!IsInside(fs::path(allowed_root), fs::path(sandbox_root))) {
+    error = "the sandbox root must live inside the app's private directory";
+    return false;
+  }
+  return true;
+}
 
 bool AntEggLoader::LooksLikeAntEgg(const std::string& file_name) {
   std::string lower = ToLower(file_name);

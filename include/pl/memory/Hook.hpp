@@ -46,6 +46,16 @@ PL_EXPORT int hook(FuncPtr target, FuncPtr detour, FuncPtr *originalFunc,
 PL_EXPORT bool unhook(FuncPtr target, FuncPtr detour);
 
 /**
+ * @brief Removes every detour from every target and returns how many were removed.
+ *
+ * <p>Item 449: hot reload needs a way back to a clean slate. Reinstalling a detour on a target that
+ * still carries the previous one would chain the new detour onto the old trampoline, so a reload
+ * that only adds hooks accumulates them. This tears them all down first; the game's original bytes
+ * are restored by the backend as each hook is deleted. It is safe to call when nothing is hooked.
+ */
+PL_EXPORT std::size_t unhookAll();
+
+/**
  * @brief The number of distinct targets that currently carry a detour.
  *
  * <p>Diagnostics use this to prove the install happened once and stayed installed: the overlay

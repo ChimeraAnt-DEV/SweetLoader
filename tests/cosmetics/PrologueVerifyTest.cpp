@@ -3,8 +3,11 @@
 
 #include "pl/memory/PrologueVerify.hpp"
 
+using pl::memory::ClassifyInstructionBoundary;
 using pl::memory::ClassifyPrologue;
+using pl::memory::InstructionBoundary;
 using pl::memory::IsA64BranchLike;
+using pl::memory::IsPlausibleInstructionBoundary;
 using pl::memory::kA64Nop;
 using pl::memory::PrologueVerdict;
 
@@ -46,6 +49,28 @@ int main() {
 
   // 0 is not a NOP, and not a branch.
   expect(ClassifyPrologue(0U) == PrologueVerdict::Unrecognised, "zero is unrecognised");
+
+  // --- Pre-install instruction-boundary filter (item 451) ------------------------------------
+  // A real prologue is plausible.
+  expect(ClassifyInstructionBoundary(0xA9BF7BFDU) == InstructionBoundary::Plausible,
+         "a stp prologue is a plausible boundary");
+  expect(ClassifyInstructionBoundary(0x14000000U) == InstructionBoundary::Plausible,
+         "a B is a plausible boundary");
+  expect(ClassifyInstructionBoundary(kA64Nop) == InstructionBoundary::Plausible,
+         "a NOP is a plausible boundary (it is a real instruction)");
+
+  // The two shapes that always mean a wrong address.
+  expect(ClassifyInstructionBoundary(0U) == InstructionBoundary::ZeroWord,
+         "an all-zero word is a wrong address");
+  expect(ClassifyInstructionBoundary(0xFFFFFFFFU) == InstructionBoundary::AllOnes,
+         "an all-ones word is a wrong address");
+  expect(ClassifyInstructionBoundary(0x00000000U) == InstructionBoundary::ZeroWord,
+         "the zero word is classified before the reserved family");
+  expect(ClassifyInstructionBoundary(0x0000FFFFU) == InstructionBoundary::Reserved,
+         "the UDF family is reserved");
+  expect(!IsPlausibleInstructionBoundary(0U), "zero is not a plausible boundary");
+  expect(!IsPlausibleInstructionBoundary(0xFFFFFFFFU), "all-ones is not a plausible boundary");
+  expect(IsPlausibleInstructionBoundary(0xA9BF7BFDU), "a real prologue is plausible");
 
   std::printf("PrologueVerifyTest: %d checks passed\n", checks);
   return failures == 0 ? 0 : 1;

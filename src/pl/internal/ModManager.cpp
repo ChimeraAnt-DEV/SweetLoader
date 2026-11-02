@@ -18,6 +18,18 @@ bool ModManager::LoadModLibrary(
 
   RuntimeModInfo modInfoStorage;
   if (!createRuntimeModInfo(libraryPath, sourceModDirectory, modInfoStorage)) {
+    // A manifest that cannot be parsed is not attributable to a mod id yet, so it is reported
+    // without a fault count: the failure is the manifest's, not the mod's runtime behaviour.
+    return false;
+  }
+
+  // Item 446: a mod that exhausted its fault budget is refused before anything is loaded, so a mod
+  // that faults on every launch costs one launch attempt, not one per launch forever. The user can
+  // re-enable it, which clears the budget.
+  if (modFaultTracker().isDisabled(modInfoStorage.modId)) {
+    preloaderLogger.warn(
+        "Refusing to load mod {}: it faulted {} times in a row and is disabled until re-enabled",
+        modInfoStorage.modId, modFaultTracker().faultsFor(modInfoStorage.modId));
     return false;
   }
 
@@ -41,9 +53,19 @@ bool ModManager::LoadModLibrary(
   auto entry = createLoadedModEntry(handle, vm, modInfoStorage,
                                     normalizedLibraryPath);
   if (!entry.has_value()) {
+    // Item 446: the mod loaded as a library but its lifecycle entry failed. That is this mod's
+    // fault and no other mod's, so it is counted here and the rest of the set keeps loading.
+    const ModFaultDecision decision = modFaultTracker().recordFault(modInfoStorage.modId);
+    if (decision.action == ModFaultAction::Disable) {
+      preloaderLogger.error(
+          "Disabling mod {} after {} consecutive faults; re-enable it to retry",
+          modInfoStorage.modId, decision.faultCount);
+    }
     return false;
   }
 
+  // A mod that reached this point loaded successfully, so its fault budget is reset.
+  modFaultTracker().recordSuccess(modInfoStorage.modId);
   registerLoadedMod(normalizedLibraryPath, std::move(*entry));
   return true;
 }
@@ -63,6 +85,18 @@ void ModManager::EnableLoadedMods() {
 
     if (enableLoadedModEntry(*entry)) {
       setLoadedModState(key, LoadedModState::Enabled);
+      modFaultTracker().recordSuccess(entry->modId);
+      continue;
+    }
+
+    // Item 446: an enable that fails is isolated the same way a load that fails is. The mod is
+    // disabled after its budget is spent, and the loop keeps going so one broken mod cannot stop
+    // every other mod from enabling.
+    const ModFaultDecision decision = modFaultTracker().recordFault(entry->modId);
+    if (decision.action == ModFaultAction::Disable) {
+      preloaderLogger.error(
+          "Disabling mod {} after {} consecutive enable faults; re-enable it to retry",
+          entry->modId, decision.faultCount);
     }
   }
 }

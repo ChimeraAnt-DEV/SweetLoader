@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "pl/Logger.hpp"
+#include "pl/internal/ModManifestValidation.hpp"
 
 namespace pl::internal::mod {
 namespace {
@@ -24,6 +25,8 @@ struct ParsedModDirectory {
   std::string iconPath;
   std::filesystem::path rootPath;
   std::filesystem::path manifestPath;
+  std::vector<std::string> dependencies;
+  std::string gameVersionRange;
 };
 
 bool endsWithSo(const std::string &filename) {
@@ -158,6 +161,37 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
     displayName = modDirectory.filename().string();
   }
 
+  // Item 445: validate the declared fields, and refuse with the field named. A manifest whose
+  // version is malformed or whose abi is a 32-bit one must not reach the loader, because the
+  // failure would otherwise surface later as a bare "mod did not load" with nothing to act on.
+  ModManifestFields declared;
+  declared.id = modDirectory.filename().string();
+  declared.name = displayName;
+  declared.version = getOptionalString(manifestJson, "version");
+  declared.abi = getOptionalString(manifestJson, "abi");
+  declared.gameVersionRange = getOptionalString(manifestJson, "game_version");
+  declared.entryFileName = entryFileName;
+  const ModManifestValidation validation = ValidateModManifest(declared);
+  if (!validation.ok) {
+    preloaderLogger.warn("Rejected mod manifest {}: field '{}' {}",
+                         manifestPath.string(), ModManifestFieldName(validation.field),
+                         validation.reason);
+    return std::nullopt;
+  }
+
+  // Item 447: the declared dependencies drive the load order. A malformed entry (a non-string, an
+  // empty name) is skipped rather than failing the manifest: a missing dependency is not fatal, and
+  // one bad entry must not make an otherwise-loadable mod unloadable.
+  std::vector<std::string> dependencies;
+  if (manifestJson.contains("dependencies") && manifestJson["dependencies"].is_array()) {
+    for (const auto &dependency : manifestJson["dependencies"]) {
+      if (dependency.is_string()) {
+        const std::string value = dependency.get<std::string>();
+        if (IsNonBlank(value)) dependencies.push_back(value);
+      }
+    }
+  }
+
   return ParsedModDirectory{
       .id = modDirectory.filename().string(),
       .displayName = std::move(displayName),
@@ -168,6 +202,8 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
       .iconPath = std::move(iconPath),
       .rootPath = modDirectory,
       .manifestPath = manifestPath,
+      .dependencies = std::move(dependencies),
+      .gameVersionRange = declared.gameVersionRange,
   };
 }
 
@@ -266,6 +302,8 @@ bool createRuntimeModInfo(
   storage.iconPath = parsedMod->iconPath;
   storage.manifestPath = parsedMod->manifestPath.string();
   storage.modRootPath = parsedMod->rootPath.string();
+  storage.dependencies = parsedMod->dependencies;
+  storage.gameVersionRange = parsedMod->gameVersionRange;
   finalizeRuntimeModInfo(storage);
   return true;
 }

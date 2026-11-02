@@ -16,6 +16,8 @@
 #include "pl/render/FramePacing.hpp"
 #include "pl/render/RenderDispatch.h"
 #include "pl/runtime/GameHookRules.h"
+#include "pl/runtime/HookTiming.hpp"
+#include "pl/runtime/OnceReport.hpp"
 
 namespace pl::runtime {
 namespace {
@@ -65,6 +67,9 @@ pl::ipc::SnapshotChannel g_frameSnapshot(4 * sizeof(std::uint64_t));
 std::atomic<std::size_t> g_resolvedSlot{0};
 std::atomic_bool g_resolvedByString{false};
 std::atomic_bool g_slotKnown{false};
+
+// The resolved render entry address, kept for the hook self-test (item 452). 0 until resolved.
+std::atomic<std::uintptr_t> g_renderTarget{0};
 
 // Item 18 (preloader update list): the exact gate that refused the render hook, so the diagnostics
 // report names "version outside the verified range" rather than a generic "unavailable". 0 = no
@@ -158,7 +163,24 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   const std::size_t count = g_postRenderCount.load(std::memory_order_acquire);
   for (std::size_t i = 0; i < count && i < kMaxPostRenderCallbacks; ++i) {
     PostRenderCallback callback = g_postRender[i].load(std::memory_order_acquire);
-    if (callback != nullptr) callback();
+    if (callback == nullptr) continue;
+    // Item 388: in a debug build, time each callback and report one that runs long on the render
+    // thread. The clock read and the comparison compile out of a release build (HookTimingEnabled),
+    // so the shipped detour is unchanged; the report is only built when the budget was already
+    // exceeded, so it never allocates on a steady frame.
+    if (pl::runtime::HookTimingEnabled()) {
+      const long long startedUs = MonotonicUs();
+      callback();
+      const long long elapsedUs = MonotonicUs() - startedUs;
+      if (pl::runtime::HookOverBudget(elapsedUs)) {
+        static OnceReport reported;
+        if (reported.shouldReport()) {
+          preloaderLogger.warn("{}", pl::runtime::HookBudgetReport("post-render", elapsedUs));
+        }
+      }
+    } else {
+      callback();
+    }
   }
   // Also dispatch the public mod render callbacks (pl/Render.hpp) from this same seam, so mods and
   // the native cosmetics share one render-thread callback point.
@@ -277,11 +299,21 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
     g_resolvedSlot.store(slot, std::memory_order_relaxed);
     g_resolvedByString.store(byString, std::memory_order_relaxed);
     g_slotKnown.store(true, std::memory_order_relaxed);
+    g_renderTarget.store(renderFn, std::memory_order_relaxed);
   }
 }
 
 int RenderHookFailureReason() {
   return g_renderFailureReason.load(std::memory_order_relaxed);
+}
+
+std::uintptr_t PlayerRenderHookTarget() {
+  return g_renderTarget.load(std::memory_order_relaxed);
+}
+
+bool IsPlayerRenderHookInstalled() {
+  return g_hookInstalled.load(std::memory_order_relaxed) &&
+         g_renderFailureReason.load(std::memory_order_relaxed) == 0;
 }
 
 void SetDisplayRefreshHz(int hz) {

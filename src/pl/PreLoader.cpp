@@ -7,6 +7,7 @@
 #include "pl/Export.hpp"
 #include "pl/Logger.hpp"
 #include "pl/internal/ModManager.h"
+#include "pl/runtime/FeatureAvailability.hpp"
 #include "pl/runtime/GameHooks.h"
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/JavaRuntime.h"
@@ -126,6 +127,28 @@ JNIEXPORT jstring JNICALL
 Java_org_chimeramc_client_core_mods_ModManager_nativeGameHookRulesSummary(JNIEnv *env, jclass) {
   const std::string summary = pl::runtime::GameHookRulesSummary();
   return env->NewStringUTF(summary.c_str());
+}
+
+// Item 453: per-feature hook availability, as one JSON object the diagnostics page prints verbatim.
+// "The preloader loaded" and "this feature works" are different questions; this answers the second
+// one so a single missing signature does not read as "nothing works".
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_core_mods_ModManager_nativeFeatureAvailability(
+    JNIEnv *env, jclass) {
+  // Recompute from the live hook state first, so a deferred install that has since run is
+  // reflected and the report can never describe a stale hook set.
+  pl::runtime::RefreshGameFeatureAvailability();
+  const std::string report = pl::runtime::GameFeatureAvailability().toJson();
+  return env->NewStringUTF(report.c_str());
+}
+
+// Item 452: install-and-remove every hook once and report the result, so "this hook cannot install
+// on this build" is a fact the diagnostics page can print rather than something to infer from a
+// feature that does nothing. Runs on the loading path before the real install.
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_core_mods_ModManager_nativeHookSelfTest(JNIEnv *env, jclass) {
+  const std::string report = pl::runtime::RunGameHookSelfTest();
+  return env->NewStringUTF(report.c_str());
 }
 
 JNIEXPORT void JNICALL

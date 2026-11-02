@@ -69,4 +69,48 @@ inline PrologueVerdict ClassifyPrologue(std::uint32_t first) {
   return IsA64BranchLike(first) ? PrologueVerdict::Patched : PrologueVerdict::Unrecognised;
 }
 
+/**
+ * @brief What the first instruction at a *pre-install* target says about the address.
+ *
+ * <p>Item 451: an inline hook rewrites whole instructions at the target, so the address must be a
+ * real instruction boundary in a real function. A signature that resolved to the wrong place (an
+ * interior byte of an instruction, a data table, an unmapped page that read back as zeros) is
+ * indistinguishable from a correct target until the patch corrupts the game. Reading the first
+ * instruction before installing catches the two shapes that always mean "wrong address": all-zero
+ * words (a page the read faulted into, or a zeroed data section) and the all-ones word that an
+ * unmapped read produces on some paths.
+ */
+enum class InstructionBoundary {
+  /** A plausible AArch64 instruction word: safe to consider patching. */
+  Plausible,
+  /** All-zero: a wrong address (zeroed data or a faulted read). */
+  ZeroWord,
+  /** All-ones: a wrong address (an unmapped read). */
+  AllOnes,
+  /** A word that decodes to the reserved UDF encoding (`0x0000_0000`-family trap). */
+  Reserved,
+};
+
+/**
+ * @brief Classifies the first instruction word as a candidate patch site (item 451).
+ *
+ * <p>This is a cheap pre-filter, not a disassembler: it only rejects the shapes that are certainly
+ * not an instruction, so a wrong signature hit is refused before anything is written rather than
+ * after the game faults.
+ */
+inline InstructionBoundary ClassifyInstructionBoundary(std::uint32_t first) {
+  if (first == 0U) return InstructionBoundary::ZeroWord;
+  if (first == 0xFFFFFFFFU) return InstructionBoundary::AllOnes;
+  // The UDF (permanent-undefined) encoding family is `0000 0000 0000 0000 iiii iiii iiii iiii`,
+  // i.e. the top 16 bits are zero. No real prologue instruction has a zero top half-word, so
+  // rejecting the family catches a pointer into a zeroed region without rejecting a real prologue.
+  if ((first & 0xFFFF0000U) == 0x00000000U) return InstructionBoundary::Reserved;
+  return InstructionBoundary::Plausible;
+}
+
+/** @brief True when the word is safe to consider as an instruction boundary (item 451). */
+inline bool IsPlausibleInstructionBoundary(std::uint32_t first) {
+  return ClassifyInstructionBoundary(first) == InstructionBoundary::Plausible;
+}
+
 } // namespace pl::memory

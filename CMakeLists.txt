@@ -28,6 +28,7 @@ set(PRELOADER_SOURCES
         src/pl/memory/ModulePathMatch.cpp
         src/pl/memory/Patch.cpp
         src/pl/memory/Signature.cpp
+        src/pl/memory/SignatureScanCache.cpp
         src/pl/memory/Vtable.cpp
         src/pl/cosmetics/geometry/BedrockModelParser.cpp
         src/pl/cosmetics/NativeModelMatrix.cpp
@@ -43,8 +44,10 @@ set(PRELOADER_SOURCES
         src/pl/render/GlesProbe.cpp
         src/pl/render/RenderApi.cpp
         src/pl/hooks/DobbyHookManager.cpp
+        src/pl/runtime/FeatureAvailability.cpp
         src/pl/runtime/GameHookRules.cpp
         src/pl/runtime/GameHooks.cpp
+        src/pl/runtime/HookSelfTest.cpp
         src/pl/runtime/GameCosmetics.cpp
         src/pl/runtime/GameCosmeticsJni.cpp
         src/pl/runtime/RegisterAwareHook.cpp

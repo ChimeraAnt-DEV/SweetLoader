@@ -244,6 +244,52 @@ void AMalformedDocumentIsRefused() {
         "a non-semver version is refused");
 }
 
+// Item 454: the sandbox root is validated before anything is written. The rules are pure path
+// checks, so they need no filesystem and no device.
+void TheSandboxRootMustLiveInsideTheAllowedRoot() {
+  std::string error;
+  Check(pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "/data/user/0/org.chimeramc.client/files/AntEggs",
+            "/data/user/0/org.chimeramc.client/files", error),
+        "a sandbox inside the app's private directory is accepted: " + error);
+
+  std::string error2;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "/sdcard/AntEggs", "/data/user/0/org.chimeramc.client/files", error2),
+        "a sandbox outside the app's private directory is refused");
+  Check(!error2.empty(), "the refusal says why");
+
+  std::string error3;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "/data/user/0/org.chimeramc.client/files2/AntEggs",
+            "/data/user/0/org.chimeramc.client/files", error3),
+        "a sibling whose name merely starts with the root's is refused");
+}
+
+void ASandboxRootCannotEscapeWithParentSegments() {
+  std::string error;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "/data/user/0/org.chimeramc.client/files/../../AntEggs",
+            "/data/user/0/org.chimeramc.client/files", error),
+        "a root containing .. is refused");
+  Check(!error.empty(), "the refusal says why");
+
+  std::string error2;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "relative/AntEggs", "/data/user/0/org.chimeramc.client/files", error2),
+        "a relative root is refused");
+
+  std::string error3;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "", "/data/user/0/org.chimeramc.client/files", error3),
+        "an empty root is refused");
+
+  std::string error4;
+  Check(!pl::runtime::AntEggLoader::ValidateSandboxRoot(
+            "/data/user/0/org.chimeramc.client/files/AntEggs", "", error4),
+        "an empty allowed root is refused");
+}
+
 void LooksLikeAntEggIsCaseInsensitive() {
   Check(pl::runtime::AntEggLoader::LooksLikeAntEgg("mod.antegg"), ".antegg is recognised");
   Check(pl::runtime::AntEggLoader::LooksLikeAntEgg("MOD.ANTEGG"), "the extension is case-insensitive");
@@ -267,6 +313,8 @@ int main() {
   TypeAndEntryPointMustAgree();
   AnEntryPointCannotEscapeThePackage();
   AMalformedDocumentIsRefused();
+  TheSandboxRootMustLiveInsideTheAllowedRoot();
+  ASandboxRootCannotEscapeWithParentSegments();
   LooksLikeAntEggIsCaseInsensitive();
 
   if (g_failures == 0) {

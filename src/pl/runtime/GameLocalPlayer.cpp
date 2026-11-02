@@ -35,6 +35,14 @@ constexpr long long kSnapshotFreshMs = 2000;
 
 void *(*g_origGetLocalPlayer)(void *) = nullptr;
 std::atomic_bool g_hookInstalled{false};
+// Set only once the detour actually installed. `g_hookInstalled` is an install *attempt* guard (the
+// exchange prevents a second try); this flag is the outcome, so the availability report can tell a
+// resolved seam from a failed one.
+std::atomic_bool g_hookLive{false};
+
+// The resolved {@code ClientInstance::getLocalPlayer} slot address, kept for the hook self-test
+// (item 452). 0 until resolved.
+std::atomic<std::uintptr_t> g_slotTarget{0};
 
 // Seqlock: the game thread writes the snapshot, the Java UI thread reads it, and a torn
 // cross-field read (a new x with an old y) must not be observable.
@@ -143,13 +151,24 @@ void InitLocalPlayerSource() {
                        pl::memory::HookPriority::Normal,
                        "ClientInstance::getLocalPlayer") != 0) {
     preloaderLogger.warn("Local-player feed: hook install failed; icons stay off");
+    return;
   }
+  g_slotTarget.store(slot, std::memory_order_relaxed);
+  g_hookLive.store(true, std::memory_order_relaxed);
 }
 
 bool IsLocalPlayerAvailable() {
   float position[3];
   float rotation[2];
   return ReadSnapshot(position, rotation);
+}
+
+std::uintptr_t LocalPlayerHookTarget() {
+  return g_slotTarget.load(std::memory_order_relaxed);
+}
+
+bool IsLocalPlayerHookInstalled() {
+  return g_hookInstalled.load(std::memory_order_relaxed) && g_hookLive.load(std::memory_order_relaxed);
 }
 
 bool ReadLocalPlayerPosition(float out[3]) {

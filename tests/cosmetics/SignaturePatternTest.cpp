@@ -13,7 +13,9 @@
 #include <string>
 #include <string_view>
 
+using pl::memory::FindAllPatternMatches;
 using pl::memory::IsExactByte;
+using pl::memory::PatternMatchesAt;
 using pl::memory::kMaxExactAnchorSize;
 using pl::memory::PatternByte;
 using pl::memory::PatternMatches;
@@ -124,6 +126,57 @@ int main() {
     SignaturePattern p = ParseSignaturePattern("? ? ?");
     SelectAnchor(p);
     check(p.anchorIndex == 0 && p.anchorSize == 1, "a fully wild pattern anchors at index 0");
+  }
+
+  // --- Matching at a position, and overlapping hits ----------------------------------------
+  //
+  // A scan advances one byte at a time, so two matches may overlap. That is the case the old
+  // in-file matcher had no coverage for, and it is the shape a two-byte signature produces in a
+  // real module. The helpers are now the scan's own definition, so these pin what the scan does.
+  {
+    const SignaturePattern p = ParseSignaturePattern("aa bb");
+    const std::uint8_t buffer[] = {0xAA, 0xBB, 0xAA, 0xBB};
+    check(PatternMatchesAt(buffer, 4, 0, p), "a match at offset 0 is found");
+    check(PatternMatchesAt(buffer, 4, 2, p), "a match at offset 2 is found");
+    check(!PatternMatchesAt(buffer, 4, 1, p), "a mismatch at offset 1 is rejected");
+    const auto hits = FindAllPatternMatches(buffer, 4, p);
+    check(hits.size() == 2 && hits[0] == 0 && hits[1] == 2,
+          "both non-overlapping hits are listed in order");
+
+    // A run of one repeated byte: `aa aa` in `aa aa aa` overlaps at offsets 0 and 1.
+    const SignaturePattern run = ParseSignaturePattern("aa aa");
+    const std::uint8_t repeated[] = {0xAA, 0xAA, 0xAA};
+    const auto overlapping = FindAllPatternMatches(repeated, 3, run);
+    check(overlapping.size() == 2 && overlapping[0] == 0 && overlapping[1] == 1,
+          "overlapping hits are both reported, one byte apart");
+  }
+
+  // A candidate that would run past the end of the buffer is not a match, so a truncated read can
+  // never index out of bounds.
+  {
+    const SignaturePattern p = ParseSignaturePattern("aa bb cc");
+    const std::uint8_t buffer[] = {0xAA, 0xBB};
+    check(!PatternMatchesAt(buffer, 2, 0, p), "a pattern longer than the buffer cannot match");
+    check(FindAllPatternMatches(buffer, 2, p).empty(), "and yields no hits");
+    check(!PatternMatchesAt(buffer, 2, 5, p), "an offset past the end is not a match");
+    check(!PatternMatchesAt(nullptr, 0, 0, p), "a null buffer is not a match");
+  }
+
+  // A wildcard inside the pattern is honoured at a position, not only by the anchor.
+  {
+    const SignaturePattern p = ParseSignaturePattern("48 ? c0");
+    const std::uint8_t yes[] = {0x48, 0x00, 0xC0};
+    const std::uint8_t no[] = {0x48, 0x00, 0xC1};
+    check(PatternMatchesAt(yes, 3, 0, p), "a wildcard byte matches any value");
+    check(!PatternMatchesAt(no, 3, 0, p), "an exact byte after the wildcard is still checked");
+  }
+
+  // An invalid pattern matches nothing, however it is asked.
+  {
+    const SignaturePattern bad = ParseSignaturePattern("zz");
+    const std::uint8_t buffer[] = {0x00};
+    check(!PatternMatchesAt(buffer, 1, 0, bad), "an invalid pattern matches nothing");
+    check(FindAllPatternMatches(buffer, 1, bad).empty(), "and enumerates nothing");
   }
 
   // --- Malformed input ----------------------------------------------------------------------

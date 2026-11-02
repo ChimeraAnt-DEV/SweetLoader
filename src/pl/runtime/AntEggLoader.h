@@ -48,6 +48,17 @@ class AntEggLoader {
   /// Parses egg.json text, validating every required field. Returns false and sets `error`.
   static bool ParseManifest(const std::string& json, AntEggManifest& out, std::string& error);
 
+  /**
+   * Refuses a sandbox root that is not an absolute path inside `allowed_root`.
+   *
+   * `sandbox_root` and the archive path arrive from Java, but the rule belongs here as well: this
+   * is the code that writes files, and a native entry that trusted its caller would extract into
+   * any directory the process can reach. Checked on the raw strings first (so an obviously wrong
+   * root costs no filesystem call) and then on canonical paths (so a symlink cannot resolve out).
+   */
+  static bool ValidateSandboxRoot(const std::string& sandbox_root,
+                                  const std::string& allowed_root, std::string& error);
+
   /// Reads egg.json straight out of an archive without extracting anything.
   static bool ReadManifest(const std::string& archive_path, AntEggManifest& out,
                            std::string& error);
