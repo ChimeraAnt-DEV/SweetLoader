@@ -120,6 +120,12 @@ compile_run VersionCompareTest \
 compile_run CallbackSnapshotTest \
   "$here/CallbackSnapshotTest.cpp"
 
+compile_run OnceReportTest \
+  "$here/OnceReportTest.cpp"
+
+compile_run GpuFamilyTest \
+  "$here/GpuFamilyTest.cpp"
+
 # The image-override stores are a pure header too.
 compile_run ImageOverrideRegistryTest \
   "$here/ImageOverrideRegistryTest.cpp"
@@ -127,6 +133,11 @@ compile_run ImageOverrideRegistryTest \
 # The engine allocator is a pure header as well.
 compile_run EngineAllocatorTest \
   "$here/EngineAllocatorTest.cpp"
+
+# The signature pattern parser and anchor selection are pure: it decides which bytes a scan searches
+# for, so it is exercised here with wildcards at either end, a fully wild pattern and malformed input.
+compile_run SignaturePatternTest \
+  "$here/SignaturePatternTest.cpp"
 
 # The maps-line parser and basename match are pure too.
 compile_run ModulePathMatchTest \
@@ -163,6 +174,11 @@ compile_run RuleProbeTest \
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 
+compile_run ProcessMemoryTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/ProcessMemory.cpp" \
+  "$here/ProcessMemoryTest.cpp"
+
 compile_run PrologueVerifyTest \
   "$here/PrologueVerifyTest.cpp"
 
@@ -170,6 +186,13 @@ compile_run OptifineConfigBoundsTest \
   -I"$root/src" \
   "$root/src/pl/runtime/OptifineConfig.cpp" \
   "$here/OptifineConfigBoundsTest.cpp"
+
+# The dynamic-render-distance hysteresis rule (items 382, 383). The governor is a header + one
+# translation unit with no Android dependency, so the step, dwell and change-count rules are
+# exercised on the host.
+compile_run RenderDistanceGovernorTest \
+  "$root/src/pl/runtime/optifine/OptifineGovernor.cpp" \
+  "$here/RenderDistanceGovernorTest.cpp"
 
 compile_run SkinSeamObservationTest \
   "$here/SkinSeamObservationTest.cpp"

@@ -5,6 +5,7 @@
  * @brief Memory hook API.
  */
 
+#include <cstddef>
 #include <string_view>
 #include <utility>
 
@@ -43,6 +44,17 @@ PL_EXPORT int hook(FuncPtr target, FuncPtr detour, FuncPtr *originalFunc,
  * @brief Removes a detour from a target function.
  */
 PL_EXPORT bool unhook(FuncPtr target, FuncPtr detour);
+
+/**
+ * @brief The number of distinct targets that currently carry a detour.
+ *
+ * <p>Diagnostics use this to prove the install happened once and stayed installed: the overlay
+ * hooks install through a `std::call_once`, so a second init attempt must not raise the count. A
+ * count that is higher than the number of hook sites means a target was hooked twice (the backend
+ * chains, so that is legal, but it is worth seeing), and a count that drops to zero after an install
+ * means something unhooked it.
+ */
+PL_EXPORT std::size_t hookCount();
 
 /**
  * @brief RAII owner for an installed hook.

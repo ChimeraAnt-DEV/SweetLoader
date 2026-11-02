@@ -300,6 +300,17 @@ bool ReadFramePacing(long long &outAverageUs, long long &outWorstUs, bool &outJi
   return true;
 }
 
+bool ReadFramePacingPercentiles(long long &outP50Us, long long &outP95Us, long long &outP99Us,
+                                int &outHitchesPerMinute) {
+  const pl::render::FramePacingReading reading = g_framePacing.percentiles();
+  if (reading.sampleCount == 0 || reading.p50Us <= 0) return false;
+  outP50Us = reading.p50Us;
+  outP95Us = reading.p95Us;
+  outP99Us = reading.p99Us;
+  outHitchesPerMinute = reading.hitchesPerMinute;
+  return true;
+}
+
 bool LastResolvedRenderSlot(std::size_t &outSlot, bool &outByString) {
   if (!g_slotKnown.load(std::memory_order_relaxed)) return false;
   outSlot = g_resolvedSlot.load(std::memory_order_relaxed);

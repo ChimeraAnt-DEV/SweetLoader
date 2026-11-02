@@ -1,5 +1,6 @@
 #include "pl/runtime/InputBridge.h"
 
+#include <atomic>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -8,7 +9,9 @@
 #include <vector>
 
 #include "pl/Input.hpp"
+#include "pl/Logger.hpp"
 #include "pl/runtime/CallbackSnapshot.hpp"
+#include "pl/runtime/OnceReport.hpp"
 #include "pl/runtime/JavaRuntime.h"
 
 namespace pl::runtime {
@@ -55,11 +58,22 @@ void HideKeyboardImpl() { CallActivityVoidMethod("hideSoftKeyboard"); }
 // unwinds through game frames (and, on the JNI paths, across the boundary) and takes the
 // process down; a mod that throws on one key press must not kill the session. Treat a throw
 // as "not consumed" so the game still receives the input.
+//
+// The catch adds no allocation and no work to the normal path: it only runs when a callback threw.
+// A callback that throws on every event would otherwise be invisible (the session keeps working, so
+// the mod author never sees the bug) while flooding nothing; `OnceReport` logs the first throw at
+// each dispatch site and stays quiet after (item 362).
 template <typename Fn>
-bool InvokeSafely(Fn &&fn) {
+bool InvokeSafely(Fn &&fn, const char *site) {
   try {
     return fn();
   } catch (...) {
+    static OnceReport reported;
+    if (reported.shouldReport()) {
+      preloaderLogger.warn(
+          "an input callback threw at {}; treating it as not consumed and continuing (logged "
+          "once per dispatch site)", site);
+    }
     return false;
   }
 }
@@ -81,7 +95,7 @@ bool DispatchTouch(int action, int pointerId, float x, float y) {
   bool consumed = false;
   g_touchCallbacks.forEach([&](const PreloaderInput_OnTouch_Fn &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(action, pointerId, x, y); });
+      consumed |= InvokeSafely([&] { return callback(action, pointerId, x, y); }, "touch");
     }
   });
   const pl::input::TouchEvent event{
@@ -92,7 +106,7 @@ bool DispatchTouch(int action, int pointerId, float x, float y) {
   };
   g_cppTouchCallbacks.forEach([&](const pl::input::TouchCallback &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(event); });
+      consumed |= InvokeSafely([&] { return callback(event); }, "touch-cpp");
     }
   });
   return consumed;
@@ -102,7 +116,7 @@ bool DispatchKeyEvent(int keyCode, unsigned int unicodeChar, bool isKeyDown) {
   bool consumed = false;
   g_keyEventCallbacks.forEach([&](const PreloaderInput_OnKeyEvent_Fn &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(keyCode, unicodeChar, isKeyDown); });
+      consumed |= InvokeSafely([&] { return callback(keyCode, unicodeChar, isKeyDown); }, "key");
     }
   });
   const pl::input::KeyEvent event{
@@ -112,7 +126,7 @@ bool DispatchKeyEvent(int keyCode, unsigned int unicodeChar, bool isKeyDown) {
   };
   g_cppKeyCallbacks.forEach([&](const pl::input::KeyCallback &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(event); });
+      consumed |= InvokeSafely([&] { return callback(event); }, "keyevent-cpp");
     }
   });
   return consumed;
@@ -122,7 +136,7 @@ bool DispatchTextInput(std::string_view text) {
   bool consumed = false;
   g_textInputCallbacks.forEach([&](const PreloaderInput_OnTextInput_Fn &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(text.data(), text.size()); });
+      consumed |= InvokeSafely([&] { return callback(text.data(), text.size()); }, "text");
     }
   });
   // The C++ callback API takes the event by value, so this is the one copy the text path needs;
@@ -130,7 +144,7 @@ bool DispatchTextInput(std::string_view text) {
   const pl::input::TextInputEvent event{.text = std::string(text)};
   g_cppTextInputCallbacks.forEach([&](const pl::input::TextInputCallback &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(event); });
+      consumed |= InvokeSafely([&] { return callback(event); }, "textinput-cpp");
     }
   });
   return consumed;
@@ -140,13 +154,13 @@ bool DispatchMouse(int button, bool isDown) {
   bool consumed = false;
   g_mouseCallbacks.forEach([&](const PreloaderInput_OnMouse_Fn &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(button, isDown); });
+      consumed |= InvokeSafely([&] { return callback(button, isDown); }, "mouse");
     }
   });
   const pl::input::MouseEvent event{.button = button, .isDown = isDown};
   g_cppMouseCallbacks.forEach([&](const pl::input::MouseCallback &callback) {
     if (callback) {
-      consumed |= InvokeSafely([&] { return callback(event); });
+      consumed |= InvokeSafely([&] { return callback(event); }, "mouse-cpp");
     }
   });
   return consumed;

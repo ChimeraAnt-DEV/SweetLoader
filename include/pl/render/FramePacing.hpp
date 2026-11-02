@@ -18,6 +18,7 @@
  * <p>Pure and allocation-free so it is host-tested and can run on the render thread without cost.
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
@@ -35,6 +36,21 @@ struct FramePacingReading {
   bool jittering = false;
   /** The interval matches the display period within tolerance (vsync-locked). */
   bool vsyncLocked = false;
+  /**
+   * The 50th/95th/99th percentile frame interval in microseconds over the long window (item 386).
+   *
+   * <p>Only filled by {@link FramePacingAnalyzer#percentiles}; 0 in the per-frame reading, because
+   * sorting the window on every render call would cost more than the measurement is worth.
+   */
+  long long p50Us = 0;
+  long long p95Us = 0;
+  long long p99Us = 0;
+  /**
+   * Hitches per minute (item 387), where a hitch is a frame interval above twice the median.
+   *
+   * <p>Only filled by {@link FramePacingAnalyzer#percentiles}; 0 in the per-frame reading.
+   */
+  int hitchesPerMinute = 0;
 };
 
 /**
@@ -77,6 +93,14 @@ public:
         next_ = (next_ + 1) % kWindow;
         if (count_ < kWindow) ++count_;
         ++sampleCount_;
+
+        // The long window is fed in lockstep so the percentiles cover the same samples (item 386).
+        if (percentileCount_ == 0) percentileFirstUs_ = nowUs;
+        percentileRing_[percentileNext_] = interval;
+        percentileNext_ = (percentileNext_ + 1) % kPercentileWindow;
+        if (percentileCount_ < kPercentileWindow) ++percentileCount_;
+        percentileLastUs_ = nowUs;
+        percentileSpanUs_ = percentileLastUs_ - percentileFirstUs_;
       }
     }
     lastUs_ = nowUs;
@@ -116,12 +140,58 @@ public:
     return out;
   }
 
+  /**
+   * @brief The percentile + hitch reading (items 386, 387).
+   *
+   * <p>Separate from {@link #reading} because it sorts the long window, which is too much work to do
+   * on every render call. A diagnostics reader calls this off the render thread; the ring is
+   * written by the render thread and read here, so the copy is taken under no lock but the values
+   * are only approximate for the one frame in flight, which is fine for a summary.
+   *
+   * <p>Percentiles are taken over the last {@link kPercentileWindow} intervals. A hitch is a frame
+   * above twice the median, and hitches per minute is normalised by the wall time the window spans,
+   * so a long session does not dilute a burst.
+   */
+  FramePacingReading percentiles() const {
+    FramePacingReading out;
+    out.sampleCount = sampleCount_;
+    const std::size_t n = percentileCount_;
+    if (n == 0) return out;
+
+    // Copy and sort the live window. The scratch is a member so this does not allocate.
+    for (std::size_t i = 0; i < n; ++i) scratch_[i] = percentileRing_[i];
+    std::sort(scratch_, scratch_ + n);
+
+    out.p50Us = scratch_[n * 50 / 100];
+    out.p95Us = scratch_[(n * 95 / 100) < n ? (n * 95 / 100) : n - 1];
+    out.p99Us = scratch_[(n * 99 / 100) < n ? (n * 99 / 100) : n - 1];
+
+    // A hitch is above twice the median. Count them, then normalise by the window's wall span.
+    const long long hitchThreshold = out.p50Us * 2;
+    std::size_t hitches = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+      if (scratch_[i] > hitchThreshold) ++hitches;
+    }
+    if (percentileSpanUs_ > 0) {
+      // hitches per minute = hitches * 60_000_000us / spanUs, done in 64-bit.
+      out.hitchesPerMinute = static_cast<int>(
+          (static_cast<long long>(hitches) * 60'000'000LL) /
+          static_cast<long long>(percentileSpanUs_));
+    }
+    return out;
+  }
+
   /** Clears the window, e.g. when a session starts. */
   void reset() {
     next_ = 0;
     count_ = 0;
     lastUs_ = 0;
     sampleCount_ = 0;
+    percentileNext_ = 0;
+    percentileCount_ = 0;
+    percentileFirstUs_ = 0;
+    percentileLastUs_ = 0;
+    percentileSpanUs_ = 0;
   }
 
 private:
@@ -130,6 +200,16 @@ private:
   std::size_t count_ = 0;
   long long lastUs_ = 0;
   std::size_t sampleCount_ = 0;
+
+  /** The long window the percentiles are taken over (item 386). */
+  static constexpr std::size_t kPercentileWindow = 2000;
+  long long percentileRing_[kPercentileWindow] = {};
+  mutable long long scratch_[kPercentileWindow] = {};
+  std::size_t percentileNext_ = 0;
+  std::size_t percentileCount_ = 0;
+  long long percentileFirstUs_ = 0;
+  long long percentileLastUs_ = 0;
+  long long percentileSpanUs_ = 0;
 };
 
 } // namespace pl::render

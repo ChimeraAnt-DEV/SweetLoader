@@ -11,20 +11,26 @@
 
 #include <atomic>
 #include <cmath>
-#include <mutex>
 #include <numbers>
 #include <vector>
 
 #include "pl/Logger.hpp"
 #include "pl/render/CameraSource.h"
 #include "pl/render/GlesProbe.hpp"
+#include "pl/runtime/CallbackSnapshot.hpp"
 #include "pl/runtime/GameLocalPlayer.h"
 
 namespace pl::render {
 namespace {
 
-std::mutex g_callbackMutex;
-std::vector<RenderCallback> g_callbacks;
+// The registry is a lock-free snapshot, not a mutex plus a vector (item 375).
+//
+// The dispatch runs on the render thread on every frame; a lock and a vector copy there is a cost
+// on the frame budget for a list that changes maybe twice in a session. Publishing an immutable
+// list means the dispatch is one atomic load and a const-reference loop, and a registration cannot
+// block a frame. This is the same store the input bridge uses, so the two hot paths share one
+// mechanism.
+pl::runtime::CallbackSnapshot<RenderCallback> g_callbacks;
 
 /// Reads the current GL viewport, or {0,0} when the GLES surface is unavailable. Cached table.
 void QueryViewport(int &width, int &height) {
@@ -50,10 +56,7 @@ std::atomic<bool> g_cameraResolveRequested{false};
 
 bool RegisterRenderCallback(RenderCallback callback) {
   if (!callback) return false;
-  {
-    std::lock_guard<std::mutex> lock(g_callbackMutex);
-    g_callbacks.push_back(std::move(callback));
-  }
+  g_callbacks.add(std::move(callback));
   // Resolve the real camera once, lazily. Do it here rather than in the render path: the scan walks
   // the game's whole writable data and must never run on the render thread.
   if (!g_cameraResolveRequested.exchange(true, std::memory_order_acq_rel)) {
@@ -63,15 +66,12 @@ bool RegisterRenderCallback(RenderCallback callback) {
 }
 
 std::size_t UnregisterRenderCallbacks(bool all) {
-  std::lock_guard<std::mutex> lock(g_callbackMutex);
   if (all) {
     const std::size_t removed = g_callbacks.size();
     g_callbacks.clear();
     return removed;
   }
-  if (g_callbacks.empty()) return 0;
-  g_callbacks.pop_back();
-  return 1;
+  return g_callbacks.removeLast() ? 1 : 0;
 }
 
 bool IsRenderCallbackLive() { return g_live.load(std::memory_order_acquire); }
@@ -172,17 +172,12 @@ namespace detail {
 /**
  * @brief Builds the context and invokes every registered callback for this frame.
  *
- * Called from the render detour after the game's own draw, on the render thread. The callback list
- * is copied under the lock and then invoked outside it, so a callback that (un)registers another
- * callback cannot deadlock and a slow callback cannot block registration.
+ * Called from the render detour after the game's own draw, on the render thread. The published list
+ * is read with one atomic load and iterated by const reference (item 375), so a callback that
+ * (un)registers another callback cannot deadlock and a slow callback cannot block registration.
  */
 void DispatchRenderCallbacks() {
-  std::vector<RenderCallback> snapshot;
-  {
-    std::lock_guard<std::mutex> lock(g_callbackMutex);
-    if (g_callbacks.empty()) return;
-    snapshot = g_callbacks;
-  }
+  if (g_callbacks.size() == 0) return;
 
   RenderContext context;
   context.frameTick = g_frameTick.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -216,14 +211,14 @@ void DispatchRenderCallbacks() {
 
   g_live.store(true, std::memory_order_release);
 
-  for (const RenderCallback &callback : snapshot) {
+  g_callbacks.forEach([&](const RenderCallback &callback) {
     // A callback must never take the process down: a throw is swallowed and the frame continues.
     try {
       callback(context);
     } catch (...) {
       preloaderLogger.warn("Render callback threw; frame continues");
     }
-  }
+  });
 }
 
 } // namespace detail

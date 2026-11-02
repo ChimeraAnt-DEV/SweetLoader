@@ -47,39 +47,57 @@ int main() {
   // --- Content-addressed registry ---
   ImageOverrideRegistry registry;
   expect(registry.size() == 0, "a fresh registry is empty");
-  expect(!registry.find(7), "an unknown key misses");
+  expect(!registry.find(7, 16), "an unknown key misses");
 
-  registry.set(7, pixels(16, 0xAB), 2, 2);
+  registry.set(7, 16, pixels(16, 0xAB), 2, 2);
   expect(registry.size() == 1, "a set is counted");
-  auto hit = registry.find(7);
+  auto hit = registry.find(7, 16);
   expect(hit != nullptr, "the key hits after a set");
   expect(hit->width == 2 && hit->height == 2, "the dimensions round-trip");
   expect(hit->pixels.size() == 16 && hit->pixels[0] == 0xAB, "the pixels round-trip");
 
   // Replacing a key keeps one entry and swaps the pixels.
-  registry.set(7, pixels(4, 0xCD), 1, 1);
+  registry.set(7, 4, pixels(4, 0xCD), 1, 1);
   expect(registry.size() == 1, "replacing a key does not add an entry");
-  auto replaced = registry.find(7);
+  auto replaced = registry.find(7, 4);
   expect(replaced->pixels.size() == 4 && replaced->pixels[0] == 0xCD, "the replacement wins");
 
   // Sorted order: several keys all resolve, and lookup is exact.
-  registry.set(3, pixels(4, 1), 1, 1);
-  registry.set(9, pixels(4, 2), 1, 1);
-  registry.set(5, pixels(4, 3), 1, 1);
+  registry.set(3, 4, pixels(4, 1), 1, 1);
+  registry.set(9, 4, pixels(4, 2), 1, 1);
+  registry.set(5, 4, pixels(4, 3), 1, 1);
   expect(registry.size() == 4, "four distinct keys");
-  expect(registry.find(3)->pixels[0] == 1, "key 3 resolves");
-  expect(registry.find(5)->pixels[0] == 3, "key 5 resolves");
-  expect(registry.find(9)->pixels[0] == 2, "key 9 resolves");
-  expect(!registry.find(4), "a key between two present ones misses");
+  expect(registry.find(3, 4)->pixels[0] == 1, "key 3 resolves");
+  expect(registry.find(5, 4)->pixels[0] == 3, "key 5 resolves");
+  expect(registry.find(9, 4)->pixels[0] == 2, "key 9 resolves");
+  expect(!registry.find(4, 4), "a key between two present ones misses");
+
+  // The source-size prefilter (item 370). An entry recorded from one byte count must not match a
+  // lookup at another, and hasSourceSize is what lets the detour skip the hash when nothing could
+  // possibly match - the common case on the loader path.
+  ImageOverrideRegistry sized;
+  expect(!sized.hasSourceSize(128), "nothing is registered at a size the store has never seen");
+  sized.set(42, 128, pixels(16, 0x7F), 2, 2);
+  expect(sized.hasSourceSize(128), "the registered size is reported");
+  expect(!sized.hasSourceSize(129), "a neighbouring size is not reported");
+  expect(sized.find(42, 128) != nullptr, "the exact size matches");
+  expect(sized.find(42, 129) == nullptr, "the same key at a different size does not match");
+  // Re-registering the key at a new size moves the entry rather than leaving a stale size behind.
+  sized.set(42, 256, pixels(16, 0x7F), 2, 2);
+  expect(!sized.hasSourceSize(128), "the old size is dropped when the entry is re-registered");
+  expect(sized.hasSourceSize(256), "the new size is reported");
+  expect(sized.find(42, 128) == nullptr, "the stale size no longer matches");
+  expect(sized.find(42, 256) != nullptr, "the new size matches");
+  expect(sized.size() == 1, "re-registering at a new size keeps one entry");
 
   // A zero-size image removes just that key.
-  registry.set(3, {}, 0, 0);
+  registry.set(3, 0, {}, 0, 0);
   expect(registry.size() == 3, "a zero-size set removes the entry");
-  expect(!registry.find(3), "the removed key misses");
-  expect(registry.find(5) != nullptr, "the neighbours survive a remove");
+  expect(!registry.find(3, 4), "the removed key misses");
+  expect(registry.find(5, 4) != nullptr, "the neighbours survive a remove");
 
   registry.remove(9);
-  expect(!registry.find(9) && registry.size() == 2, "remove drops one entry");
+  expect(!registry.find(9, 4) && registry.size() == 2, "remove drops one entry");
 
   registry.clear();
   expect(registry.size() == 0, "clear empties the registry");
@@ -87,9 +105,9 @@ int main() {
   // A pointer taken before a replace keeps the old pixels alive: this is the property that makes
   // the read safe while a registration lands on another thread.
   ImageOverrideRegistry keepAlive;
-  keepAlive.set(1, pixels(8, 0x11), 2, 1);
-  auto held = keepAlive.find(1);
-  keepAlive.set(1, pixels(4, 0x22), 1, 1);
+  keepAlive.set(1, 8, pixels(8, 0x11), 2, 1);
+  auto held = keepAlive.find(1, 8);
+  keepAlive.set(1, 4, pixels(4, 0x22), 1, 1);
   keepAlive.clear();
   expect(held->pixels.size() == 8 && held->pixels[0] == 0x11,
          "a held image survives a replace and a clear");
@@ -126,17 +144,17 @@ int main() {
 
   // A reader on one thread must never observe a torn or freed image while another replaces it.
   ImageOverrideRegistry shared;
-  shared.set(1, pixels(64, 1), 4, 4);
+  shared.set(1, 64, pixels(64, 1), 4, 4);
   std::atomic<bool> stop{false};
   std::atomic<int> torn{0};
   std::thread writer([&] {
     for (int i = 0; i < 5000; ++i) {
-      shared.set(1, pixels(64, static_cast<std::uint8_t>(i)), 4, 4);
+      shared.set(1, 64, pixels(64, static_cast<std::uint8_t>(i)), 4, 4);
     }
     stop.store(true);
   });
   while (!stop.load()) {
-    auto image = shared.find(1);
+    auto image = shared.find(1, 64);
     if (!image || image->pixels.size() != 64) {
       torn.fetch_add(1);
     }

@@ -63,6 +63,22 @@ public:
     std::atomic_store(&mValue, std::shared_ptr<const List>(std::move(next)));
   }
 
+  /**
+   * @brief Removes the most recently added callback, if any.
+   *
+   * @return true when a callback was removed.
+   *
+   * The render seam unregisters by dropping the last registration, so the store needs the same
+   * copy-then-swap publish as {@link #add}: a reader iterating the old list keeps it alive.
+   */
+  bool removeLast() {
+    auto next = std::make_shared<List>(*std::atomic_load(&mValue));
+    if (next->empty()) return false;
+    next->pop_back();
+    std::atomic_store(&mValue, std::shared_ptr<const List>(std::move(next)));
+    return true;
+  }
+
   /** @brief Removes every callback. */
   void clear() { std::atomic_store(&mValue, std::make_shared<const List>()); }
 

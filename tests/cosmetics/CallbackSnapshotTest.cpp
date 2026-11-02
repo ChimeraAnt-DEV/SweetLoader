@@ -56,6 +56,18 @@ int main() {
   store.forEach([&](const int &) { ++visitedAfterClear; });
   expect(visitedAfterClear == 0, "nothing is visited after clear()");
 
+  // removeLast drops only the most recent registration, and reports whether it did anything.
+  CallbackSnapshot<int> stack;
+  expect(!stack.removeLast(), "removeLast on an empty store reports nothing removed");
+  stack.add(1);
+  stack.add(2);
+  expect(stack.removeLast(), "removeLast removes the last registration");
+  std::vector<int> remaining;
+  stack.forEach([&](const int &value) { remaining.push_back(value); });
+  expect(remaining.size() == 1 && remaining[0] == 1, "the earlier registration survives");
+  expect(stack.removeLast(), "the last registration can be removed again");
+  expect(!stack.removeLast(), "an emptied store reports nothing removed");
+
   // The reader's snapshot survives a writer publishing a new list mid-iteration. This is the
   // property that makes the lock-free read safe: the shared pointer taken at the start of forEach
   // keeps the list alive, so a registration inside the loop cannot free what is being iterated.

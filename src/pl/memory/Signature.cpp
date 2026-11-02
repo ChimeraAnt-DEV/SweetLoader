@@ -20,23 +20,16 @@
 #include "pl/Logger.hpp"
 #include "pl/memory/ElfBuildId.hpp"
 #include "pl/memory/ModulePathMatch.hpp"
+#include "pl/memory/SignaturePattern.hpp"
 
 namespace pl::memory {
 namespace {
 
-constexpr size_t kMaxExactAnchorSize = 8;
-
-struct PatternByte {
-  uint8_t value = 0;
-  uint8_t mask = 0;
-};
-
-struct ParsedPattern {
-  std::vector<PatternByte> bytes;
-  std::vector<size_t> checkIndices;
-  size_t anchorIndex = 0;
-  size_t anchorSize = 1;
-};
+// The pattern type and its parsing live in the pure, host-tested SignaturePattern.hpp so the rules
+// can be exercised without scanning a live process. These aliases keep the rest of this file (the
+// /proc walk, the Aho-Corasick scan) reading as before.
+using PatternByte = pl::memory::PatternByte;
+using ParsedPattern = pl::memory::SignaturePattern;
 
 struct MemoryRegion {
   uintptr_t start = 0;
@@ -53,7 +46,6 @@ struct ModuleInfo {
   uintptr_t base = 0;
   /** The ELF build id, or empty when it could not be read. Changes on every relink. */
   std::string buildId;
-  void *handle = nullptr;
 };
 
 struct CompiledPattern {
@@ -73,140 +65,18 @@ std::unordered_map<std::string, uintptr_t> sigCache;
 std::unordered_map<std::string, ParsedPattern> patternCache;
 std::shared_mutex cacheMutex;
 
-int hexValue(char ch) {
-  if (ch >= '0' && ch <= '9') return ch - '0';
-  if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-  if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-  return -1;
+// Thin adapters over the pure parser in SignaturePattern.hpp, so the scan below reads unchanged.
+inline ParsedPattern parsePattern(std::string_view signature) {
+  return pl::memory::ParseSignaturePattern(signature);
 }
 
-bool parsePatternToken(std::string_view token, PatternByte &byte) {
-  if (token == "?" || token == "??") {
-    byte = PatternByte{0, 0};
-    return true;
-  }
-  if (token.size() != 2) return false;
-
-  uint8_t value = 0;
-  uint8_t mask = 0;
-  for (size_t i = 0; i < token.size(); ++i) {
-    const char ch = token[i];
-    const auto shift = static_cast<uint8_t>((1 - i) * 4);
-    if (ch == '?') continue;
-    const int digit = hexValue(ch);
-    if (digit < 0) return false;
-    value |= static_cast<uint8_t>(digit << shift);
-    mask |= static_cast<uint8_t>(0xF << shift);
-  }
-
-  byte = PatternByte{value, mask};
-  return true;
+inline bool matches(PatternByte pattern, uint8_t value) {
+  return pl::memory::PatternMatches(pattern, value);
 }
 
-void appendPatternByte(ParsedPattern &pattern, PatternByte byte) {
-  const size_t index = pattern.bytes.size();
-  if (byte.mask != 0) pattern.checkIndices.push_back(index);
-  pattern.bytes.push_back(byte);
-}
+inline bool isExactByte(PatternByte byte) { return pl::memory::IsExactByte(byte); }
 
-bool appendPatternToken(std::string_view token, ParsedPattern &pattern) {
-  PatternByte byte{};
-  if (parsePatternToken(token, byte)) {
-    appendPatternByte(pattern, byte);
-    return true;
-  }
-  if (token.empty() || token.size() % 2 != 0) return false;
-
-  for (size_t pos = 0; pos < token.size(); pos += 2) {
-    if (!parsePatternToken(token.substr(pos, 2), byte)) return false;
-    appendPatternByte(pattern, byte);
-  }
-  return true;
-}
-
-ParsedPattern parsePattern(std::string_view signature) {
-  ParsedPattern pattern;
-  size_t pos = 0;
-  while (pos < signature.size()) {
-    while (pos < signature.size() &&
-           std::isspace(static_cast<unsigned char>(signature[pos]))) {
-      ++pos;
-    }
-    if (pos >= signature.size()) break;
-
-    const size_t start = pos;
-    while (pos < signature.size() &&
-           !std::isspace(static_cast<unsigned char>(signature[pos]))) {
-      ++pos;
-    }
-    if (!appendPatternToken(signature.substr(start, pos - start), pattern)) {
-      pattern.bytes.clear();
-      pattern.checkIndices.clear();
-      break;
-    }
-  }
-  return pattern;
-}
-
-bool matches(PatternByte pattern, uint8_t value) {
-  return (value & pattern.mask) == pattern.value;
-}
-
-bool isExactByte(PatternByte byte) { return byte.mask == 0xFF; }
-
-int maskBits(uint8_t mask) {
-  int count = 0;
-  while (mask != 0) {
-    mask &= static_cast<uint8_t>(mask - 1);
-    ++count;
-  }
-  return count;
-}
-
-void selectAnchor(ParsedPattern &pattern) {
-  if (pattern.checkIndices.empty()) return;
-
-  size_t bestStart = 0;
-  size_t bestSize = 0;
-  for (size_t runStart = 0; runStart < pattern.bytes.size();) {
-    if (!isExactByte(pattern.bytes[runStart])) {
-      ++runStart;
-      continue;
-    }
-
-    size_t runEnd = runStart + 1;
-    while (runEnd < pattern.bytes.size() &&
-           isExactByte(pattern.bytes[runEnd])) {
-      ++runEnd;
-    }
-
-    const size_t size = std::min(runEnd - runStart, kMaxExactAnchorSize);
-    const size_t start = runEnd - size;
-    if (size > bestSize || (size == bestSize && start > bestStart)) {
-      bestStart = start;
-      bestSize = size;
-    }
-    runStart = runEnd;
-  }
-
-  if (bestSize != 0) {
-    pattern.anchorIndex = bestStart;
-    pattern.anchorSize = bestSize;
-    return;
-  }
-
-  size_t bestIndex = pattern.checkIndices.front();
-  int bestBits = maskBits(pattern.bytes[bestIndex].mask);
-  for (const size_t index : pattern.checkIndices) {
-    const int bits = maskBits(pattern.bytes[index].mask);
-    if (bits > bestBits || (bits == bestBits && index > bestIndex)) {
-      bestIndex = index;
-      bestBits = bits;
-    }
-  }
-  pattern.anchorIndex = bestIndex;
-  pattern.anchorSize = 1;
-}
+inline void selectAnchor(ParsedPattern &pattern) { pl::memory::SelectAnchor(pattern); }
 
 // Defined below; forward-declared so module collection can probe the ELF header.
 size_t ReadRegionSafely(uintptr_t start, size_t size, uint8_t *out);
@@ -272,11 +142,27 @@ bool getModuleInfo(const std::string &name, ModuleInfo &out) {
     ReadElfBuildId(header.data(), headerRead, out.buildId);
   }
 
-  // `RTLD_NOLOAD` only: a signature lookup must never load a library as a side effect. Without a
-  // handle the module is still scanned by byte pattern, so the handle is an optimisation (dlsym of
-  // an exported name) rather than a requirement.
-  out.handle = dlopen(name.c_str(), RTLD_LAZY | RTLD_NOLOAD);
   return true;
+}
+
+// Looks a signature up as an exported symbol, for the case where a rule names one.
+//
+// The handle is opened with `RTLD_NOLOAD` only, so a lookup can never load a library as a side
+// effect, and it is closed immediately: the previous version kept the handle in the cached module
+// record, so every module the resolver touched leaked a reference for the life of the process and
+// nothing ever released it. The symbol address stays valid after the close because the library was
+// already loaded by someone else — closing only drops the reference this call added. A failed open
+// is not an error: the module is still scanned by byte pattern.
+void *ResolveExportedSymbol(std::string_view moduleName, std::string_view signature) {
+  // Both are NUL-terminated for the duration of this call: a module name and a signature come from
+  // the rules as ordinary strings, and `dlopen`/`dlsym` only read them synchronously.
+  const std::string module(moduleName);
+  const std::string symbolName(signature);
+  void *handle = dlopen(module.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+  if (handle == nullptr) return nullptr;
+  void *symbol = dlsym(handle, symbolName.c_str());
+  dlclose(handle);
+  return symbol;
 }
 
 // The module cache. A cached entry is re-validated by probing that its regions are still mapped, so
@@ -590,11 +476,9 @@ resolveSignatures(std::span<const std::string> signatures,
     std::vector<std::string> patterns;
     patterns.reserve(pending.size());
     for (const auto &signature : pending) {
-      if (module.handle) {
-        if (void *symbol = dlsym(module.handle, signature.c_str())) {
-          results[signature] = reinterpret_cast<uintptr_t>(symbol);
-          continue;
-        }
+      if (void *symbol = ResolveExportedSymbol(moduleName, signature)) {
+        results[signature] = reinterpret_cast<uintptr_t>(symbol);
+        continue;
       }
       patterns.push_back(signature);
     }
