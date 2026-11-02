@@ -303,6 +303,11 @@ int RenderHookFailureReason() {
   return g_renderFailureReason.load(std::memory_order_relaxed);
 }
 
+bool IsPlayerRenderHookInstalled() {
+  return g_hookInstalled.load(std::memory_order_relaxed) &&
+         g_renderFailureReason.load(std::memory_order_relaxed) == 0;
+}
+
 void SetDisplayRefreshHz(int hz) {
   g_displayRefreshHz.store(hz > 0 ? hz : 0, std::memory_order_relaxed);
 }

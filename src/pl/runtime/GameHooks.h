@@ -53,4 +53,14 @@ bool IsHudScreenOpen();
 bool IsShowingMenu();
 bool ShouldForceGlobalModMenu();
 
+/**
+ * @brief Recomputes the per-feature availability table from the live hook state (item 453).
+ *
+ * <p>Each feature's state is derived from the accessor that already answers "did this seam install
+ * and is it live", so the report cannot drift from the hooks it describes. Called before the report
+ * is read, so a deferred install that has since run is reflected without the client polling twice.
+ * Cheap: a handful of atomic loads and no allocation until the report itself is rendered.
+ */
+void RefreshGameFeatureAvailability();
+
 } // namespace pl::runtime

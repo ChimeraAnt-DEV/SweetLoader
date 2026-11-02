@@ -233,6 +233,12 @@ compile_run ModFaultPolicyTest \
 compile_run HookTimingTest \
   "$here/HookTimingTest.cpp"
 
+# Per-feature hook availability, rendered as one JSON report (item 453).
+compile_run FeatureAvailabilityTest \
+  -I"$root/src" \
+  "$root/src/pl/runtime/FeatureAvailability.cpp" \
+  "$here/FeatureAvailabilityTest.cpp"
+
 # The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
 # central directory); `zlib_link` above resolves it for the host.
 compile_run AntEggManifestTest \

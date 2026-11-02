@@ -44,6 +44,7 @@ set(PRELOADER_SOURCES
         src/pl/render/GlesProbe.cpp
         src/pl/render/RenderApi.cpp
         src/pl/hooks/DobbyHookManager.cpp
+        src/pl/runtime/FeatureAvailability.cpp
         src/pl/runtime/GameHookRules.cpp
         src/pl/runtime/GameHooks.cpp
         src/pl/runtime/GameCosmetics.cpp

@@ -33,6 +33,16 @@ void InitLocalPlayerSource();
 bool IsLocalPlayerAvailable();
 
 /**
+ * @brief True when the local-player slot resolved and its detour installed (item 453).
+ *
+ * <p>Distinct from {@link IsLocalPlayerAvailable}: the hook can be installed while no world is
+ * loaded yet, so the availability report says "available" for the seam and the feed reports "no
+ * data" for the frame. A report that conflated the two would show the feature as broken during a
+ * loading screen.
+ */
+bool IsLocalPlayerHookInstalled();
+
+/**
  * @brief Reads the local player's world position.
  * @param out Receives x, y, z on success; left untouched otherwise.
  * @return true when a live position was read.

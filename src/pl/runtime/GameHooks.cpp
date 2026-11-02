@@ -13,6 +13,7 @@
 #include "pl/memory/Hook.hpp"
 #include "pl/memory/Signature.hpp"
 #include "pl/memory/Vtable.hpp"
+#include "pl/runtime/FeatureAvailability.hpp"
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/GameCosmetics.h"
 #include "pl/runtime/GameLocalPlayer.h"
@@ -35,6 +36,10 @@ HookInstallGate g_installGate;
 std::atomic_bool g_installArmed{false};
 std::atomic_bool g_installResolved{false};
 std::atomic_int g_installGiveUps{0};
+// The overlay-hook batch's outcome, recorded for the per-feature availability report (item 453).
+// "Attempted" and "installed" are different facts: the batch installs atomically, so a partial
+// failure rolls back and the overlay feature is simply unavailable.
+std::atomic_bool g_overlayHooksInstalled{false};
 
 long long MonotonicMs() {
   timespec ts{};
@@ -240,6 +245,7 @@ void InitGameHooks() {
       return;
     }
 
+    g_overlayHooksInstalled.store(true, std::memory_order_relaxed);
     preloaderLogger.info("Preloader runtime hooks installed (5/5)");
   });
 }
@@ -339,6 +345,70 @@ bool IsShowingMenu() {
 
 bool ShouldForceGlobalModMenu() {
   return g_forceGlobalModMenu.load(std::memory_order_relaxed);
+}
+
+void RefreshGameFeatureAvailability() {
+  FeatureAvailability &table = GameFeatureAvailability();
+
+  // Overlay hooks: installed as one atomic batch, so the feature is either on or off.
+  if (g_overlayHooksInstalled.load(std::memory_order_relaxed)) {
+    table.set(Feature::OverlayHooks, FeatureState::Available);
+  } else if (GameHookInstallPending()) {
+    table.set(Feature::OverlayHooks, FeatureState::Pending);
+  } else {
+    table.set(Feature::OverlayHooks, FeatureState::Unavailable,
+              "pause/HUD signature or the menu slot did not resolve on this build");
+  }
+
+  // Local-player feed: the slot resolved and the detour installed.
+  if (IsLocalPlayerHookInstalled()) {
+    table.set(Feature::LocalPlayerFeed, FeatureState::Available);
+  } else if (GameHookInstallPending()) {
+    table.set(Feature::LocalPlayerFeed, FeatureState::Pending);
+  } else {
+    table.set(Feature::LocalPlayerFeed, FeatureState::Unavailable,
+              "ClientInstance local-player slot did not resolve on this build");
+  }
+
+  // Player-render feed: installed is not the same as "has run"; report installed, and note the
+  // frame state in the reason so a loading screen is not mistaken for a failure.
+  if (IsPlayerRenderHookInstalled()) {
+    table.set(Feature::PlayerRenderFeed, FeatureState::Available,
+              IsPlayerRenderHookLive() ? "" : "hook installed; the renderer has not drawn yet");
+  } else if (GameHookInstallPending()) {
+    table.set(Feature::PlayerRenderFeed, FeatureState::Pending);
+  } else {
+    table.set(Feature::PlayerRenderFeed, FeatureState::Unavailable,
+              "LivePlayerRenderer render slot did not resolve on this build");
+  }
+
+  // Native cosmetics interception rides the same render slot as the feed.
+  if (pl::cosmetics::IsNativeCosmeticRenderHookLive()) {
+    table.set(Feature::NativeCosmetics, FeatureState::Available);
+  } else if (IsPlayerRenderHookInstalled()) {
+    table.set(Feature::NativeCosmetics, FeatureState::Available,
+              "registered on the render feed; no frame drawn yet");
+  } else if (GameHookInstallPending()) {
+    table.set(Feature::NativeCosmetics, FeatureState::Pending);
+  } else {
+    table.set(Feature::NativeCosmetics, FeatureState::Unavailable,
+              "render slot did not resolve; cosmetics stay preview-only");
+  }
+
+  // Skin/cape seam is the render entry, reported through the same accessor the launcher uses.
+  table.set(Feature::SkinCapeSeam,
+            IsSkinCapeHookLive() ? FeatureState::Available : FeatureState::Unavailable,
+            IsSkinCapeHookLive() ? "" : "render entry not live on this build");
+
+  // Texture-bind seam.
+  table.set(Feature::TextureBindSeam,
+            IsTextureHookLive() ? FeatureState::Available : FeatureState::Unavailable,
+            IsTextureHookLive() ? "" : "texture-bind slot did not resolve on this build");
+
+  // Join-packet seam.
+  table.set(Feature::JoinPacketSeam,
+            IsPacketHookLive() ? FeatureState::Available : FeatureState::Unavailable,
+            IsPacketHookLive() ? "" : "player-join packet slot did not resolve on this build");
 }
 
 } // namespace pl::runtime
