@@ -4,6 +4,7 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "pl/Gloss.h"
 #include "pl/Logger.hpp"
@@ -12,6 +13,24 @@ namespace pl::memory {
 namespace {
 
 std::once_flag glossInitOnce;
+
+// A memo for resolved slots (item 397), keyed by module + type + slot. The scan walks `.rodata`
+// and `.data.rel.ro`, which is real work, and the same (type, slot) pair is resolved from more
+// than one call site (the render feed and the cosmetics hook both ask for the LivePlayerRenderer
+// slot). The key carries the module name, not an address, because addresses move with ASLR on every
+// launch; the memo is therefore per-process, and the honest note is that no on-disk cache can store
+// the answer for the next launch. What it saves is the repeated scan inside one session.
+std::unordered_map<std::string, uintptr_t> gVtableSlotMemo;
+std::mutex gVtableSlotMemoMutex;
+
+std::string makeVtableSlotKey(std::string_view typeInfoName, size_t slot,
+                              std::string_view moduleName) {
+  std::string key;
+  key.reserve(typeInfoName.size() + moduleName.size() + 24);
+  key.append(moduleName).append("::").append(typeInfoName).append("::");
+  key.append(std::to_string(slot));
+  return key;
+}
 
 void ensureGlossInitialized() {
   // GlossInit(false) is the trampoline/bookkeeping init and is all the RTTI scan and the
@@ -153,6 +172,15 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
   const std::string name(normalizedName);
   const std::string module(moduleName);
 
+  const std::string memoKey = makeVtableSlotKey(normalizedName, slot, moduleName);
+  {
+    std::lock_guard<std::mutex> lock(gVtableSlotMemoMutex);
+    auto it = gVtableSlotMemo.find(memoKey);
+    if (it != gVtableSlotMemo.end()) {
+      return it->second;
+    }
+  }
+
   ensureGlossInitialized();
 
   size_t rodataSize = 0;
@@ -184,6 +212,12 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
 
   const uintptr_t resolved =
       findPrimaryVtableSlot(dataRelRo, dataRelRoSize, typeInfo, slot);
+  // Only a successful resolution is memoised: a 0 could be a module that is not fully mapped yet,
+  // and a later call must be allowed to retry rather than read a stale failure for the session.
+  if (resolved != 0) {
+    std::lock_guard<std::mutex> lock(gVtableSlotMemoMutex);
+    gVtableSlotMemo[memoKey] = resolved;
+  }
   preloaderLogger.debug("resolveVtableFunction({}, slot {}) -> {:#x} in {}",
                         normalizedName, slot, resolved, module);
   return resolved;
