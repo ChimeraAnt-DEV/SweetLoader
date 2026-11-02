@@ -47,6 +47,7 @@ set(PRELOADER_SOURCES
         src/pl/runtime/FeatureAvailability.cpp
         src/pl/runtime/GameHookRules.cpp
         src/pl/runtime/GameHooks.cpp
+        src/pl/runtime/HookSelfTest.cpp
         src/pl/runtime/GameCosmetics.cpp
         src/pl/runtime/GameCosmeticsJni.cpp
         src/pl/runtime/RegisterAwareHook.cpp

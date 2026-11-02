@@ -52,6 +52,15 @@ bool IsPlayerRenderHookLive();
 bool IsPlayerRenderHookInstalled();
 
 /**
+ * @brief The resolved {@code LivePlayerRenderer::render} entry address, or 0 if unresolved.
+ *
+ * <p>For the hook self-test (item 452): the self-test round-trips the real addresses the install
+ * will use, so a target that resolves but cannot be patched is reported rather than discovered as
+ * a feature that silently does nothing.
+ */
+std::uintptr_t PlayerRenderHookTarget();
+
+/**
  * @brief Reads the render tick counter and per-frame call count.
  *
  * @param out Receives {renderTick, callsThisFrame, totalCalls, msSinceLastRender}.

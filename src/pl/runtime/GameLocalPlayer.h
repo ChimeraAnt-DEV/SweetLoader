@@ -43,6 +43,13 @@ bool IsLocalPlayerAvailable();
 bool IsLocalPlayerHookInstalled();
 
 /**
+ * @brief The resolved {@code ClientInstance::getLocalPlayer} slot address, or 0 if unresolved.
+ *
+ * <p>For the hook self-test (item 452).
+ */
+std::uintptr_t LocalPlayerHookTarget();
+
+/**
  * @brief Reads the local player's world position.
  * @param out Receives x, y, z on success; left untouched otherwise.
  * @return true when a live position was read.

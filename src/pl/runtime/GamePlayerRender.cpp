@@ -68,6 +68,9 @@ std::atomic<std::size_t> g_resolvedSlot{0};
 std::atomic_bool g_resolvedByString{false};
 std::atomic_bool g_slotKnown{false};
 
+// The resolved render entry address, kept for the hook self-test (item 452). 0 until resolved.
+std::atomic<std::uintptr_t> g_renderTarget{0};
+
 // Item 18 (preloader update list): the exact gate that refused the render hook, so the diagnostics
 // report names "version outside the verified range" rather than a generic "unavailable". 0 = no
 // failure (installed or still pending).
@@ -296,11 +299,16 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
     g_resolvedSlot.store(slot, std::memory_order_relaxed);
     g_resolvedByString.store(byString, std::memory_order_relaxed);
     g_slotKnown.store(true, std::memory_order_relaxed);
+    g_renderTarget.store(renderFn, std::memory_order_relaxed);
   }
 }
 
 int RenderHookFailureReason() {
   return g_renderFailureReason.load(std::memory_order_relaxed);
+}
+
+std::uintptr_t PlayerRenderHookTarget() {
+  return g_renderTarget.load(std::memory_order_relaxed);
 }
 
 bool IsPlayerRenderHookInstalled() {

@@ -19,6 +19,7 @@
 #include "pl/runtime/GameLocalPlayer.h"
 #include "pl/runtime/GamePlayerRender.h"
 #include "pl/runtime/HookInstallGate.hpp"
+#include "pl/runtime/HookSelfTest.hpp"
 
 namespace pl::runtime {
 namespace {
@@ -149,6 +150,9 @@ bool InstallHookBatch(const std::vector<PendingHook> &batch) {
 
 } // namespace
 
+/** Defined below; forward-declared so the install can round-trip the sites before hooking them. */
+void CacheHookSelfTest(const std::vector<HookSite> &sites);
+
 void ConfigureGameHooks(std::string rulesPath, std::string minecraftVersion) {
   ConfigureGameHookRules(std::move(rulesPath), std::move(minecraftVersion));
   g_forceGlobalModMenu.store(false, std::memory_order_relaxed);
@@ -239,6 +243,21 @@ void InitGameHooks() {
          (pl::memory::FuncPtr *)&orig_isShowingMenu, "isShowingMenu"},
     };
 
+    // Item 452: round-trip every resolved site once, before the real install. The targets are
+    // untouched at this point, so the round-trip tests the original code rather than chaining a
+    // detour onto one already installed. The result is cached for the diagnostics report.
+    CacheHookSelfTest({
+        {"LivePlayerRenderer::render", PlayerRenderHookTarget(), nullptr, nullptr,
+         "libminecraftpe.so"},
+        {"ClientInstance::getLocalPlayer", LocalPlayerHookTarget(), nullptr, nullptr,
+         "libminecraftpe.so"},
+        {"PauseMenuDtor", pauseDtor, nullptr, nullptr, "libminecraftpe.so"},
+        {"PauseMenuOpen", pauseOpen, nullptr, nullptr, "libminecraftpe.so"},
+        {"HudScreenDtor", hudDtor, nullptr, nullptr, "libminecraftpe.so"},
+        {"HudScreenOpen", hudOpen, nullptr, nullptr, "libminecraftpe.so"},
+        {"isShowingMenu", isShowingMenuAddr, nullptr, nullptr, "libminecraftpe.so"},
+    });
+
     if (!InstallHookBatch(overlayHooks)) {
       preloaderLogger.warn(
           "Preloader runtime hooks are incomplete; game-only overlays remain hidden");
@@ -266,6 +285,31 @@ namespace {
 constexpr int kMaxGiveUps = 3;
 constexpr long long kGiveUpBackoffMs = 5'000;
 } // namespace
+
+/** The cached self-test JSON, plus the once-guard that produces it. */
+std::once_flag g_selfTestOnce;
+std::string g_selfTestJson;
+
+void CacheHookSelfTest(const std::vector<HookSite> &sites) {
+  std::call_once(g_selfTestOnce, [&sites] {
+    g_selfTestJson = RunHookSelfTest(sites).toJson();
+  });
+}
+
+std::string RunGameHookSelfTest() {
+  // The self-test normally runs inside InitGameHooks, before the real install, so the targets are
+  // pristine. This fallback covers a caller that reads the report before an install has happened:
+  // it round-trips whatever resolved so far, which at worst reports the sites as unresolved.
+  CacheHookSelfTest({
+      {"LivePlayerRenderer::render", PlayerRenderHookTarget(), nullptr, nullptr,
+       "libminecraftpe.so"},
+      {"ClientInstance::getLocalPlayer", LocalPlayerHookTarget(), nullptr, nullptr,
+       "libminecraftpe.so"},
+  });
+  return g_selfTestJson;
+}
+
+bool GameHookSelfTestHasRun() { return HookSelfTestHasRun(); }
 
 bool PumpGameHookInstall() {
   if (g_installResolved.load(std::memory_order_acquire)) return true;

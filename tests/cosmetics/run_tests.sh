@@ -239,6 +239,10 @@ compile_run FeatureAvailabilityTest \
   "$root/src/pl/runtime/FeatureAvailability.cpp" \
   "$here/FeatureAvailabilityTest.cpp"
 
+# The hook self-test report (item 452). Pure header; the runner itself needs a live backend.
+compile_run HookSelfTestTest \
+  "$here/HookSelfTestTest.cpp"
+
 # The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
 # central directory); `zlib_link` above resolves it for the host.
 compile_run AntEggManifestTest \

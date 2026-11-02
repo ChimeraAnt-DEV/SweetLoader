@@ -63,4 +63,20 @@ bool ShouldForceGlobalModMenu();
  */
 void RefreshGameFeatureAvailability();
 
+/**
+ * @brief Runs the hook self-test (item 452) against the real resolved targets and returns the report.
+ *
+ * <p>Resolves each hook site's address (via the same accessors the install uses, so the report
+ * cannot describe a different target), round-trips it, and returns the result. It never leaves a
+ * site hooked. Called before the real install, when the sites are untouched and the game has not yet
+ * begun calling them, so a round-trip cannot disturb a live session.
+ *
+ * <p>Returns the cached report if one has already run this process, so a second call is cheap and
+ * consistent.
+ */
+std::string RunGameHookSelfTest();
+
+/** True once {@link RunGameHookSelfTest} has run. */
+bool GameHookSelfTestHasRun();
+
 } // namespace pl::runtime

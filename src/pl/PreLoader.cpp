@@ -142,6 +142,15 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeFeatureAvailability(
   return env->NewStringUTF(report.c_str());
 }
 
+// Item 452: install-and-remove every hook once and report the result, so "this hook cannot install
+// on this build" is a fact the diagnostics page can print rather than something to infer from a
+// feature that does nothing. Runs on the loading path before the real install.
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_core_mods_ModManager_nativeHookSelfTest(JNIEnv *env, jclass) {
+  const std::string report = pl::runtime::RunGameHookSelfTest();
+  return env->NewStringUTF(report.c_str());
+}
+
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_core_mods_ModManager_nativeDisableAndUnloadLoadedMods(
     JNIEnv *env, jclass clazz) {
