@@ -16,6 +16,7 @@
 #include "pl/render/FramePacing.hpp"
 #include "pl/render/RenderDispatch.h"
 #include "pl/runtime/GameHookRules.h"
+#include "pl/runtime/HookTiming.hpp"
 
 namespace pl::runtime {
 namespace {
@@ -158,7 +159,24 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   const std::size_t count = g_postRenderCount.load(std::memory_order_acquire);
   for (std::size_t i = 0; i < count && i < kMaxPostRenderCallbacks; ++i) {
     PostRenderCallback callback = g_postRender[i].load(std::memory_order_acquire);
-    if (callback != nullptr) callback();
+    if (callback == nullptr) continue;
+    // Item 388: in a debug build, time each callback and report one that runs long on the render
+    // thread. The clock read and the comparison compile out of a release build (HookTimingEnabled),
+    // so the shipped detour is unchanged; the report is only built when the budget was already
+    // exceeded, so it never allocates on a steady frame.
+    if (pl::runtime::HookTimingEnabled()) {
+      const long long startedUs = MonotonicUs();
+      callback();
+      const long long elapsedUs = MonotonicUs() - startedUs;
+      if (pl::runtime::HookOverBudget(elapsedUs)) {
+        static OnceReport reported;
+        if (reported.shouldReport()) {
+          preloaderLogger.warn("{}", pl::runtime::HookBudgetReport("post-render", elapsedUs));
+        }
+      }
+    } else {
+      callback();
+    }
   }
   // Also dispatch the public mod render callbacks (pl/Render.hpp) from this same seam, so mods and
   // the native cosmetics share one render-thread callback point.

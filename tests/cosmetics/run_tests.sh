@@ -229,6 +229,10 @@ compile_run ModFaultPolicyTest \
   -I"$root/src" \
   "$here/ModFaultPolicyTest.cpp"
 
+# The debug-only hook time budget (item 388). Pure header.
+compile_run HookTimingTest \
+  "$here/HookTimingTest.cpp"
+
 # The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
 # central directory); `zlib_link` above resolves it for the host.
 compile_run AntEggManifestTest \
