@@ -27,6 +27,8 @@ enum class LoadedModState {
 struct LoadedModEntry {
   std::string libraryPath;
   std::string modId;
+  /** The mod ids this mod declares it needs loaded first, from its manifest (item 447). */
+  std::vector<std::string> dependencies;
   LoadedModKind kind{LoadedModKind::NoEntry};
   LoadedModState state{LoadedModState::Loaded};
   PLModLifecycleFunc enable{};

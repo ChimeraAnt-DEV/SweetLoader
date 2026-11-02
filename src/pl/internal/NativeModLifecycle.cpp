@@ -92,6 +92,7 @@ createLoadedModEntry(void *handle, JavaVM *vm, const RuntimeModInfo &modInfo,
   LoadedModEntry entry{
       .libraryPath = std::move(normalizedLibraryPath),
       .modId = modInfo.modId,
+      .dependencies = modInfo.dependencies,
       .kind = LoadedModKind::NoEntry,
       .state = LoadedModState::Loaded,
   };

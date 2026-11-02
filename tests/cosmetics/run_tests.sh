@@ -156,6 +156,18 @@ compile_run SignatureScanCacheTest \
   "$root/src/pl/memory/SignatureScanCache.cpp" \
   "$here/SignatureScanCacheTest.cpp"
 
+# The native-mod manifest validation (item 445) is a pure header: it decides whether a manifest is
+# well formed and names the field that failed, so an author has something to fix.
+compile_run ModManifestValidationTest \
+  -I"$root/src" \
+  "$here/ModManifestValidationTest.cpp"
+
+# The dependency-ordered load rule (item 447) is a pure header too: determinism and cycle detection
+# decide which mod's hook runs first and which is torn down first.
+compile_run ModLoadOrderTest \
+  -I"$root/src" \
+  "$here/ModLoadOrderTest.cpp"
+
 # The exported C ABI is compile-time-pinned, so a rename fails the build.
 compile_run LegacyAbiTest \
   "$here/LegacyAbiTest.cpp"
