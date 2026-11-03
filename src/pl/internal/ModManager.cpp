@@ -23,7 +23,7 @@ bool ModManager::LoadModLibrary(
     return false;
   }
 
-  // Item 446: a mod that exhausted its fault budget is refused before anything is loaded, so a mod
+  // A mod that exhausted its fault budget is refused before anything is loaded, so a mod
   // that faults on every launch costs one launch attempt, not one per launch forever. The user can
   // re-enable it, which clears the budget.
   if (modFaultTracker().isDisabled(modInfoStorage.modId)) {
@@ -53,7 +53,7 @@ bool ModManager::LoadModLibrary(
   auto entry = createLoadedModEntry(handle, vm, modInfoStorage,
                                     normalizedLibraryPath);
   if (!entry.has_value()) {
-    // Item 446: the mod loaded as a library but its lifecycle entry failed. That is this mod's
+    // The mod loaded as a library but its lifecycle entry failed. That is this mod's
     // fault and no other mod's, so it is counted here and the rest of the set keeps loading.
     const ModFaultDecision decision = modFaultTracker().recordFault(modInfoStorage.modId);
     if (decision.action == ModFaultAction::Disable) {
@@ -89,7 +89,7 @@ void ModManager::EnableLoadedMods() {
       continue;
     }
 
-    // Item 446: an enable that fails is isolated the same way a load that fails is. The mod is
+    // An enable that fails is isolated the same way a load that fails is. The mod is
     // disabled after its budget is spent, and the loop keeps going so one broken mod cannot stop
     // every other mod from enabling.
     const ModFaultDecision decision = modFaultTracker().recordFault(entry->modId);

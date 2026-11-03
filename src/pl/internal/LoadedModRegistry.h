@@ -28,7 +28,7 @@ enum class LoadedModState {
 struct LoadedModEntry {
   std::string libraryPath;
   std::string modId;
-  /** The mod ids this mod declares it needs loaded first, from its manifest (item 447). */
+  /** The mod ids this mod declares it needs loaded first, from its manifest. */
   std::vector<std::string> dependencies;
   LoadedModKind kind{LoadedModKind::NoEntry};
   LoadedModState state{LoadedModState::Loaded};
@@ -52,7 +52,7 @@ std::optional<LoadedModEntry> getLoadedModEntry(const std::string &key);
 void setLoadedModState(const std::string &key, LoadedModState state);
 
 /**
- * @brief The process-wide per-mod fault tracker (item 446).
+ * @brief The process-wide per-mod fault tracker.
  *
  * <p>A mod that faults is isolated: the fault is recorded against the mod id, the remaining mods
  * keep loading, and a mod that faults on every launch is disabled after {@link kMaxModFaults}

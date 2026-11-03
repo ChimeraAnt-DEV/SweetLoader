@@ -1,4 +1,4 @@
-// Host test for the Optifine config parser's bounds (item 20). Pure C++, no device.
+// Host test for the Optifine config parser's bounds. Pure C++, no device.
 #include <cstdio>
 #include <string>
 

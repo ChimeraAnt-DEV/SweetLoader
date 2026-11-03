@@ -280,7 +280,7 @@ bool IsTextureHookLive();
 bool ReadCosmeticsStats(std::uint32_t out[4]);
 
 /**
- * @brief Reads the skin-path seam observation (item 3).
+ * @brief Reads the skin-path seam observation.
  *
  * The join-packet and texture-bind counters, classified by
  * {@code pl::cosmetics::ClassifySkinSeam}. The payload fields themselves are not readable in this

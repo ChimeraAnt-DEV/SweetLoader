@@ -1,6 +1,6 @@
 /**
  * @file FeatureAvailabilityTest.cpp
- * @brief Host test for the per-feature availability report (item 453).
+ * @brief Host test for the per-feature availability report.
  *
  * The report is what the Diagnostics page prints verbatim, so its shape, its state vocabulary and
  * its JSON escaping are pinned here. A wiring mistake must not be able to change the shape.

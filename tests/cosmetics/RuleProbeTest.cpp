@@ -1,6 +1,6 @@
 /**
  * @file RuleProbeTest.cpp
- * @brief Host test for the probe-backed rule gate (item 17).
+ * @brief Host test for the probe-backed rule gate.
  *
  * The gate is the rule that a feature is enabled only when the matching rule both declares the
  * slot and carries a probe that resolved it. A rule with a slot but no passing probe must leave

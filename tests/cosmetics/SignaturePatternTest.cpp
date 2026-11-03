@@ -1,4 +1,4 @@
-// Host test for the pure signature-pattern parser and anchor selection (item 457).
+// Host test for the pure signature-pattern parser and anchor selection.
 //
 // The parser is what decides which bytes a scan searches for and which it checks at a hit, so a
 // defect here is a signature that resolves to the wrong address or never resolves at all - and it is

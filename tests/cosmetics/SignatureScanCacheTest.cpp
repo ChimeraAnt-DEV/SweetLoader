@@ -1,6 +1,6 @@
 /**
  * @file SignatureScanCacheTest.cpp
- * @brief Host test for the on-disk signature scan cache (items 436, 437).
+ * @brief Host test for the on-disk signature scan cache.
  *
  * The cache lets a repeat launch skip the byte-pattern scan. The two ways it could be wrong are
  * storing an absolute address (wrong the next launch, because ASLR moves the base) and answering

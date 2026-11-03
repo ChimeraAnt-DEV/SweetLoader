@@ -68,10 +68,10 @@ std::atomic<std::size_t> g_resolvedSlot{0};
 std::atomic_bool g_resolvedByString{false};
 std::atomic_bool g_slotKnown{false};
 
-// The resolved render entry address, kept for the hook self-test (item 452). 0 until resolved.
+// The resolved render entry address, kept for the hook self-test. 0 until resolved.
 std::atomic<std::uintptr_t> g_renderTarget{0};
 
-// Item 18 (preloader update list): the exact gate that refused the render hook, so the diagnostics
+// The exact gate that refused the render hook, so the diagnostics
 // report names "version outside the verified range" rather than a generic "unavailable". 0 = no
 // failure (installed or still pending).
 std::atomic_int g_renderFailureReason{0};
@@ -94,7 +94,7 @@ long long MonotonicUs() {
   return static_cast<long long>(ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000LL;
 }
 
-// Item 11: the render thread's own frame-time reading. Fed from the render tick below and read by
+// The render thread's own frame-time reading. Fed from the render tick below and read by
 // the diagnostics; it measures and reports only, it does not reschedule the engine's frame
 // submission (that needs the engine's swap/present call, which the stripped binary does not expose).
 pl::render::FramePacingAnalyzer g_framePacing;
@@ -128,7 +128,7 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   g_totalCalls.fetch_add(1, std::memory_order_relaxed);
   g_lastRenderMs.store(now, std::memory_order_relaxed);
 
-  // Item 11: feed the frame-time analyzer. The render entry runs once per rendered player model, so
+  // Feed the frame-time analyzer. The render entry runs once per rendered player model, so
   // a 3ms floor collapses several draws inside one frame to a single sample; the reading is then the
   // real frame interval. The analyzer is plain (render-thread only); the snapshot is atomics.
   {
@@ -164,7 +164,7 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   for (std::size_t i = 0; i < count && i < kMaxPostRenderCallbacks; ++i) {
     PostRenderCallback callback = g_postRender[i].load(std::memory_order_acquire);
     if (callback == nullptr) continue;
-    // Item 388: in a debug build, time each callback and report one that runs long on the render
+    // In a debug build, time each callback and report one that runs long on the render
     // thread. The clock read and the comparison compile out of a release build (HookTimingEnabled),
     // so the shipped detour is unchanged; the report is only built when the budget was already
     // exceeded, so it never allocates on a steady frame.
@@ -206,7 +206,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
     return;
   }
 
-  // Item 18: record exactly which gate refused the hook. 0 means the hook is live (or a refusal
+  // Record exactly which gate refused the hook. 0 means the hook is live (or a refusal
   // reason that predates the field, which prints as "unknown" on the Java side).
   auto refuse = [](int reason) {
     g_renderFailureReason.store(reason, std::memory_order_relaxed);
@@ -215,12 +215,12 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
   constexpr int kReasonSlotUnresolved = 2;
   constexpr int kReasonNotExecutable = 3;
   constexpr int kReasonHookFailed = 4;
-  // Item 17: the matching rule declares a render slot but its probe did not resolve the seam to
+  // The matching rule declares a render slot but its probe did not resolve the seam to
   // executable code (or the probes block omits it). A probe-backed rule is authoritative, so the
   // feature stays off rather than detouring an unverified index.
   constexpr int kReasonProbeGate = 5;
 
-  // Probe-backed rule gate (item 17). Runs before the version check so a rule that carries a
+  // Probe-backed rule gate. Runs before the version check so a rule that carries a
   // failing probe reports that exact reason instead of the generic version-gate one. A rule with
   // no probes block (a legacy/hand-derived rule) passes here and keeps its old behaviour.
   const FeatureGate gate =
@@ -240,7 +240,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
   // slot on 26.52, so the scan correctly declines there), fall back to the configured index and
   // then the default.
   //
-  // Item 6: the version gate guards only the fallback. A successful live probe (the slot's body
+  // The version gate guards only the fallback. A successful live probe (the slot's body
   // references the render diagnostic, and the address is executable) is stronger evidence than the
   // version string, so it installs on any build without a per-build rule. The version floor then
   // only applies to the weaker configured-index path, where a stale index is the risk.

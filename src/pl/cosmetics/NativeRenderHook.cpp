@@ -166,7 +166,7 @@ bool InitNativeCosmeticRenderHook(std::size_t vtableIndex) {
   }
 
   // Confirm the render entry resolves on this build (by string, so the slot index does not matter).
-  // Item 6: the live probe is the gate. A successful string resolution proves the seam is present
+  // The live probe is the gate. A successful string resolution proves the seam is present
   // and executable-checked, so the version string is not consulted for it; the version floor only
   // guards the weaker configured-index fallback, where a stale index would detour an unrelated
   // slot and fault the render thread.

@@ -62,7 +62,7 @@ void HideKeyboardImpl() { CallActivityVoidMethod("hideSoftKeyboard"); }
 // The catch adds no allocation and no work to the normal path: it only runs when a callback threw.
 // A callback that throws on every event would otherwise be invisible (the session keeps working, so
 // the mod author never sees the bug) while flooding nothing; `OnceReport` logs the first throw at
-// each dispatch site and stays quiet after (item 362).
+// each dispatch site and stays quiet after.
 template <typename Fn>
 bool InvokeSafely(Fn &&fn, const char *site) {
   try {

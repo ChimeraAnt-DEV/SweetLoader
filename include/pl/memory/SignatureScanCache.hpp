@@ -2,7 +2,7 @@
 
 /**
  * @file SignatureScanCache.hpp
- * @brief Pure serialisation for the on-disk signature scan cache (items 436, 437).
+ * @brief Pure serialisation for the on-disk signature scan cache.
  *
  * A byte-pattern scan walks every executable mapping of a module, and `libminecraftpe`'s `.text` is
  * ~220 MB, so it is real work on every launch. The offsets a scan finds are stable for a given

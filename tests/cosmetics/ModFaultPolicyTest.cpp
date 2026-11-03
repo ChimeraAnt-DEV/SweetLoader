@@ -1,6 +1,6 @@
 /**
  * @file ModFaultPolicyTest.cpp
- * @brief Host test for the per-mod fault-isolation rule (item 446).
+ * @brief Host test for the per-mod fault-isolation rule.
  *
  * A mod that faults must not take the others down, and a mod that faults on every launch must
  * eventually be disabled rather than retried forever. Both rules are pure, so they run on the host.

@@ -48,7 +48,7 @@ PL_EXPORT bool unhook(FuncPtr target, FuncPtr detour);
 /**
  * @brief Removes every detour from every target and returns how many were removed.
  *
- * <p>Item 449: hot reload needs a way back to a clean slate. Reinstalling a detour on a target that
+ * <p>Hot reload needs a way back to a clean slate. Reinstalling a detour on a target that
  * still carries the previous one would chain the new detour onto the old trampoline, so a reload
  * that only adds hooks accumulates them. This tears them all down first; the game's original bytes
  * are restored by the backend as each hook is deleted. It is safe to call when nothing is hooked.

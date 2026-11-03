@@ -74,7 +74,7 @@ int main() {
     expect(gate.isResolved(), "a late tick leaves the gate resolved");
   }
 
-  // Item 4: a deferral re-arms the gate so a later tick tries the install again instead of the
+  // A deferral re-arms the gate so a later tick tries the install again instead of the
   // gate staying resolved and reporting Wait forever (which lost the install for the session).
   {
     HookInstallGate gate;

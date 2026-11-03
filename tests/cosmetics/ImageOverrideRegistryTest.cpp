@@ -72,7 +72,7 @@ int main() {
   expect(registry.find(9, 4)->pixels[0] == 2, "key 9 resolves");
   expect(!registry.find(4, 4), "a key between two present ones misses");
 
-  // The source-size prefilter (item 370). An entry recorded from one byte count must not match a
+  // The source-size prefilter. An entry recorded from one byte count must not match a
   // lookup at another, and hasSourceSize is what lets the detour skip the hash when nothing could
   // possibly match - the common case on the loader path.
   ImageOverrideRegistry sized;

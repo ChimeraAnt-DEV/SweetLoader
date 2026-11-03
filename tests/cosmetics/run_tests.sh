@@ -149,20 +149,20 @@ compile_run ElfBuildIdTest \
   "$here/ElfBuildIdTest.cpp" \
   "$root/src/pl/memory/ElfBuildId.cpp"
 
-# The on-disk scan cache is a pure serialiser (items 436, 437): it stores offsets from the load
+# The on-disk scan cache is a pure serialiser: it stores offsets from the load
 # base, keyed by the ELF build id, so a repeat launch skips the scan and a game update cannot read
 # the previous build's offsets.
 compile_run SignatureScanCacheTest \
   "$root/src/pl/memory/SignatureScanCache.cpp" \
   "$here/SignatureScanCacheTest.cpp"
 
-# The native-mod manifest validation (item 445) is a pure header: it decides whether a manifest is
+# The native-mod manifest validation is a pure header: it decides whether a manifest is
 # well formed and names the field that failed, so an author has something to fix.
 compile_run ModManifestValidationTest \
   -I"$root/src" \
   "$here/ModManifestValidationTest.cpp"
 
-# The dependency-ordered load rule (item 447) is a pure header too: determinism and cycle detection
+# The dependency-ordered load rule is a pure header too: determinism and cycle detection
 # decide which mod's hook runs first and which is torn down first.
 compile_run ModLoadOrderTest \
   -I"$root/src" \
@@ -206,7 +206,7 @@ compile_run OptifineConfigBoundsTest \
   "$root/src/pl/runtime/OptifineConfig.cpp" \
   "$here/OptifineConfigBoundsTest.cpp"
 
-# The dynamic-render-distance hysteresis rule (items 382, 383). The governor is a header + one
+# The dynamic-render-distance hysteresis rule. The governor is a header + one
 # translation unit with no Android dependency, so the step, dwell and change-count rules are
 # exercised on the host.
 compile_run RenderDistanceGovernorTest \
@@ -224,22 +224,22 @@ compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"
 
-# The per-mod fault-isolation rule (item 446). Pure header, no source file of its own.
+# The per-mod fault-isolation rule. Pure header, no source file of its own.
 compile_run ModFaultPolicyTest \
   -I"$root/src" \
   "$here/ModFaultPolicyTest.cpp"
 
-# The debug-only hook time budget (item 388). Pure header.
+# The debug-only hook time budget. Pure header.
 compile_run HookTimingTest \
   "$here/HookTimingTest.cpp"
 
-# Per-feature hook availability, rendered as one JSON report (item 453).
+# Per-feature hook availability, rendered as one JSON report.
 compile_run FeatureAvailabilityTest \
   -I"$root/src" \
   "$root/src/pl/runtime/FeatureAvailability.cpp" \
   "$here/FeatureAvailabilityTest.cpp"
 
-# The hook self-test report (item 452). Pure header; the runner itself needs a live backend.
+# The hook self-test report. Pure header; the runner itself needs a live backend.
 compile_run HookSelfTestTest \
   "$here/HookSelfTestTest.cpp"
 

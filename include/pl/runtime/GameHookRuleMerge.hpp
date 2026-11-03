@@ -136,7 +136,7 @@ inline std::optional<nlohmann::json> MergeHookRuleForVersion(const nlohmann::jso
     }
     // The probes block must survive the merge. Dropping it turned a probe-backed rule into a
     // legacy one, which EvaluateFeatureGate then trusts on the strength of its slot index alone -
-    // exactly the unprobed index item 17 exists to refuse. Each seam is taken first-wins, like the
+    // exactly the unprobed index the rule probe exists to refuse. Each seam is taken first-wins, like the
     // index keys.
     auto probesIt = rule.find("probes");
     if (probesIt != rule.end() && probesIt->is_object()) {

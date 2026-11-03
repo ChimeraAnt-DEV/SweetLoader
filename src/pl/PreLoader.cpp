@@ -129,7 +129,7 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeGameHookRulesSummary(JNIEnv
   return env->NewStringUTF(summary.c_str());
 }
 
-// Item 453: per-feature hook availability, as one JSON object the diagnostics page prints verbatim.
+// Per-feature hook availability, as one JSON object the diagnostics page prints verbatim.
 // "The preloader loaded" and "this feature works" are different questions; this answers the second
 // one so a single missing signature does not read as "nothing works".
 JNIEXPORT jstring JNICALL
@@ -142,7 +142,7 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeFeatureAvailability(
   return env->NewStringUTF(report.c_str());
 }
 
-// Item 452: install-and-remove every hook once and report the result, so "this hook cannot install
+// Install-and-remove every hook once and report the result, so "this hook cannot install
 // on this build" is a fact the diagnostics page can print rather than something to infer from a
 // feature that does nothing. Runs on the loading path before the real install.
 JNIEXPORT jstring JNICALL

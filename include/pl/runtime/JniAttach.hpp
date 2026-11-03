@@ -56,7 +56,7 @@ constexpr bool CanUseEnv(AttachAction action) {
 }
 
 /**
- * @brief The lifetime rule for one thread's JVM attachment (item 364).
+ * @brief The lifetime rule for one thread's JVM attachment.
  *
  * <p>The decision above says what to do on a *call*. This says what to remember between calls: the
  * attachment is resolved once per thread and kept for the thread's whole life, so a thread that

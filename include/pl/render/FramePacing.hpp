@@ -2,7 +2,7 @@
 
 /**
  * @file FramePacing.hpp
- * @brief Frame-time analysis for the render thread (item 11).
+ * @brief Frame-time analysis for the render thread.
  *
  * <p>The render thread's priority is boosted (see `OptifineRenderPriority.cpp`), but priority alone
  * does not tell the client whether frames are actually arriving evenly. The post-render callback
@@ -37,7 +37,7 @@ struct FramePacingReading {
   /** The interval matches the display period within tolerance (vsync-locked). */
   bool vsyncLocked = false;
   /**
-   * The 50th/95th/99th percentile frame interval in microseconds over the long window (item 386).
+   * The 50th/95th/99th percentile frame interval in microseconds over the long window.
    *
    * <p>Only filled by {@link FramePacingAnalyzer#percentiles}; 0 in the per-frame reading, because
    * sorting the window on every render call would cost more than the measurement is worth.
@@ -46,7 +46,7 @@ struct FramePacingReading {
   long long p95Us = 0;
   long long p99Us = 0;
   /**
-   * Hitches per minute (item 387), where a hitch is a frame interval above twice the median.
+   * Hitches per minute, where a hitch is a frame interval above twice the median.
    *
    * <p>Only filled by {@link FramePacingAnalyzer#percentiles}; 0 in the per-frame reading.
    */
@@ -94,7 +94,7 @@ public:
         if (count_ < kWindow) ++count_;
         ++sampleCount_;
 
-        // The long window is fed in lockstep so the percentiles cover the same samples (item 386).
+        // The long window is fed in lockstep so the percentiles cover the same samples.
         if (percentileCount_ == 0) percentileFirstUs_ = nowUs;
         percentileRing_[percentileNext_] = interval;
         percentileNext_ = (percentileNext_ + 1) % kPercentileWindow;
@@ -141,7 +141,7 @@ public:
   }
 
   /**
-   * @brief The percentile + hitch reading (items 386, 387).
+   * @brief The percentile + hitch reading.
    *
    * <p>Separate from {@link #reading} because it sorts the long window, which is too much work to do
    * on every render call. A diagnostics reader calls this off the render thread; the ring is
@@ -201,7 +201,7 @@ private:
   long long lastUs_ = 0;
   std::size_t sampleCount_ = 0;
 
-  /** The long window the percentiles are taken over (item 386). */
+  /** The long window the percentiles are taken over. */
   static constexpr std::size_t kPercentileWindow = 2000;
   long long percentileRing_[kPercentileWindow] = {};
   mutable long long scratch_[kPercentileWindow] = {};

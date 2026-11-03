@@ -2,7 +2,7 @@
 
 /**
  * @file HookTiming.hpp
- * @brief Flags a detour callback that is too slow to run on the game's thread (item 388).
+ * @brief Flags a detour callback that is too slow to run on the game's thread.
  *
  * <p>A hook installed on the render or input path runs inside the game's own frame budget. A
  * callback that takes more than a few tens of microseconds shows up as stutter, but the cost is

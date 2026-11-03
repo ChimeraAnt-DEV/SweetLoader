@@ -1,6 +1,6 @@
 /**
  * @file ModLoadOrderTest.cpp
- * @brief Host test for deterministic, dependency-ordered mod loading (item 447).
+ * @brief Host test for deterministic, dependency-ordered mod loading.
  *
  * The order a set of mods loads in decides which mod's hook runs first and which one is torn down
  * first, so it has to be reproducible and a cycle has to be named rather than broken at an

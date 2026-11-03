@@ -1,6 +1,6 @@
 /**
  * @file FramePacingTest.cpp
- * @brief Host test for the render-thread frame-pacing analyzer (item 11).
+ * @brief Host test for the render-thread frame-pacing analyzer.
  *
  * The analyzer is pure, so its classification rules (a lock, a hitch, no reading before two frames,
  * and no lock claim when the refresh rate is unknown) are pinned without a device.
@@ -150,7 +150,7 @@ int main() {
     expect(r.sampleCount == 1, "the next real frame is recorded");
   }
 
-  // Items 386/387: percentiles and hitches per minute over the long window.
+  // Percentiles and hitches per minute over the long window.
   {
     FramePacingAnalyzer a;
     long long t = 0;

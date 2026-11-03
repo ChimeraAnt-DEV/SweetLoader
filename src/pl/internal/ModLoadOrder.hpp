@@ -2,7 +2,7 @@
 
 /**
  * @file ModLoadOrder.hpp
- * @brief Deterministic load ordering for native mods from their declared dependencies (item 447).
+ * @brief Deterministic load ordering for native mods from their declared dependencies.
  *
  * <p>Two properties matter and both are pure, so they are host-tested:
  *

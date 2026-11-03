@@ -1,6 +1,6 @@
 /**
  * @file HookSelfTest.cpp
- * @brief The hook self-test runner and report (item 452).
+ * @brief The hook self-test runner and report.
  */
 
 #include "pl/runtime/HookSelfTest.hpp"

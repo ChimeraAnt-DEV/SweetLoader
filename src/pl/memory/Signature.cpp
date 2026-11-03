@@ -202,7 +202,7 @@ void *ResolveExportedSymbol(std::string_view moduleName, std::string_view signat
 // a stale region list.
 std::unordered_map<std::string, ModuleInfo> moduleCache;
 
-// The on-disk scan cache directory (items 436, 437). Empty until the launcher sets it, which keeps
+// The on-disk scan cache directory. Empty until the launcher sets it, which keeps
 // the default behaviour exactly as before: no file is read and none is written.
 std::mutex g_cacheDirMutex;
 std::string g_cacheDir;
@@ -580,7 +580,7 @@ resolveSignatures(std::span<const std::string> signatures,
     }
   }
 
-  // The on-disk cache is consulted before the scan (items 436, 437). It stores offsets from the
+  // The on-disk cache is consulted before the scan. It stores offsets from the
   // load base keyed by the ELF build id, so a repeat launch of the same build skips the scan
   // entirely. A cached entry that now falls outside the module is dropped by ApplyDiskCache.
   if (!pending.empty() && !module.regions.empty()) {

@@ -93,7 +93,7 @@ bool GameHookRulesHaveRenderIndex();
 std::string GameHookRulesSummary();
 
 /**
- * @brief Probe-backed feature gate (item 17): whether the matching rule both declares the slot and
+ * @brief Probe-backed feature gate: whether the matching rule both declares the slot and
  *        carries a resolved probe for it.
  *
  * A generated rule (see `tools/gen_rules.py`) pins a slot index only when it probed the seam to
@@ -104,7 +104,7 @@ std::string GameHookRulesSummary();
  */
 pl::runtime::FeatureGate EvaluateConfiguredFeatureGate(pl::runtime::HookFeature feature);
 
-/** Diagnostics: the gate reason for the player-render feature, for the report (item 18). */
+/** Diagnostics: the gate reason for the player-render feature, for the report. */
 int ConfiguredRenderGateReason();
 
 } // namespace pl::runtime
