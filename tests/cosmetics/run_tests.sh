@@ -225,6 +225,10 @@ compile_run BerrySeamProviderTest \
 compile_run BerryReplayMirrorTest \
   "$here/BerryReplayMirrorTest.cpp"
 
+# The BerryAPI governor ABI mirror, same shape.
+compile_run BerryGovernorMirrorTest \
+  "$here/BerryGovernorMirrorTest.cpp"
+
 compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"

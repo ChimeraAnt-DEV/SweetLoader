@@ -226,3 +226,83 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeReplayStatus(JNIEnv *env, jcl
 }
 
 } // extern "C"
+
+// --- Governor surface -----------------------------------------------------------------------
+//
+// The launcher's FPS diagnostics read the adaptive quality governor through these. A missing
+// library or a missing ABI answers the fail-closed default, so the screen shows "not available".
+
+#include "pl/runtime/BerryGovernorMirror.hpp"
+
+namespace {
+
+const pl::berry::GovernorApiMirror *Governor() { return pl::berry::GovernorApi(); }
+
+} // namespace
+
+extern "C" {
+
+/** True when the governor surface resolved and passed its ABI check. */
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorAvailable(JNIEnv *, jclass) {
+  return pl::berry::GovernorAvailable() ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
+ * The governor reading as {quality x6, thermal, thermallyLimited, platform, ceilingBits,
+ * renderDistanceChunks, maxParticles, entityDistanceBits, animationDistanceBits,
+ * cullFarEntities, lightingUpdatesPerTick, targetFps}, or an empty array when unavailable. The two
+ * floats (ceiling, entity/animation distance) cross as their bit patterns.
+ */
+JNIEXPORT jlongArray JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorStatus(JNIEnv *env, jclass) {
+  const pl::berry::GovernorApiMirror *api = Governor();
+  if (api == nullptr || api->status == nullptr) return env->NewLongArray(0);
+  pl::berry::GovernorStatusMirror st{};
+  api->status(&st);
+  std::uint32_t ceilingBits = 0;
+  std::uint32_t entityBits = 0;
+  std::uint32_t animBits = 0;
+  std::memcpy(&ceilingBits, &st.ceiling, sizeof(ceilingBits));
+  std::memcpy(&entityBits, &st.entity_distance, sizeof(entityBits));
+  std::memcpy(&animBits, &st.animation_distance, sizeof(animBits));
+  jlong values[14] = {
+      static_cast<jlong>(st.quality[0]), static_cast<jlong>(st.quality[1]),
+      static_cast<jlong>(st.quality[2]), static_cast<jlong>(st.quality[3]),
+      static_cast<jlong>(st.quality[4]), static_cast<jlong>(st.quality[5]),
+      st.thermal, st.thermally_limited, st.platform,
+      static_cast<jlong>(ceilingBits),
+      st.render_distance_chunks, st.max_particles,
+      static_cast<jlong>(entityBits), static_cast<jlong>(animBits),
+  };
+  jlongArray out = env->NewLongArray(14);
+  if (out != nullptr) env->SetLongArrayRegion(out, 0, 14, values);
+  return out;
+}
+
+/** Reports platform thermal pressure. Returns the action taken, or -1 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorSetThermal(JNIEnv *, jclass,
+                                                                      jint state) {
+  const pl::berry::GovernorApiMirror *api = Governor();
+  if (api == nullptr || api->set_thermal == nullptr) return -1;
+  return api->set_thermal(state);
+}
+
+/** Sets the device class the governor tunes for; a no-op when unavailable. */
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorSetPlatform(JNIEnv *, jclass,
+                                                                       jint platform) {
+  const pl::berry::GovernorApiMirror *api = Governor();
+  if (api != nullptr && api->set_platform != nullptr) api->set_platform(platform);
+}
+
+/** Sets a hard ceiling; a no-op when unavailable. */
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorSetCeiling(JNIEnv *, jclass,
+                                                                      jfloat ceiling) {
+  const pl::berry::GovernorApiMirror *api = Governor();
+  if (api != nullptr && api->set_ceiling != nullptr) api->set_ceiling(ceiling);
+}
+
+} // extern "C"

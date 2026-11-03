@@ -30,6 +30,7 @@
 
 #include "pl/Export.hpp"
 #include "pl/runtime/BerryReplayMirror.hpp"
+#include "pl/runtime/BerryGovernorMirror.hpp"
 
 namespace pl::berry {
 
@@ -142,5 +143,16 @@ PL_EXPORT const ReplayApiMirror *ReplayApi();
 
 /** True when the replay surface resolved and passed its ABI check. */
 PL_EXPORT bool ReplayAvailable();
+
+/**
+ * @brief The performance-governor surface, or null when this library does not provide one.
+ *
+ * <p>Resolves `BERRY_GetGovernorApi` and checks `BERRY_GovernorStructSize`/`BERRY_GovernorAbiVersion`
+ * against the host's mirror before returning it. The returned pointer is owned by the library.
+ */
+PL_EXPORT const GovernorApiMirror *GovernorApi();
+
+/** True when the governor surface resolved and passed its ABI check. */
+PL_EXPORT bool GovernorAvailable();
 
 } // namespace pl::berry
