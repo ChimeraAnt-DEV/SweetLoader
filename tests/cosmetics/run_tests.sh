@@ -220,6 +220,11 @@ compile_run SkinSeamObservationTest \
 compile_run BerrySeamProviderTest \
   "$here/BerrySeamProviderTest.cpp"
 
+# The BerryAPI replay ABI mirror is a pure header too: the mirror check and the usable-call rule
+# are host-tested without a device.
+compile_run BerryReplayMirrorTest \
+  "$here/BerryReplayMirrorTest.cpp"
+
 compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"
