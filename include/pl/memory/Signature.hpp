@@ -40,8 +40,7 @@ resolveSignatures(std::span<const std::string> signatures,
 PL_EXPORT bool isExecutableAddress(uintptr_t address, std::string_view moduleName);
 
 /**
- * @brief Sets the directory the on-disk signature scan cache is read from and written to (items 436,
- * 437).
+ * @brief Sets the directory the on-disk signature scan cache is read from and written to.
  *
  * A byte-pattern scan walks every executable mapping, and the offsets it finds are stable for a
  * given binary, so the result is worth keeping across launches. The cache is keyed by the module's

@@ -1,6 +1,6 @@
 /**
  * @file ModManifestValidationTest.cpp
- * @brief Host test for the pure native-mod manifest validation (item 445).
+ * @brief Host test for the pure native-mod manifest validation.
  *
  * A manifest that is wrong must be refused with the field named, so an author can fix it: the whole
  * point of the validation is the *reason*, not the boolean. The rules are pure, so they run on the

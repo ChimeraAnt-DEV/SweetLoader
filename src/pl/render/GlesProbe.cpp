@@ -38,7 +38,7 @@ void *GlesSymbol(void *handle, const char *name) {
 /// Set when {@link LastGlesError} is called, so a clean run reads 0 without touching GL.
 std::atomic<int> g_lastGlesError{0};
 
-// The vendor/renderer strings never change for a process, so they are read once (item 376) and the
+// The vendor/renderer strings never change for a process, so they are read once and the
 // classification is derived from the cached copy. A mutex guards the one-time read; every later
 // caller takes the fast path (a relaxed load of `g_gpuStringsRead`) and pays nothing.
 std::mutex g_gpuStringsMutex;

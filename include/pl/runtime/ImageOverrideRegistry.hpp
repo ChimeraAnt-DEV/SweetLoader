@@ -20,7 +20,7 @@
  * lookup is a binary search with no allocation (an earlier shape used a hash map plus a second map
  * for metadata, which is two lookups and two rehash opportunities on the hot path).
  *
- * Each entry also records the **source byte count** it was registered from (item 370). Hashing the
+ * Each entry also records the **source byte count** it was registered from. Hashing the
  * incoming buffer is the only real cost on the loader path, and a candidate can only match bytes
  * that are the same length; the registry therefore offers `hasSourceSize()` so the detour can skip
  * the hash entirely when nothing was registered at that size. That is the common case - the engine
@@ -76,7 +76,7 @@ public:
    *
    * @param key        the content hash of the source bytes the override replaces.
    * @param sourceSize the byte count of those source bytes; a lookup only matches an entry whose
-   *                   recorded size equals the incoming buffer's size (item 370).
+   *                   recorded size equals the incoming buffer's size.
    *
    * A zero-size image removes the entry, matching the "clear on empty" contract callers expect.
    */
@@ -130,7 +130,7 @@ public:
    *
    * The detour calls this before hashing: a candidate can only match bytes of the same length, so
    * when no entry shares the incoming size the hash (a full pass over the buffer) is skipped
-   * entirely (item 370). The list holds a handful of entries, so the linear scan is cheaper than
+   * entirely. The list holds a handful of entries, so the linear scan is cheaper than
    * the hash it avoids.
    */
   bool hasSourceSize(std::size_t sourceSize) const {
@@ -147,7 +147,7 @@ public:
    * @param key        the content hash of the incoming bytes.
    * @param sourceSize the incoming buffer's byte count; an entry recorded from a different size is
    *                   not a match, so a hash collision across sizes cannot substitute the wrong
-   *                   image (item 370).
+   *                   image.
    *
    * The returned pointer owns the pixels, so the caller may keep it across an engine call that
    * happens after this lookup returns.

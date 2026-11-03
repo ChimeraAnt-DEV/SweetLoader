@@ -2,7 +2,7 @@
 
 /**
  * @file HookSelfTest.hpp
- * @brief A one-shot install/remove round-trip over every hook site (item 452).
+ * @brief A one-shot install/remove round-trip over every hook site.
  *
  * <p>A hook can fail for reasons that only show up at the moment of patching: the target address
  * resolved to data rather than code, the trampoline could not be built, or the original bytes could

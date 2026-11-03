@@ -307,7 +307,7 @@ ImageOverrideRegistry::ImagePtr TakeNextOverride() {
 // Looks up a content-addressed override for the incoming bytes. The returned shared pointer keeps
 // the pixels alive for the whole engine call, so the registry lock is not held across it.
 //
-// The source size is passed with the hash (item 370): a candidate can only match bytes of the same
+// The source size is passed with the hash: a candidate can only match bytes of the same
 // length, so an entry recorded from a different size is not a match even if the hashes collided.
 ImageOverrideRegistry::ImagePtr FindContentOverride(std::uint64_t hash, std::size_t sourceSize) {
   return g_subRegistry.find(hash, sourceSize);
@@ -343,7 +343,7 @@ LoaderReturn HookLoader(void *out, std::uint32_t format, const std::uint8_t *dat
   if (!override && data != nullptr && size != 0 &&
       // 2) Content-addressed substitution: the engine is loading bytes we have a replacement for.
       //    Hashing walks the whole buffer, so only pay it when some entry was registered from a
-      //    buffer this size (item 370); the engine loads hundreds of textures per session and at
+      //    buffer this size; the engine loads hundreds of textures per session and at
       //    most a couple have overrides, so this skips the hash on almost every load.
       g_subRegistry.hasSourceSize(size)) {
     const std::uint64_t hash = Fnv1a(data, size);

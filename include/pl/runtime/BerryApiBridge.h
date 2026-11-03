@@ -29,6 +29,8 @@
 #include <string>
 
 #include "pl/Export.hpp"
+#include "pl/runtime/BerryReplayMirror.hpp"
+#include "pl/runtime/BerryGovernorMirror.hpp"
 
 namespace pl::berry {
 
@@ -128,5 +130,29 @@ PL_EXPORT bool BindWorldSeam();
 
 /** True when the launcher's local-player seam is bound into BerryAPI. */
 PL_EXPORT bool WorldSeamBound();
+
+/**
+ * @brief The replay surface, or null when this library does not provide one.
+ *
+ * <p>Resolves `BERRY_GetReplayApi` and checks `BERRY_ReplayStructSize`/`BERRY_ReplayAbiVersion`
+ * against the host's mirror before returning it, so a layout drift is refused by a number. The
+ * returned pointer is owned by the library and stays valid for the process's lifetime; a caller must
+ * still treat every field as optional.
+ */
+PL_EXPORT const ReplayApiMirror *ReplayApi();
+
+/** True when the replay surface resolved and passed its ABI check. */
+PL_EXPORT bool ReplayAvailable();
+
+/**
+ * @brief The performance-governor surface, or null when this library does not provide one.
+ *
+ * <p>Resolves `BERRY_GetGovernorApi` and checks `BERRY_GovernorStructSize`/`BERRY_GovernorAbiVersion`
+ * against the host's mirror before returning it. The returned pointer is owned by the library.
+ */
+PL_EXPORT const GovernorApiMirror *GovernorApi();
+
+/** True when the governor surface resolved and passed its ABI check. */
+PL_EXPORT bool GovernorAvailable();
 
 } // namespace pl::berry

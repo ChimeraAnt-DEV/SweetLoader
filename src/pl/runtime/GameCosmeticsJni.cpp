@@ -211,7 +211,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadCosmeticsStats(JNIE
   return out;
 }
 
-// Item 3: the skin-path seam observation. Returns {stage, packetHookInstalled, packetCalls,
+// The skin-path seam observation. Returns {stage, packetHookInstalled, packetCalls,
 // textureCalls, skinCaptured}. The stage is the honest classification: the payload fields are not
 // readable in this build, so the report names the stage reached, not a skin id it never read.
 JNIEXPORT jintArray JNICALL
@@ -341,8 +341,8 @@ JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(JNIEnv *env, jclass) {
   // 19 fields. The first 9 keep their original meaning so an older report reader still works; the
   // additions (indices 9..16) are the rules/install/camera/library-mapping/triangle state the
-  // Stage-1/4/5/6 fixes added, index 17 is the classified GPU family (item 376) and index 18 is the
-  // live hook count (item 396). -1 means "unknown / not available".
+  // Stage-1/4/5/6 fixes added, index 17 is the classified GPU family and index 18 is the
+  // live hook count. -1 means "unknown / not available".
   constexpr int kFields = 19;
   jint values[kFields];
   for (int i = 0; i < kFields; ++i) values[i] = -1;
@@ -397,7 +397,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   // Index 16 used to carry the GLES rasteriser's triangle count; retired with the rasteriser.
   values[16] = -1;
 
-  // The classified GPU family (item 376), from the vendor/renderer strings read once at the first
+  // The classified GPU family, from the vendor/renderer strings read once at the first
   // call with a GLES context. -1 when the strings have not been read yet.
   {
     const pl::render::GpuStrings strings = pl::render::ReadGpuStrings();
@@ -406,7 +406,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
                      : -1;
   }
 
-  // The number of distinct targets currently carrying a detour (item 396). The overlay hooks install
+  // The number of distinct targets currently carrying a detour. The overlay hooks install
   // through a std::call_once, so this proves the install happened once: a second init attempt must
   // not raise it, and a zero after a successful install means something unhooked it.
   values[18] = static_cast<jint>(pl::memory::hookCount());
@@ -417,7 +417,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   return out;
 }
 
-// Item 415: this process's own memory footprint as {valid, residentKb, proportionalKb, fromPss},
+// This process's own memory footprint as {valid, residentKb, proportionalKb, fromPss},
 // so the Diagnostics report can show whether a session grows. A missing source reads as invalid
 // rather than as 0 KiB, which would look like an empty process.
 JNIEXPORT jintArray JNICALL
@@ -435,14 +435,14 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadProcessMemory(JNIEn
   return out;
 }
 
-// Item 18: the exact gate that refused the render hook (0 = live, 1 = version gate, 2 = slot
+// The exact gate that refused the render hook (0 = live, 1 = version gate, 2 = slot
 // unresolved, 3 = not executable, 4 = hook() failed), so the diagnostics report names the failure.
 JNIEXPORT jint JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeRenderHookFailureReason(JNIEnv *, jclass) {
   return static_cast<jint>(pl::runtime::RenderHookFailureReason());
 }
 
-// Item 11: the display refresh rate the launcher resolved, so the frame-pacing reading can decide
+// The display refresh rate the launcher resolved, so the frame-pacing reading can decide
 // whether the render thread is vsync-locked. 0 means unknown.
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetDisplayRefreshHz(JNIEnv *, jclass,
@@ -450,7 +450,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetDisplayRefreshHz(JNI
   pl::runtime::SetDisplayRefreshHz(static_cast<int>(hz));
 }
 
-// Item 11: the render-thread frame-pacing reading, as {valid, averageUs, worstUs, flags} where
+// The render-thread frame-pacing reading, as {valid, averageUs, worstUs, flags} where
 // flags bit0 = jittering, bit1 = vsync-locked. A short array (length 1) means "no reading yet".
 JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadFramePacing(JNIEnv *env, jclass) {
@@ -471,7 +471,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadFramePacing(JNIEnv 
   return out;
 }
 
-// Items 386/387: the percentile + hitch reading over the long frame window, as
+// The percentile + hitch reading over the long frame window, as
 // {valid, p50Us, p95Us, p99Us, hitchesPerMinute}. A short array (length 1) means "no reading yet".
 JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadFramePacingPercentiles(JNIEnv *env,
@@ -524,7 +524,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeCameraAnchorSource(JNIE
   return pl::cosmetics::LastCameraAnchorFromEngine() ? 1 : 0;
 }
 
-// The classified GPU family (item 376): 0 unknown, 1 Adreno, 2 Mali, 3 Immortalis, 4 PowerVR,
+// The classified GPU family: 0 unknown, 1 Adreno, 2 Mali, 3 Immortalis, 4 PowerVR,
 // 5 Xclipse, 6 NVIDIA, 7 Apple, 8 Software, 9 Generic; -1 when the vendor/renderer strings have not
 // been read yet. This is a plain int accessor rather than a field of the diagnostics array so the
 // client can consult it on a path (choosing a preview quality) that should not allocate the whole

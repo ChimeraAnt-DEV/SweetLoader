@@ -49,7 +49,7 @@ std::string_view OptifineItemIdAt(int index) {
 
 OptifineConfig ParseOptifineConfig(std::string_view blob) {
   std::map<std::string, std::string> values;
-  // Item 20: bound the blob before parsing. A launcher build that sent a multi-megabyte string
+  // Bound the blob before parsing. A launcher build that sent a multi-megabyte string
   // would otherwise grow this map without limit. The tail past the cap is ignored, not rejected, so
   // a newer launcher that appends keys still works.
   if (blob.size() > kOptifineMaxBlobBytes) blob = blob.substr(0, kOptifineMaxBlobBytes);

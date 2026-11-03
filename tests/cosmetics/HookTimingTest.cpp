@@ -1,6 +1,6 @@
 /**
  * @file HookTimingTest.cpp
- * @brief Host test for the debug-only hook time budget (item 388).
+ * @brief Host test for the debug-only hook time budget.
  *
  * A hook callback that runs long on the game's thread shows up as stutter that gets blamed on the
  * game, so the budget rule has to be exact. It is pure, so it runs on the host.

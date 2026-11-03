@@ -37,7 +37,7 @@ struct HookElement {
   int id{};
   // The diagnostic label each detour was installed with. Two mods hooking the same address is legal
   // (the backend chains) but is worth naming: without the labels the chain log says only that
-  // *something* was already there (item 448).
+  // *something* was already there.
   std::string name;
 
   bool operator<(const HookElement &o) const noexcept {
@@ -119,7 +119,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
     return -1;
   }
 
-  // Item 451: an inline hook rewrites whole instructions, so the target must be a real instruction
+  // An inline hook rewrites whole instructions, so the target must be a real instruction
   // boundary, not an interior byte or a data word a wrong signature landed on. A read that faults
   // into zeros (or the all-ones word some unmapped reads produce) is the shape that always means the
   // address is wrong; refusing it here is what stops a bad signature from corrupting code.
@@ -155,7 +155,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
 
   if (it != map.end()) {
     auto h = it->second;
-    // Item 396: an install must be idempotent. The chain is a std::set ordered by priority and a
+    // An install must be idempotent. The chain is a std::set ordered by priority and a
     // monotonic id, so the same detour inserted twice would be two distinct elements and would run
     // twice per call -- a double draw or a double state change. A repeated install of the same
     // detour on the same target is therefore a no-op that reports success, so an init that runs
@@ -177,7 +177,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
         {detour, original, static_cast<int>(priority), h->nextId(),
          std::string(name)});
     h->rebuildChain();
-    // Item 448: warn with both names, because "two mods hook the same address" is a real conflict
+    // Warn with both names, because "two mods hook the same address" is a real conflict
     // the user needs to be able to attribute.
     preloaderLogger.warn("hook({}): target {} already hooked by [{}]; chaining (original {})",
                          name, target, existing.empty() ? "<unnamed>" : existing, h->origin);
@@ -196,7 +196,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
     return -1;
   }
 
-  // Item 7: confirm the jump is actually in place. Read back the first instruction at the target
+  // Confirm the jump is actually in place. Read back the first instruction at the target
   // and check it is a real branch, not the unpatched original or a NOP. This catches a hook backend
   // that reported success but wrote nothing (or wrote to the wrong address). A failed check is not
   // merely logged: the install is backed out, because a half-patched entry is worse than no hook

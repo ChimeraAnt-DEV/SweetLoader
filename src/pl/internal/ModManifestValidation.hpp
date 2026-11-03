@@ -2,7 +2,7 @@
 
 /**
  * @file ModManifestValidation.hpp
- * @brief Pure validation of the fields a native mod manifest declares (item 445).
+ * @brief Pure validation of the fields a native mod manifest declares.
  *
  * <p>A mod is loaded by resolving its manifest, and a manifest that is wrong in any of these
  * fields must be refused *with the field named*: "the mod did not load" is not actionable, while

@@ -11,7 +11,7 @@ namespace {
 JavaVM *g_vm = nullptr;
 jobject g_activity = nullptr;
 
-// One attachment per native thread, kept for the thread's whole life (item 364).
+// One attachment per native thread, kept for the thread's whole life.
 //
 // A native thread that calls back into Java repeatedly (the cosmetics receive loop, a mod's worker)
 // used to attach on every call and detach at the end of it, so each call paid an Attach/Detach pair.
@@ -116,7 +116,7 @@ void CallActivityVoidMethod(const char *methodName) {
       env->CallVoidMethod(g_activity, mid);
     }
   }
-  // The scope's destructor pops the local frame (the thread's attachment outlives it, item 364); an
+  // The scope's destructor pops the local frame (the thread's attachment outlives it); an
   // exception is cleared before the frame pop so a pending throwable cannot make PopLocalFrame
   // abort.
   if (env->ExceptionCheck()) {
@@ -328,7 +328,7 @@ pl::platform::HttpResponse HttpGetImpl(std::string_view url, int timeoutMs) {
     env->CallVoidMethod(connection, disconnect);
     if (env->ExceptionCheck()) env->ExceptionClear();
   }
-  // The scope pops the local frame; the thread's attachment outlives it (item 364).
+  // The scope pops the local frame; the thread's attachment outlives it.
   return result;
 }
 

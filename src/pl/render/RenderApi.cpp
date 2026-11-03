@@ -23,7 +23,7 @@
 namespace pl::render {
 namespace {
 
-// The registry is a lock-free snapshot, not a mutex plus a vector (item 375).
+// The registry is a lock-free snapshot, not a mutex plus a vector.
 //
 // The dispatch runs on the render thread on every frame; a lock and a vector copy there is a cost
 // on the frame budget for a list that changes maybe twice in a session. Publishing an immutable
@@ -173,7 +173,7 @@ namespace detail {
  * @brief Builds the context and invokes every registered callback for this frame.
  *
  * Called from the render detour after the game's own draw, on the render thread. The published list
- * is read with one atomic load and iterated by const reference (item 375), so a callback that
+ * is read with one atomic load and iterated by const reference, so a callback that
  * (un)registers another callback cannot deadlock and a slow callback cannot block registration.
  */
 void DispatchRenderCallbacks() {

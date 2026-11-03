@@ -41,7 +41,7 @@ std::atomic_bool g_hookInstalled{false};
 std::atomic_bool g_hookLive{false};
 
 // The resolved {@code ClientInstance::getLocalPlayer} slot address, kept for the hook self-test
-// (item 452). 0 until resolved.
+//. 0 until resolved.
 std::atomic<std::uintptr_t> g_slotTarget{0};
 
 // Seqlock: the game thread writes the snapshot, the Java UI thread reads it, and a torn

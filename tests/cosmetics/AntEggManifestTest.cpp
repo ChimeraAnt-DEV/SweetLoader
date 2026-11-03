@@ -244,7 +244,7 @@ void AMalformedDocumentIsRefused() {
         "a non-semver version is refused");
 }
 
-// Item 454: the sandbox root is validated before anything is written. The rules are pure path
+// The sandbox root is validated before anything is written. The rules are pure path
 // checks, so they need no filesystem and no device.
 void TheSandboxRootMustLiveInsideTheAllowedRoot() {
   std::string error;

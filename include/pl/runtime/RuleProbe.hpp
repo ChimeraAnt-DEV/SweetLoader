@@ -116,7 +116,7 @@ inline bool RuleProbeResolved(const nlohmann::json &mergedRule, HookFeature feat
  * those the probe is authoritative: a declared slot whose probe did not resolve, or that the probes
  * block omits, leaves the feature off.
  *
- * @return the exact reason, so the caller can report which link broke (item 18) rather than a bare
+ * @return the exact reason, so the caller can report which link broke rather than a bare
  *         "unavailable".
  */
 inline FeatureGate EvaluateFeatureGate(const nlohmann::json &mergedRule, HookFeature feature) {

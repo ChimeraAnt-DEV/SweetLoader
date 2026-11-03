@@ -133,7 +133,7 @@ struct GpuStrings {
 PL_EXPORT GpuStrings ReadGpuStrings();
 
 /**
- * @brief The classified GPU family from the cached strings (item 376).
+ * @brief The classified GPU family from the cached strings.
  *
  * Falls back to {@link GpuFamily::Unknown} when the strings have not been read, so a caller never
  * gets a family derived from nothing.

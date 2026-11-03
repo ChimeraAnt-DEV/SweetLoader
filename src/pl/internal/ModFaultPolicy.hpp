@@ -2,7 +2,7 @@
 
 /**
  * @file ModFaultPolicy.hpp
- * @brief Per-mod fault isolation: one bad mod must not take the others down (item 446).
+ * @brief Per-mod fault isolation: one bad mod must not take the others down.
  *
  * <p>A native mod runs inside the game process and its lifecycle entry points (`PLMod_Load`,
  * `PLMod_Enable`, the C++ registration hooks) are arbitrary code. A mod that returns failure, or

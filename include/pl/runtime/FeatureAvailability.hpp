@@ -2,7 +2,7 @@
 
 /**
  * @file FeatureAvailability.hpp
- * @brief Per-feature hook availability, reported to the client as one JSON blob (item 453).
+ * @brief Per-feature hook availability, reported to the client as one JSON blob.
  *
  * <p>The preloader installs a set of independent seams — the pause-menu overlay hooks, the local
  * player feed, the player-render feed, the native cosmetics interception, the skin/cape seams, the

@@ -4,7 +4,7 @@
  * @file ProcessMemory.hpp
  * @brief Reads this process's own memory footprint from `/proc`.
  *
- * Item 415: a session's growth is the cheapest leak signal the launcher can show. A hook or cache
+ * A session's growth is the cheapest leak signal the launcher can show. A hook or cache
  * that retains per-world state shows up as a footprint that climbs and never returns, and without
  * a reading that is invisible until the device is out of memory.
  *

@@ -55,7 +55,7 @@ std::vector<std::string> getLoadedModKeysSnapshot() {
     }
   }
 
-  // Item 447: order the set by declared dependencies, keeping registration order as the tie-break.
+  // Order the set by declared dependencies, keeping registration order as the tie-break.
   // A cycle is reported with its members and the remaining mods are still ordered, because refusing
   // the whole set over one bad pair would make every other mod unloadable. Enabling and disabling
   // both go through here, and the disable path reverses the result, so a mod is torn down before

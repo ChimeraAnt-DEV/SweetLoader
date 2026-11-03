@@ -161,7 +161,7 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
     displayName = modDirectory.filename().string();
   }
 
-  // Item 445: validate the declared fields, and refuse with the field named. A manifest whose
+  // Validate the declared fields, and refuse with the field named. A manifest whose
   // version is malformed or whose abi is a 32-bit one must not reach the loader, because the
   // failure would otherwise surface later as a bare "mod did not load" with nothing to act on.
   ModManifestFields declared;
@@ -179,7 +179,7 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
     return std::nullopt;
   }
 
-  // Item 447: the declared dependencies drive the load order. A malformed entry (a non-string, an
+  // The declared dependencies drive the load order. A malformed entry (a non-string, an
   // empty name) is skipped rather than failing the manifest: a missing dependency is not fatal, and
   // one bad entry must not make an otherwise-loadable mod unloadable.
   std::vector<std::string> dependencies;

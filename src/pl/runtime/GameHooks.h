@@ -54,7 +54,7 @@ bool IsShowingMenu();
 bool ShouldForceGlobalModMenu();
 
 /**
- * @brief Recomputes the per-feature availability table from the live hook state (item 453).
+ * @brief Recomputes the per-feature availability table from the live hook state.
  *
  * <p>Each feature's state is derived from the accessor that already answers "did this seam install
  * and is it live", so the report cannot drift from the hooks it describes. Called before the report
@@ -64,7 +64,7 @@ bool ShouldForceGlobalModMenu();
 void RefreshGameFeatureAvailability();
 
 /**
- * @brief Runs the hook self-test (item 452) against the real resolved targets and returns the report.
+ * @brief Runs the hook self-test against the real resolved targets and returns the report.
  *
  * <p>Resolves each hook site's address (via the same accessors the install uses, so the report
  * cannot describe a different target), round-trips it, and returns the result. It never leaves a

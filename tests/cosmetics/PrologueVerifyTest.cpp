@@ -1,4 +1,4 @@
-// Host test for the hook-install prologue rule (item 7). Pure C++, no device.
+// Host test for the hook-install prologue rule. Pure C++, no device.
 #include <cstdio>
 
 #include "pl/memory/PrologueVerify.hpp"
@@ -50,7 +50,7 @@ int main() {
   // 0 is not a NOP, and not a branch.
   expect(ClassifyPrologue(0U) == PrologueVerdict::Unrecognised, "zero is unrecognised");
 
-  // --- Pre-install instruction-boundary filter (item 451) ------------------------------------
+  // --- Pre-install instruction-boundary filter ------------------------------------
   // A real prologue is plausible.
   expect(ClassifyInstructionBoundary(0xA9BF7BFDU) == InstructionBoundary::Plausible,
          "a stp prologue is a plausible boundary");

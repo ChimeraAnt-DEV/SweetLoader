@@ -340,7 +340,7 @@ void InitMceImageHook();
  * image from this RGBA instead". The engine loads the same source texture bytes on every load, so
  * the hash is stable. The pixels are copied; a zero-size replacement clears the entry.
  *
- * The source byte count is recorded with the hash (item 370) and the lookup requires both to match,
+ * The source byte count is recorded with the hash and the lookup requires both to match,
  * so the detour can skip hashing a buffer no entry was registered at that size for, and a hash
  * collision across two different sizes cannot substitute the wrong image.
  */

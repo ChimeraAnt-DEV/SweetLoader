@@ -1,4 +1,4 @@
-// Host test for the dynamic-render-distance hysteresis rule (items 382, 383). Pure C++, no device.
+// Host test for the dynamic-render-distance hysteresis rule. Pure C++, no device.
 //
 // The governor decides when the render distance steps down under frame pressure and when it may
 // step back up. The rule is where the regressions live: a wrong sustain window makes the distance

@@ -44,7 +44,7 @@ struct Registrar {
       MarkOptifineSkipped(state, "waiting for a frame-rate reading");
       return;
     }
-    // Item 383: the detail carries the current distance and how many times the governor has
+    // The detail carries the current distance and how many times the governor has
     // moved it, so the Settings row reports each change rather than only the latest value.
     MarkOptifineActive(state, "render distance governor: " +
                                   std::to_string(gLastDistance) + " chunks, " +
@@ -75,7 +75,7 @@ void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsTh
   gState = RenderDistanceState{};
 }
 
-/** @brief The number of accepted render-distance changes so far (item 383). */
+/** @brief The number of accepted render-distance changes so far. */
 int RenderDistanceChangeCount() {
   std::lock_guard<std::mutex> lock(gMutex);
   return gState.changeCount;

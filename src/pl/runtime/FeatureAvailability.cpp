@@ -1,6 +1,6 @@
 /**
  * @file FeatureAvailability.cpp
- * @brief The process-wide per-feature availability table (item 453).
+ * @brief The process-wide per-feature availability table.
  */
 
 #include "pl/runtime/FeatureAvailability.hpp"

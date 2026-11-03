@@ -1,4 +1,4 @@
-// Host tests for the `/proc` footprint reader (item 415).
+// Host tests for the `/proc` footprint reader.
 //
 // The parse rules are the part that can be wrong silently: a Pss line read from the wrong field
 // would report a plausible number that means something else, and a fabricated 0 would read as an

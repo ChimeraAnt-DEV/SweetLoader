@@ -14,7 +14,7 @@ namespace {
 
 std::once_flag glossInitOnce;
 
-// A memo for resolved slots (item 397), keyed by module + type + slot. The scan walks `.rodata`
+// A memo for resolved slots, keyed by module + type + slot. The scan walks `.rodata`
 // and `.data.rel.ro`, which is real work, and the same (type, slot) pair is resolved from more
 // than one call site (the render feed and the cosmetics hook both ask for the LivePlayerRenderer
 // slot). The key carries the module name, not an address, because addresses move with ASLR on every

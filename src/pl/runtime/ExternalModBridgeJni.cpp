@@ -58,7 +58,7 @@ static nlohmann::json hudEditorElementPayload(
 
 namespace {
 
-// Item 455: an id/key/value string from Java is untrusted input. A sane ceiling bounds the work
+// An id/key/value string from Java is untrusted input. A sane ceiling bounds the work
 // the registry does with it and stops a multi-megabyte string from being copied into a lookup;
 // anything longer is refused rather than truncated, because a truncated id is a different id.
 constexpr jsize kMaxIdentifierChars = 4096;

@@ -72,7 +72,7 @@ inline PrologueVerdict ClassifyPrologue(std::uint32_t first) {
 /**
  * @brief What the first instruction at a *pre-install* target says about the address.
  *
- * <p>Item 451: an inline hook rewrites whole instructions at the target, so the address must be a
+ * <p>An inline hook rewrites whole instructions at the target, so the address must be a
  * real instruction boundary in a real function. A signature that resolved to the wrong place (an
  * interior byte of an instruction, a data table, an unmapped page that read back as zeros) is
  * indistinguishable from a correct target until the patch corrupts the game. Reading the first
@@ -92,7 +92,7 @@ enum class InstructionBoundary {
 };
 
 /**
- * @brief Classifies the first instruction word as a candidate patch site (item 451).
+ * @brief Classifies the first instruction word as a candidate patch site.
  *
  * <p>This is a cheap pre-filter, not a disassembler: it only rejects the shapes that are certainly
  * not an instruction, so a wrong signature hit is refused before anything is written rather than
@@ -108,7 +108,7 @@ inline InstructionBoundary ClassifyInstructionBoundary(std::uint32_t first) {
   return InstructionBoundary::Plausible;
 }
 
-/** @brief True when the word is safe to consider as an instruction boundary (item 451). */
+/** @brief True when the word is safe to consider as an instruction boundary. */
 inline bool IsPlausibleInstructionBoundary(std::uint32_t first) {
   return ClassifyInstructionBoundary(first) == InstructionBoundary::Plausible;
 }

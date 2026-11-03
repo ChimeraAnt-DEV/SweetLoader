@@ -154,7 +154,7 @@ void ConfigureOptifineRenderDistance(int minDistance, int maxDistance, int fpsTh
                                      int stepSize, long long minDwellMs);
 
 /**
- * @brief The number of accepted render-distance changes so far (item 383).
+ * @brief The number of accepted render-distance changes so far.
  *
  * The launcher polls this; an increase since the last poll means the governor moved the distance,
  * which is what the HUD reports. Zero before any sample.

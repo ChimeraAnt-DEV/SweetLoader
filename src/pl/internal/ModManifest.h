@@ -21,9 +21,9 @@ struct RuntimeModInfo {
   std::string iconPath;
   std::string manifestPath;
   std::string modRootPath;
-  /** The mod ids this mod declares it needs loaded first (item 447). Absent ids are not an error. */
+  /** The mod ids this mod declares it needs loaded first. Absent ids are not an error. */
   std::vector<std::string> dependencies;
-  /** The game-version range this mod declares, or empty when unconstrained (item 445). */
+  /** The game-version range this mod declares, or empty when unconstrained. */
   std::string gameVersionRange;
   PLModInfo legacyInfo{};
 };

@@ -18,7 +18,7 @@ namespace pl::runtime {
 constexpr int kOptifineItemCount = 9;
 
 /**
- * @brief Bounds on the launcher's config blob (item 20).
+ * @brief Bounds on the launcher's config blob.
  *
  * The blob crosses a JNI boundary from the launcher, so a buggy or hostile build could hand the
  * preloader a multi-megabyte string, a million keys or a single kilobyte key. The parser stores

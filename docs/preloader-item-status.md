@@ -19,7 +19,7 @@ verified passthrough or a fail-closed refusal, never a fabricated reading.
 | 6 | Real version gate | done | `GamePlayerRender.cpp` | A live probe (slot body references the render diagnostic, address executable) installs on any build; the `1.21.132` floor guards only the weaker configured-index fallback. |
 | 7 | Verify patched prologues | done | `Vtable.cpp`, `PrologueVerify.hpp` | The first instructions are read back after install; an unverified patch is backed out. |
 | 8 | Real entity culling | blocked | `OptifineEntityCulling.cpp` | Verified passthrough: resolves the entry and counts calls. Skipping off-screen entities needs the actor transform + frustum, which this build does not expose. |
-| 9 | Real particle culling | blocked | `OptifineParticleCulling.cpp` | Same shape as item 8 for `ParticleEngine`. |
+| 9 | Real particle culling | blocked | `OptifineParticleCulling.cpp` | Same shape as the entity-culling row, for `ParticleEngine`. |
 | 10 | Real dynamic render distance | partial | `OptifineRenderDistance.cpp`, `tools/verify-binary` | The options setter must be found from the option's string references. The analyzer now reports whether that anchor exists per build (`render_distance_option`), so the route is known to be possible rather than guessed; until the setter is recovered the governor's output is reported, not applied. |
 | 11 | Frame-time-based pacing | partial | `FramePacing.hpp` | The frame intervals are measured and classified (jitter, vsync-lock) and pinned by `FramePacingTest`; actively rescheduling against the display's vsync needs the engine's own present call, which the stripped binary does not expose. The reading is real; the reschedule is not. |
 | 12 | Vulkan cosmetic path | done | `mce_image_hook.cpp`, `GlesProbe.hpp` | A cosmetic reaches the game through the engine image loader, which does not need GLES, so the cape path works on a Vulkan-only backend. The mesh renderer that needed GLES is gone, so there is no GLES-only cosmetic path left to fall back from. |
@@ -36,7 +36,7 @@ verified passthrough or a fail-closed refusal, never a fabricated reading.
 
 ## The four that matter for the skin bug
 
-Items 1, 2, 3 and 7 are the ones the skin report calls out.
+The detour-typing, persona-capture, remote-skin and prologue rows are the ones the skin report calls out.
 
 - **1 (typed detours)** is done: the veneers forward the full register set, so a return value in x0
   or an sret pointer in x8 survives the detour. The old `void` detours dropped them.

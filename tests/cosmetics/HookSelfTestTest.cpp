@@ -1,4 +1,4 @@
-// Host test for the hook self-test report (item 452).
+// Host test for the hook self-test report.
 //
 // The runner itself needs a live backend, but the report is what the client prints, so its
 // classification, its pass/fail arithmetic and its JSON shape are pinned here. The header is

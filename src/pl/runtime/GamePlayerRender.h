@@ -42,7 +42,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex);
 bool IsPlayerRenderHookLive();
 
 /**
- * @brief True when the render slot resolved and the detour installed (item 453).
+ * @brief True when the render slot resolved and the detour installed.
  *
  * <p>Distinct from {@link IsPlayerRenderHookLive}: the hook installs before the first frame, so the
  * availability report says "available" from launch while the live flag stays false until the
@@ -54,7 +54,7 @@ bool IsPlayerRenderHookInstalled();
 /**
  * @brief The resolved {@code LivePlayerRenderer::render} entry address, or 0 if unresolved.
  *
- * <p>For the hook self-test (item 452): the self-test round-trips the real addresses the install
+ * <p>For the hook self-test: the self-test round-trips the real addresses the install
  * will use, so a target that resolves but cannot be patched is reported rather than discovered as
  * a feature that silently does nothing.
  */
@@ -100,7 +100,7 @@ long long LastPlayerRenderMs();
 bool LastResolvedRenderSlot(std::size_t &outSlot, bool &outByString);
 
 /**
- * @brief The exact gate that refused the render hook (item 18 of the preloader update list).
+ * @brief The exact gate that refused the render hook.
  *
  * <p>0 = hook live (or reason predates the field); 1 = build outside the verified version range;
  * 2 = render slot unresolved; 3 = slot resolved to non-executable data; 4 = hook install call
@@ -110,13 +110,13 @@ bool LastResolvedRenderSlot(std::size_t &outSlot, bool &outByString);
 int RenderHookFailureReason();
 
 /**
- * @brief Sets the display's refresh rate, so the frame-pacing reading (item 11) can decide whether
+ * @brief Sets the display's refresh rate, so the frame-pacing reading can decide whether
  *        frames are vsync-locked. 0 means unknown, in which case a lock is never claimed.
  */
 void SetDisplayRefreshHz(int hz);
 
 /**
- * @brief The render-thread frame-pacing reading (item 11), or false before two frames are seen.
+ * @brief The render-thread frame-pacing reading, or false before two frames are seen.
  *
  * <p>{@code outAverageUs}/{@code outWorstUs} are microsecond frame intervals; {@code outJittering}
  * means a recent frame exceeded the expected interval; {@code outVsyncLocked} means the average
@@ -127,7 +127,7 @@ bool ReadFramePacing(long long &outAverageUs, long long &outWorstUs, bool &outJi
                      bool &outVsyncLocked);
 
 /**
- * @brief The percentile + hitch reading over the long frame window (items 386, 387), or false
+ * @brief The percentile + hitch reading over the long frame window, or false
  *        before any frames have been seen.
  *
  * <p>{@code outP50Us}/{@code outP95Us}/{@code outP99Us} are the median and tail frame intervals in

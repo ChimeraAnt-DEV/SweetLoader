@@ -46,7 +46,7 @@ A seam whose slot does not resolve to executable `.text` is reported and
 **omitted** from the rule. It must stay absent so the runtime fails closed
 instead of detouring a data pointer. The tool never guesses an address.
 
-## Probe-backed rules (item 17)
+## Probe-backed rules
 
 Each emitted rule carries a `probes` block naming, per seam, whether it
 resolved, the address, and what a success proves. A rule that turns a feature

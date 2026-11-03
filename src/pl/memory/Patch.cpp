@@ -159,7 +159,7 @@ namespace {
         __builtin___clear_cache(reinterpret_cast<char *>(getPageStart(addr)),
                                 reinterpret_cast<char *>(addr + bytes.size()));
 
-        // Item 450: read the bytes back and confirm the write landed before recording the patch.
+        // Read the bytes back and confirm the write landed before recording the patch.
         // A patch that silently did not take (a wrong signature hit, a read-only mapping the kernel
         // ignored) would leave the game running unpatched while the caller believed it succeeded, and
         // a partially written instruction is worse than none. On mismatch the original bytes are

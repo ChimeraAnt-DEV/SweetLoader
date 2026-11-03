@@ -33,7 +33,7 @@ void InitLocalPlayerSource();
 bool IsLocalPlayerAvailable();
 
 /**
- * @brief True when the local-player slot resolved and its detour installed (item 453).
+ * @brief True when the local-player slot resolved and its detour installed.
  *
  * <p>Distinct from {@link IsLocalPlayerAvailable}: the hook can be installed while no world is
  * loaded yet, so the availability report says "available" for the seam and the feed reports "no
@@ -45,7 +45,7 @@ bool IsLocalPlayerHookInstalled();
 /**
  * @brief The resolved {@code ClientInstance::getLocalPlayer} slot address, or 0 if unresolved.
  *
- * <p>For the hook self-test (item 452).
+ * <p>For the hook self-test.
  */
 std::uintptr_t LocalPlayerHookTarget();
 

@@ -23,7 +23,7 @@ struct RenderDistanceConfig {
   /** Consecutive ms above threshold before stepping back up one step. */
   long long restoreSustainMs{10000};
   /**
-   * Chunks moved per step. Exposed to settings (item 383) so a device can trade a coarse distance
+   * Chunks moved per step. Exposed to settings so a device can trade a coarse distance
    * for fewer transitions, or a finer one for smoother adaptation.
    */
   int stepSize{1};
@@ -42,7 +42,7 @@ struct RenderDistanceState {
   long long aboveSinceMs{0};
   /** Monotonic ms of the last accepted change; guards {@link RenderDistanceConfig::minDwellMs}. */
   long long lastChangeMs{0};
-  /** Number of accepted changes, so the client can report each one (item 383). */
+  /** Number of accepted changes, so the client can report each one. */
   int changeCount{0};
   bool initialized{false};
 };

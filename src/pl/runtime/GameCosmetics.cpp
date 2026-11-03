@@ -560,7 +560,7 @@ bool IsTextureHookLive() {
 }
 
 bool ReadSkinSeam(std::uint32_t out[5]) {
-  // Item 3: the join/texture seam counters, so a bug report can name the stage the skin path
+  // The join/texture seam counters, so a bug report can name the stage the skin path
   // reached. The payload fields are not readable in this build (see SkinSeamObservation.hpp), so
   // this reports reach, never a skin id it did not read.
   if (out == nullptr) return false;

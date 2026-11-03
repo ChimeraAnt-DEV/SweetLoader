@@ -53,7 +53,7 @@ int main() {
   expect(DecideAttach(-3, true) == AttachAction::Unavailable, "JNI_EVERSION -> unavailable");
   expect(!CanUseEnv(DecideAttach(-3, true)), "a version error env must not be used");
 
-  // --- The per-thread lifetime rule (item 364) -------------------------------------------------
+  // --- The per-thread lifetime rule -------------------------------------------------
   // The attachment is resolved once per thread and kept; the detach happens at thread exit, and
   // only for a thread we attached.
   {

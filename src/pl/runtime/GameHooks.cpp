@@ -37,7 +37,7 @@ HookInstallGate g_installGate;
 std::atomic_bool g_installArmed{false};
 std::atomic_bool g_installResolved{false};
 std::atomic_int g_installGiveUps{0};
-// The overlay-hook batch's outcome, recorded for the per-feature availability report (item 453).
+// The overlay-hook batch's outcome, recorded for the per-feature availability report.
 // "Attempted" and "installed" are different facts: the batch installs atomically, so a partial
 // failure rolls back and the overlay feature is simply unavailable.
 std::atomic_bool g_overlayHooksInstalled{false};
@@ -243,7 +243,7 @@ void InitGameHooks() {
          (pl::memory::FuncPtr *)&orig_isShowingMenu, "isShowingMenu"},
     };
 
-    // Item 452: round-trip every resolved site once, before the real install. The targets are
+    // Round-trip every resolved site once, before the real install. The targets are
     // untouched at this point, so the round-trip tests the original code rather than chaining a
     // detour onto one already installed. The result is cached for the diagnostics report.
     CacheHookSelfTest({
@@ -342,7 +342,7 @@ bool PumpGameHookInstall() {
   // Install path. InitGameHooks defers when the signature rules have not been delivered yet; a
   // deferral is not a permanent skip, so the gate is re-armed to schedule another attempt. Without
   // the re-arm the gate would already be resolved and every later tick would report Wait, losing the
-  // install for the whole session even after the rules arrived (item 4).
+  // install for the whole session even after the rules arrived.
   preloaderLogger.info("Preloader hook install running after {} frame tick(s)",
                        g_installGate.frameTicks());
   InitGameHooks();

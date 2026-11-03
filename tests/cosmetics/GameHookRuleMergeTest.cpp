@@ -106,8 +106,8 @@ int main() {
   }
 
   // A probes block must survive the merge. Dropping it made a probe-backed rule look like a legacy
-  // one, which EvaluateFeatureGate then trusts on the slot index alone - the unprobed index item 17
-  // exists to refuse.
+  // one, which EvaluateFeatureGate then trusts on the slot index alone - the unprobed index the
+  // probe exists to refuse.
   {
     json root2 = json::object();
     root2["revision"] = 6;

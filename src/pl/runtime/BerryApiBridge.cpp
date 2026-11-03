@@ -5,6 +5,9 @@
 
 #include "pl/runtime/BerryApiBridge.h"
 
+#include "pl/runtime/BerryReplayMirror.hpp"
+#include "pl/runtime/BerryGovernorMirror.hpp"
+
 #include <dlfcn.h>
 
 #include <atomic>
@@ -35,6 +38,14 @@ using ClearWorldSeamFn = void (*)();
 using HasWorldSeamFn = std::int32_t (*)();
 using WorldSeamStructSizeFn = std::uint32_t (*)();
 using WorldSeamAbiVersionFn = std::uint32_t (*)();
+// The replay surface (BerryAPI replay ABI v1). Optional: a library without it still loads.
+using GetReplayApiFn = const pl::berry::ReplayApiMirror *(*)();
+using ReplayStructSizeFn = std::uint32_t (*)();
+using ReplayAbiVersionFn = std::uint32_t (*)();
+// The governor surface (BerryAPI governor ABI v1). Optional.
+using GetGovernorApiFn = const pl::berry::GovernorApiMirror *(*)();
+using GovernorStructSizeFn = std::uint32_t (*)();
+using GovernorAbiVersionFn = std::uint32_t (*)();
 
 std::mutex g_loadMutex;
 std::atomic<bool> g_attempted{false};
@@ -49,6 +60,12 @@ ClearWorldSeamFn g_clearWorldSeam = nullptr;
 HasWorldSeamFn g_hasWorldSeam = nullptr;
 WorldSeamStructSizeFn g_worldSeamStructSize = nullptr;
 WorldSeamAbiVersionFn g_worldSeamAbiVersion = nullptr;
+GetReplayApiFn g_getReplayApi = nullptr;
+ReplayStructSizeFn g_replayStructSize = nullptr;
+ReplayAbiVersionFn g_replayAbiVersion = nullptr;
+GetGovernorApiFn g_getGovernorApi = nullptr;
+GovernorStructSizeFn g_governorStructSize = nullptr;
+GovernorAbiVersionFn g_governorAbiVersion = nullptr;
 std::atomic<bool> g_seamBound{false};
 std::string g_loadError;
 
@@ -85,6 +102,14 @@ void LoadOnce() {
   g_hasWorldSeam = Resolve<HasWorldSeamFn>(handle, "BERRY_HasWorldSeam");
   g_worldSeamStructSize = Resolve<WorldSeamStructSizeFn>(handle, "BERRY_WorldSeamStructSize");
   g_worldSeamAbiVersion = Resolve<WorldSeamAbiVersionFn>(handle, "BERRY_WorldSeamAbiVersion");
+  // The replay surface. Optional: a library built before it still loads and attaches.
+  g_getReplayApi = Resolve<GetReplayApiFn>(handle, "BERRY_GetReplayApi");
+  g_replayStructSize = Resolve<ReplayStructSizeFn>(handle, "BERRY_ReplayStructSize");
+  g_replayAbiVersion = Resolve<ReplayAbiVersionFn>(handle, "BERRY_ReplayAbiVersion");
+  // The governor surface. Optional.
+  g_getGovernorApi = Resolve<GetGovernorApiFn>(handle, "BERRY_GetGovernorApi");
+  g_governorStructSize = Resolve<GovernorStructSizeFn>(handle, "BERRY_GovernorStructSize");
+  g_governorAbiVersion = Resolve<GovernorAbiVersionFn>(handle, "BERRY_GovernorAbiVersion");
 
   // The version string is the cheapest proof the ABI is the one we expect; without it the library
   // is not BerryAPI as this bridge understands it, so it is treated as absent.
@@ -222,5 +247,46 @@ bool BindWorldSeam() {
   g_seamBound.store(true, std::memory_order_release);
   return true;
 }
+
+const pl::berry::ReplayApiMirror *ReplayApi() {
+  if (!EnsureLoaded()) return nullptr;
+  if (g_getReplayApi == nullptr || g_replayStructSize == nullptr || g_replayAbiVersion == nullptr) {
+    // The library predates the replay ABI: the surface stays absent.
+    return nullptr;
+  }
+  // Check the numbers before reading a single pointer, so a layout drift is refused by a number.
+  const pl::berry::ReplayAbi reported{g_replayStructSize(), g_replayAbiVersion()};
+  if (!pl::berry::ReplayMirrorMatches(reported, static_cast<std::uint32_t>(
+                                                 sizeof(pl::berry::ReplayApiMirror)),
+                                      pl::berry::kHostReplayAbiVersion)) {
+    return nullptr;
+  }
+  const pl::berry::ReplayApiMirror *api = g_getReplayApi();
+  if (api == nullptr) return nullptr;
+  // A surface missing a call the replay screen drives is refused rather than called through null.
+  if (!pl::berry::ReplayApiUsable(*api)) return nullptr;
+  return api;
+}
+
+bool ReplayAvailable() { return ReplayApi() != nullptr; }
+
+const pl::berry::GovernorApiMirror *GovernorApi() {
+  if (!EnsureLoaded()) return nullptr;
+  if (g_getGovernorApi == nullptr || g_governorStructSize == nullptr ||
+      g_governorAbiVersion == nullptr) {
+    return nullptr;
+  }
+  const pl::berry::GovernorAbi reported{g_governorStructSize(), g_governorAbiVersion()};
+  if (!pl::berry::GovernorMirrorMatches(reported, static_cast<std::uint32_t>(
+                                                     sizeof(pl::berry::GovernorApiMirror)),
+                                        pl::berry::kHostGovernorAbiVersion)) {
+    return nullptr;
+  }
+  const pl::berry::GovernorApiMirror *api = g_getGovernorApi();
+  if (api == nullptr || !pl::berry::GovernorApiUsable(*api)) return nullptr;
+  return api;
+}
+
+bool GovernorAvailable() { return GovernorApi() != nullptr; }
 
 } // namespace pl::berry
