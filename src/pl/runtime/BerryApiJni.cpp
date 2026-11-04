@@ -251,6 +251,73 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeReplaySave(JNIEnv *env, jclas
   return out;
 }
 
+// --- Replay capture (ABI v2) ----------------------------------------------------------------
+//
+// The recorder half: a host that can see the game's network stream records it here. A Bedrock
+// session's entity spawns, movement, block updates and inventory all arrive as packets, so the
+// packet stream is the world data - no game-memory offset is needed to reconstruct it. These are
+// thin calls onto the resolved surface; a library built before the capture ABI answers the
+// fail-closed default rather than being driven through a null pointer.
+
+/** True when the surface provides the packet capture (ABI v2). */
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplayCaptureAvailable(JNIEnv *, jclass) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  return (api != nullptr && pl::berry::ReplayCaptureUsable(*api)) ? JNI_TRUE : JNI_FALSE;
+}
+
+/** Begins a capture session. Returns the ABI status (0 = ok). */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplayCaptureStart(JNIEnv *, jclass) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  if (api == nullptr || api->capture_start == nullptr) {
+    return static_cast<jint>(pl::berry::ReplayStatus::NotAttached);
+  }
+  return api->capture_start();
+}
+
+/** Ends a capture session, keeping the captured replay for save. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplayCaptureStop(JNIEnv *, jclass) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  if (api == nullptr || api->capture_stop == nullptr) {
+    return static_cast<jint>(pl::berry::ReplayStatus::NotAttached);
+  }
+  return api->capture_stop();
+}
+
+/** The capture state: 0 idle, 1 recording, 2 throttled, 3 stopped, or -1 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplayCaptureState(JNIEnv *, jclass) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  if (api == nullptr || api->capture_state == nullptr) return -1;
+  return api->capture_state();
+}
+
+/**
+ * Records one packet. `dir` is 0 inbound, 1 outbound; `payload` is the body verbatim.
+ * Returns the ABI status (0 = stored).
+ */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplayCapturePacket(
+    JNIEnv *env, jclass, jint dir, jint id, jbyteArray payload, jlong tick) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  if (api == nullptr || api->capture_packet == nullptr) {
+    return static_cast<jint>(pl::berry::ReplayStatus::NotAttached);
+  }
+  if (payload == nullptr) return static_cast<jint>(pl::berry::ReplayStatus::BadArgument);
+  const jsize len = env->GetArrayLength(payload);
+  if (len <= 0) return static_cast<jint>(pl::berry::ReplayStatus::BadArgument);
+  jbyte *raw = env->GetByteArrayElements(payload, nullptr);
+  if (raw == nullptr) return static_cast<jint>(pl::berry::ReplayStatus::BadArgument);
+  const jint status = api->capture_packet(static_cast<std::int32_t>(dir),
+                                          static_cast<std::uint32_t>(id), raw,
+                                          static_cast<std::size_t>(len),
+                                          static_cast<std::uint64_t>(tick));
+  env->ReleaseByteArrayElements(payload, raw, JNI_ABORT);
+  return status;
+}
+
 } // extern "C"
 
 // --- Governor surface -----------------------------------------------------------------------

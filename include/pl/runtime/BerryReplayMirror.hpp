@@ -79,6 +79,14 @@ struct ReplayApiMirror {
 
     std::int32_t (*loaded)(void);
     const char *(*status)(void);
+
+    // The capture half (ABI v2). Optional: a library built before it leaves these null and the
+    // packet capture stays off, so the launcher still works against an older libBerryAPI.so.
+    std::int32_t (*capture_start)(void);
+    std::int32_t (*capture_stop)(void);
+    std::int32_t (*capture_state)(void);
+    std::int32_t (*capture_packet)(std::int32_t dir, std::uint32_t id, const void *payload,
+                                   std::size_t len, std::uint64_t tick);
 };
 
 /** The `size`/`abi_version` a host reads from BerryAPI before it uses the surface. */
@@ -93,7 +101,7 @@ struct ReplayAbi {
  * <p>Must equal `BERRY_REPLAY_ABI_VERSION` in the library. `ReplayMirrorMatches` compares the two, so
  * a bump on either side is caught before a pointer is called.
  */
-constexpr std::uint32_t kHostReplayAbiVersion = 1;
+constexpr std::uint32_t kHostReplayAbiVersion = 2;
 
 /**
  * @brief Whether the host's mirrored struct matches the library's.
@@ -119,6 +127,18 @@ inline bool ReplayApiUsable(const ReplayApiMirror &api) {
     return api.load != nullptr && api.info != nullptr && api.playback != nullptr &&
            api.seek != nullptr && api.play != nullptr && api.unload != nullptr &&
            api.loaded != nullptr;
+}
+
+/**
+ * @brief Whether the surface provides the packet capture (ABI v2).
+ *
+ * <p>Separate from {@link ReplayApiUsable} because the capture is optional: the replay *screen* does
+ * not need it, so a library without it is still usable for playback. The recorder checks this before
+ * starting a capture, so an old library records nothing rather than being driven through a null.
+ */
+inline bool ReplayCaptureUsable(const ReplayApiMirror &api) {
+    return api.capture_start != nullptr && api.capture_stop != nullptr &&
+           api.capture_state != nullptr && api.capture_packet != nullptr;
 }
 
 /** The tick length of a loaded replay, or 0 when empty. */
