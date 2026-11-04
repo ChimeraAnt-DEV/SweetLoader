@@ -220,6 +220,12 @@ compile_run SkinSeamObservationTest \
 compile_run BerrySeamProviderTest \
   "$here/BerrySeamProviderTest.cpp"
 
+# The entity-list walker is a pure header too: the container read, the bounds checks and the
+# fail-closed rules are exercised on the host, so a hand-recovered offset is verified before it is
+# ever used on the game thread.
+compile_run EntityListWalkTest \
+  "$here/EntityListWalkTest.cpp"
+
 # The BerryAPI replay ABI mirror is a pure header too: the mirror check and the usable-call rule
 # are host-tested without a device.
 compile_run BerryReplayMirrorTest \
