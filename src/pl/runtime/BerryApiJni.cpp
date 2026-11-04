@@ -225,6 +225,32 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeReplayStatus(JNIEnv *env, jcl
   return env->NewStringUTF(s != nullptr ? s : "");
 }
 
+/**
+ * Encodes the loaded replay (or the capture the library holds) to container bytes.
+ *
+ * <p>This is the recorder half: BerryAPI's replay service keeps a capture of the live stream, and
+ * its {@code save} exports it — the loaded replay when one is loaded, the capture otherwise. The
+ * launcher writes those bytes to a {@code .glowreplay} file, so a recording made inside the game
+ * becomes a replay the launcher can list and hand back to BerryAPI to play.
+ *
+ * <p>Fail-closed: a missing surface, a null {@code save}, or a {@code save} that returns null all
+ * answer an empty array, which the Java side reads as "no replay to save" rather than a crash.
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeReplaySave(JNIEnv *env, jclass) {
+  const pl::berry::ReplayApiMirror *api = Replay();
+  if (api == nullptr || api->save == nullptr) return env->NewByteArray(0);
+  std::size_t len = 0;
+  const void *bytes = api->save(&len);
+  if (bytes == nullptr || len == 0) return env->NewByteArray(0);
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(len));
+  if (out != nullptr) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(len),
+                            reinterpret_cast<const jbyte *>(bytes));
+  }
+  return out;
+}
+
 } // extern "C"
 
 // --- Governor surface -----------------------------------------------------------------------
