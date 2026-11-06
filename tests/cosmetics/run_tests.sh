@@ -298,4 +298,21 @@ else
   echo "== SnapshotChannelTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
 fi
 
+# The local-player seqlock, extracted from GameLocalPlayer.cpp into one shared class so the ordering
+# rules are pinned once. The plain run proves the transform is never torn and that a read landing in
+# a write window retries rather than reporting "no player"; the TSAN run proves the reader and the
+# writer share no unsynchronised access, which is the half the old plain-float fields failed.
+compile_run PlayerSnapshotTest \
+  "$here/PlayerSnapshotTest.cpp"
+
+if [[ -n "$tsan_available" ]]; then
+  echo "== PlayerSnapshotTsanTest =="
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/PlayerSnapshotTsanTest.cpp" -o "$work/PlayerSnapshotTsanTest"
+  setarch "$(uname -m)" -R "$work/PlayerSnapshotTsanTest"
+else
+  echo "== PlayerSnapshotTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
+
 echo "all cosmetics host tests passed"
