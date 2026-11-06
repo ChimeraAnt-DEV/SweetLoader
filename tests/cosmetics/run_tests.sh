@@ -203,6 +203,13 @@ compile_run FrameTickClockTest \
 compile_run AtomicFileWriteTest \
   "$here/AtomicFileWriteTest.cpp"
 
+# The device rules that decide core pinning and the refresh-rate target, with the frequency tables of
+# real tri-cluster and bi-cluster SoCs. The old 0.9-ratio rule under-counts a tri-cluster's big cluster
+# and silently skipped pinning; the gap rule is pinned against nine tables.
+compile_run OptifineDeviceRulesTest \
+  "$root/src/pl/runtime/optifine/OptifineDeviceRules.cpp" \
+  "$here/OptifineDeviceRulesTest.cpp"
+
 compile_run ProcessMemoryTest \
   -I"$root/src" \
   "$root/src/pl/runtime/ProcessMemory.cpp" \

@@ -1,3 +1,4 @@
+#include <atomic>
 #include <string>
 
 #include "pl/runtime/OptifineConfig.h"
@@ -24,15 +25,18 @@
 namespace pl::runtime {
 namespace {
 
-int gRequestedHz = 0;
+// Written from the launcher's JNI thread and read by the apply pass on another thread, so it
+// must be atomic (audit item 14).
+std::atomic<int> gRequestedHz{0};
 
 void ApplyRefreshRate(bool enabled, OptifineItemState &state) {
   if (!enabled) return;
-  if (gRequestedHz <= 0) {
+  const int hz = gRequestedHz.load(std::memory_order_relaxed);
+  if (hz <= 0) {
     MarkOptifineSkipped(state, "no higher refresh rate available");
     return;
   }
-  MarkOptifineActive(state, "requested " + std::to_string(gRequestedHz) + " Hz");
+  MarkOptifineActive(state, "requested " + std::to_string(hz) + " Hz");
 }
 
 struct Registrar {
@@ -49,6 +53,6 @@ Registrar gRegistrar;
  * the display's supported modes. Kept in the preloader so the item's reported state comes from
  * the same place as every other item's.
  */
-void SetOptifineRefreshRateTarget(int hz) { gRequestedHz = hz; }
+void SetOptifineRefreshRateTarget(int hz) { gRequestedHz.store(hz, std::memory_order_relaxed); }
 
 } // namespace pl::runtime

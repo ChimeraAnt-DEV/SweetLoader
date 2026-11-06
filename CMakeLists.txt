@@ -201,4 +201,8 @@ install(TARGETS preloader
 
 install(DIRECTORY include/pl
         DESTINATION include
-        FILES_MATCHING PATTERN "*.hpp")
+        FILES_MATCHING
+        PATTERN "*.hpp"
+        # The public C headers (BerryApiBridge.h, GameCosmetics.h) are part of the SDK surface too;
+        # without this an install ships an incomplete header set (audit item 107).
+        PATTERN "*.h")
