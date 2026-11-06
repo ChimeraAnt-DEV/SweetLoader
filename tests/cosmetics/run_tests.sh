@@ -198,6 +198,11 @@ compile_run FramePacingTest \
 compile_run FrameTickClockTest \
   "$here/FrameTickClockTest.cpp"
 
+# The atomic cache write: a truncated cache is worse than a missing one, because the previous good
+# cache is destroyed and the next launch pays a full scan. Pure header.
+compile_run AtomicFileWriteTest \
+  "$here/AtomicFileWriteTest.cpp"
+
 compile_run ProcessMemoryTest \
   -I"$root/src" \
   "$root/src/pl/runtime/ProcessMemory.cpp" \
