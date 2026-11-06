@@ -193,6 +193,11 @@ compile_run RuleProbeTest \
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 
+# The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
+# during play and starved cape/pet physics. Pure header.
+compile_run FrameTickClockTest \
+  "$here/FrameTickClockTest.cpp"
+
 compile_run ProcessMemoryTest \
   -I"$root/src" \
   "$root/src/pl/runtime/ProcessMemory.cpp" \
