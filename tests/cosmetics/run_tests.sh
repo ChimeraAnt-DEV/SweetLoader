@@ -274,4 +274,28 @@ compile_run FuzzParseTest \
   "$root/src/pl/cosmetics/geometry/BedrockModelParser.cpp" \
   "$here/FuzzParseTest.cpp" "$zlib_link"
 
+# The seqlock's memory model, under ThreadSanitizer. The plain run above proves the payload is never
+# torn; this run proves the reader and the writer never touch the buffer without an ordering edge,
+# which is the half a torn-read check cannot see and the half that bites on ARM64. TSAN needs ASLR
+# disabled on this kernel, so it runs through `setarch -R` and is skipped (with a notice) where the
+# sanitizer or `setarch` is unavailable, so the suite still passes on a plain host.
+tsan_available=""
+if "$cxx" -std=c++20 -fsanitize=thread -x c++ - -o "$work/tsan-probe" >/dev/null 2>&1 <<<'int main(){return 0;}'; then
+  if command -v setarch >/dev/null 2>&1 &&
+     setarch "$(uname -m)" -R "$work/tsan-probe" >/dev/null 2>&1; then
+    tsan_available=1
+  fi
+fi
+if [[ -n "$tsan_available" ]]; then
+  echo "== SnapshotChannelTsanTest =="
+  # -Wno-tsan: the fences are a no-op under the sanitizer's own model, so the "not supported with
+  # -fsanitize=thread" warning is expected and would otherwise hide a real warning in the log.
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/SnapshotChannelTsanTest.cpp" -o "$work/SnapshotChannelTsanTest"
+  setarch "$(uname -m)" -R "$work/SnapshotChannelTsanTest"
+else
+  echo "== SnapshotChannelTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
+
 echo "all cosmetics host tests passed"

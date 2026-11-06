@@ -17,14 +17,25 @@
  * copy. There is no shared pointer across the boundary — the channel owns its buffer.
  *
  * <p><b>Memory ordering.</b> A seqlock: the writer bumps the sequence to odd before touching the
- * buffer and to even after, with release stores; the reader reads the sequence, copies, then
- * re-reads it and retries if it changed or was odd. A writer store-release pairs with a reader
- * acquire-load, so the reader can never observe a half-written payload. The reader is wait-free on
- * a stable writer and bounded-retry under contention, which is what keeps it off the render thread's
- * critical path.
+ * buffer and to even after; the reader reads the sequence, copies, then re-reads it and retries if it
+ * changed or was odd. Two fences make the ordering edge real on a weakly ordered CPU (ARM64):
+ *
+ * <ul>
+ *   <li>the writer issues a <em>release fence</em> after the odd sequence store, so the payload
+ *       stores cannot be reordered before it;</li>
+ *   <li>the reader issues an <em>acquire fence</em> before re-reading the sequence, so the payload
+ *       loads cannot be reordered after it.</li>
+ * </ul>
+ *
+ * <p>The payload itself is copied word-at-a-time through `std::atomic_ref` with relaxed ordering.
+ * A plain `memcpy` racing another thread's plain `memcpy` is a data race — undefined behaviour —
+ * even when the sequence check discards the result, and on ARM64 it can let a reader observe a
+ * half-written payload that still carries an even sequence. Atomic relaxed accesses make the race
+ * well-defined; the fences above supply the ordering that makes the observed value consistent.
  *
  * <p>The class is pure (no Android, no JNI), so the ordering rules are host-tested — see
- * `tests/cosmetics/SnapshotChannelTest.cpp`.
+ * `tests/cosmetics/SnapshotChannelTest.cpp` and the ThreadSanitizer run in
+ * `tests/cosmetics/SnapshotChannelTsanTest.cpp`.
  */
 
 #include <atomic>
@@ -66,13 +77,17 @@ public:
   PublishResult publish(std::span<const std::uint8_t> payload) {
     if (payload.size() > capacity_) return PublishResult::TooLarge;
 
-    // Odd sequence => a write is in progress. Release so the buffer writes below are visible to a
+    // Odd sequence => a write is in progress. Release so the payload stores below are visible to a
     // reader that observes the even sequence afterwards.
     const std::uint32_t start = sequence_.load(std::memory_order_relaxed);
     sequence_.store(start + 1, std::memory_order_release);
+    // The release store orders the *sequence* store, not the following payload stores: on ARM64 the
+    // payload stores can still be hoisted above it. The release fence is what keeps a reader that
+    // sees the odd sequence from also seeing payload bytes from before the bump.
+    std::atomic_thread_fence(std::memory_order_release);
 
     if (!payload.empty()) {
-      std::memcpy(buffer_.data(), payload.data(), payload.size());
+      CopyWords(buffer_.data(), payload.data(), payload.size());
     }
     length_.store(payload.size(), std::memory_order_relaxed);
 
@@ -95,8 +110,12 @@ public:
       const std::size_t len = length_.load(std::memory_order_relaxed);
       if (len > capacity_) continue; // Defensive: never trust a length past capacity.
       out.resize(len);
-      if (len > 0) std::memcpy(out.data(), buffer_.data(), len);
-      const std::uint32_t after = sequence_.load(std::memory_order_acquire);
+      if (len > 0) CopyWords(out.data(), buffer_.data(), len);
+      // Acquire fence before re-reading the sequence: without it the payload loads above can be
+      // reordered after the load below, so the copy is not ordered against the sequence the writer
+      // publishes with. This is the reader half of the seqlock edge on ARM64.
+      std::atomic_thread_fence(std::memory_order_acquire);
+      const std::uint32_t after = sequence_.load(std::memory_order_relaxed);
       if (before == after) return true; // No write interleaved: the copy is consistent.
     }
     return false;
@@ -114,6 +133,46 @@ private:
   // A writer is expected to complete a publish in a few instructions; a reader that loses this many
   // times is contending with a very hot writer and should just skip this frame rather than spin.
   static constexpr int kMaxRetries = 8;
+
+  /**
+   * @brief Copies @p n bytes with relaxed atomic accesses.
+   *
+   * A plain `memcpy` here would race the other thread's access to the same bytes, which is undefined
+   * behaviour even though the seqlock discards a torn result (and ThreadSanitizer reports it). Both
+   * sides therefore go through `std::atomic_ref` with relaxed ordering, which makes the access
+   * well-defined; the surrounding fences supply the ordering that makes a copied value consistent.
+   *
+   * 8-byte words are used only while <em>both</em> pointers are word-aligned — the `publish` source is
+   * a caller span that may start anywhere — and byte accesses cover the head and tail. The `atomic_ref`
+   * needs a non-const lvalue, so the source is `const_cast`; the storage is genuinely shared and
+   * mutated by the writer, which is exactly why the access must be atomic.
+   */
+  static void CopyWords(std::uint8_t *dst, const std::uint8_t *src, std::size_t n) {
+    using Word = std::uint64_t;
+    auto *s = const_cast<std::uint8_t *>(src);
+    const auto wordAligned = [](const std::uint8_t *p) {
+      return (reinterpret_cast<std::uintptr_t>(p) % alignof(Word)) == 0;
+    };
+    std::size_t i = 0;
+    for (; i < n && !(wordAligned(dst + i) && wordAligned(s + i)); ++i) {
+      CopyByte(dst, s, i);
+    }
+    for (; i + sizeof(Word) <= n; i += sizeof(Word)) {
+      const Word word = std::atomic_ref<Word>(*reinterpret_cast<Word *>(s + i))
+                            .load(std::memory_order_relaxed);
+      std::atomic_ref<Word>(*reinterpret_cast<Word *>(dst + i))
+          .store(word, std::memory_order_relaxed);
+    }
+    for (; i < n; ++i) {
+      CopyByte(dst, s, i);
+    }
+  }
+
+  static void CopyByte(std::uint8_t *dst, std::uint8_t *src, std::size_t i) {
+    std::atomic_ref<std::uint8_t>(dst[i]).store(
+        std::atomic_ref<std::uint8_t>(src[i]).load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+  }
 
   const std::size_t capacity_;
   std::vector<std::uint8_t> buffer_;
