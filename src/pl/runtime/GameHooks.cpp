@@ -17,6 +17,7 @@
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/GameCosmetics.h"
 #include "pl/runtime/GameLocalPlayer.h"
+#include "pl/runtime/SwapFrameBoundary.h"
 #include "pl/runtime/GamePlayerRender.h"
 #include "pl/runtime/HookInstallGate.hpp"
 #include "pl/runtime/HookSelfTest.hpp"
@@ -187,6 +188,11 @@ void InitGameHooks() {
     // uses it to know the renderer is live and to drive its physics off a real render tick. It
     // is fail-closed, so a build where the slot does not resolve simply keeps the pack path.
     InitPlayerRenderSource(signatures->playerRenderVtableIndex.value_or(0));
+
+    // The true frame boundary, from the engine's present call (audit item 111). Installed before the
+    // cosmetics hook so the frame clock it feeds is live as soon as the renderer is. Fail-closed: a
+    // Vulkan-only build with no libEGL present call keeps the inferred frame clock.
+    pl::runtime::InstallSwapFrameBoundary();
 
     // The native cosmetics render interception (Task 2). It hooks the same LivePlayerRenderer slot
     // the render feed above uses, which is why the hook backend chains: the two detours both run,

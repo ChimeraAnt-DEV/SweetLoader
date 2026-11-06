@@ -64,9 +64,27 @@ extern "C" void pl_runtime_passthrough_skinCape_addr(void);
 extern "C" void pl_runtime_passthrough_textureBind_addr(void);
 extern "C" void pl_runtime_passthrough_packetRead_addr(void);
 
+// The frame-boundary seam: a passthrough on eglSwapBuffers (or its WithDamage form). It records the
+// true frame boundary the engine's present call gives, which is what frame pacing and the cosmetics
+// clock need and what no per-draw call can infer.
+extern "C" void pl_runtime_passthrough_swapBuffers_addr(void);
+
 // The per-detour record stubs the veneers branch to. Each records the call against its own
 // PassthroughContext and returns the original trampoline (x0) for the veneer to tail-branch to.
 // Declared here so any TU can reference them (only RegisterAwareHook.cpp defines them).
 extern "C" void *pl_runtime_passthrough_skinCape_record(void);
 extern "C" void *pl_runtime_passthrough_textureBind_record(void);
 extern "C" void *pl_runtime_passthrough_packetRead_record(void);
+extern "C" void *pl_runtime_passthrough_swapBuffers_record(void);
+
+extern "C" pl::runtime::PassthroughContext pl_runtime_passthrough_ctx_swapBuffers;
+extern "C" pl::runtime::PassthroughContext *pl_runtime_passthrough_swapBuffers_ptr();
+
+/**
+ * @brief The true frame-boundary counters the swap veneer writes.
+ *
+ * A plain counter plus the monotonic microsecond stamp of the last swap. Read by the frame-pacing
+ * code on any thread; written by the veneer on the render thread.
+ */
+extern "C" std::atomic<std::uint64_t> pl_runtime_swap_buffers_count;
+extern "C" std::atomic<long long> pl_runtime_swap_buffers_last_us;

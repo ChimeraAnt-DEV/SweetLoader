@@ -19,6 +19,7 @@
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/HookTiming.hpp"
 #include "pl/runtime/OnceReport.hpp"
+#include "pl/runtime/SwapFrameBoundary.h"
 
 namespace pl::runtime {
 namespace {
@@ -130,7 +131,16 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   // fall inside one frame; a 3ms floor collapses them to a single tick while still advancing every
   // real frame. The previous "gap beyond 1s" rule left the tick frozen during play, which starved
   // every consumer that keys on it — cape/pet physics and the cosmetics frame version (audit item 1).
-  if (g_frameClock.onRenderCall(nowUs)) {
+  //
+  // When the present-call hook is live it already counted this frame, so the tick is taken from it
+  // instead: the real boundary, exact even when the visible-model count changes (audit item 113).
+  const std::uint64_t swapPresents = pl_runtime_swap_buffers_count.load(std::memory_order_relaxed);
+  const bool swapBoundary = pl::runtime::IsSwapFrameBoundaryLive() && swapPresents != 0;
+  if (swapBoundary) {
+    g_frameCalls.store(1, std::memory_order_relaxed);
+    g_renderTick.store(static_cast<std::uint32_t>(swapPresents), std::memory_order_relaxed);
+    g_frameClock.onRenderCall(nowUs); // keep the fallback clock warm for a later detach
+  } else if (g_frameClock.onRenderCall(nowUs)) {
     g_frameCalls.store(1, std::memory_order_relaxed);
     g_renderTick.store(g_frameClock.tick(), std::memory_order_relaxed);
   } else {

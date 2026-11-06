@@ -66,6 +66,7 @@ set(PRELOADER_SOURCES
         src/pl/runtime/mce_image_hook.cpp
         src/pl/runtime/GameLocalPlayer.cpp
         src/pl/runtime/GamePlayerRender.cpp
+        src/pl/runtime/SwapFrameBoundary.cpp
         src/pl/runtime/ModuleMap.cpp
         src/pl/runtime/GameResourcePackReload.cpp
         src/pl/runtime/OptifineConfig.cpp
@@ -133,6 +134,7 @@ target_compile_options(preloader PRIVATE
 set_source_files_properties(
         src/pl/memory/Signature.cpp
         src/pl/runtime/GamePlayerRender.cpp
+        src/pl/runtime/SwapFrameBoundary.cpp
         src/pl/runtime/InputBridge.cpp
         src/pl/runtime/GameLocalPlayer.cpp
         PROPERTIES COMPILE_OPTIONS "-O3")
