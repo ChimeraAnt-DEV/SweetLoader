@@ -14,10 +14,12 @@
 #include "pl/memory/Signature.hpp"
 #include "pl/memory/Vtable.hpp"
 #include "pl/render/FramePacing.hpp"
+#include "pl/render/FrameTickClock.hpp"
 #include "pl/render/RenderDispatch.h"
 #include "pl/runtime/GameHookRules.h"
 #include "pl/runtime/HookTiming.hpp"
 #include "pl/runtime/OnceReport.hpp"
+#include "pl/runtime/SwapFrameBoundary.h"
 
 namespace pl::runtime {
 namespace {
@@ -62,6 +64,10 @@ std::atomic<long long> g_lastRenderMs{0};
 // live per-frame state directly would race the render thread — the torn read / use-after-free shape
 // that killed modules. The payload is {renderTick, callsThisFrame, totalCalls, lastRenderMs}.
 pl::ipc::SnapshotChannel g_frameSnapshot(4 * sizeof(std::uint64_t));
+
+// The frame-boundary clock. The render entry runs once per rendered player model, so the tick is
+// inferred from the call timestamps (see FrameTickClock) rather than from a one-second stall.
+pl::render::FrameTickClock g_frameClock;
 
 // Which slot the hook resolved to, and how, for the in-app diagnostics report. Set once at install.
 std::atomic<std::size_t> g_resolvedSlot{0};
@@ -108,32 +114,47 @@ std::atomic<int> g_framePacingFlags{0}; // bit0 jittering, bit1 vsync-locked
 // callbacks.
 //
 // <b>The callbacks must run on every call, not only on a "new frame".</b> The renderer is invoked
-// once per rendered player model, so a frame boundary has to be inferred. The previous version
-// inferred it as a gap of more than one second, which is wrong: during play the renderer runs every
-// ~16 ms, so the "first call of the frame" test was true only for the very first frame after a
-// second-long stall — the cosmetics callback therefore ran once at startup and then never again, so
-// nothing appeared in game even though the preview worked. The cosmetic draw callback dedupes per
-// published frame version itself, so running it on every call draws exactly once per launcher tick.
+// once per rendered player model, so a frame boundary has to be inferred (see FrameTickClock, which
+// uses a 3ms floor). The previous version inferred it as a gap of more than one second, which is
+// wrong: during play the renderer runs every ~16 ms, so the "first call of the frame" test was true
+// only for the very first frame after a second-long stall — the cosmetics callback therefore ran once
+// at startup and then never again, so nothing appeared in game even though the preview worked. The
+// cosmetic draw callback dedupes per published frame version itself, so running it on every call draws
+// exactly once per launcher tick.
 void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, void *h) {
-  const long long now = MonotonicMs();
-  const long long last = g_lastRenderMs.load(std::memory_order_relaxed);
-  // A gap beyond a plausible frame (~1s) is treated as a new frame for the call *count* only; it
-  // does not gate the callbacks. The count is what proves the hook covers non-local players.
-  if (last == 0 || now - last > 1000) {
+  // One clock read per call: the millisecond value the snapshot carries is derived from it, so the
+  // detour does not pay a second clock_gettime (audit item 53).
+  const long long nowUs = MonotonicUs();
+  const long long nowMs = nowUs / 1000;
+
+  // Infer the frame boundary. The entry runs once per rendered player model, so several calls can
+  // fall inside one frame; a 3ms floor collapses them to a single tick while still advancing every
+  // real frame. The previous "gap beyond 1s" rule left the tick frozen during play, which starved
+  // every consumer that keys on it — cape/pet physics and the cosmetics frame version (audit item 1).
+  //
+  // When the present-call hook is live it already counted this frame, so the tick is taken from it
+  // instead: the real boundary, exact even when the visible-model count changes (audit item 113).
+  const std::uint64_t swapPresents = pl_runtime_swap_buffers_count.load(std::memory_order_relaxed);
+  const bool swapBoundary = pl::runtime::IsSwapFrameBoundaryLive() && swapPresents != 0;
+  if (swapBoundary) {
     g_frameCalls.store(1, std::memory_order_relaxed);
-    g_renderTick.fetch_add(1, std::memory_order_relaxed);
+    g_renderTick.store(static_cast<std::uint32_t>(swapPresents), std::memory_order_relaxed);
+    g_frameClock.onRenderCall(nowUs); // keep the fallback clock warm for a later detach
+  } else if (g_frameClock.onRenderCall(nowUs)) {
+    g_frameCalls.store(1, std::memory_order_relaxed);
+    g_renderTick.store(g_frameClock.tick(), std::memory_order_relaxed);
   } else {
     g_frameCalls.fetch_add(1, std::memory_order_relaxed);
   }
   g_totalCalls.fetch_add(1, std::memory_order_relaxed);
-  g_lastRenderMs.store(now, std::memory_order_relaxed);
+  g_lastRenderMs.store(nowMs, std::memory_order_relaxed);
 
   // Feed the frame-time analyzer. The render entry runs once per rendered player model, so
   // a 3ms floor collapses several draws inside one frame to a single sample; the reading is then the
   // real frame interval. The analyzer is plain (render-thread only); the snapshot is atomics.
   {
     const pl::render::FramePacingReading pacing =
-        g_framePacing.onFrame(MonotonicUs(), g_displayRefreshHz.load(std::memory_order_relaxed), 3000);
+        g_framePacing.onFrame(nowUs, g_displayRefreshHz.load(std::memory_order_relaxed), 3000);
     g_framePacingAverageUs.store(pacing.averageFrameUs, std::memory_order_relaxed);
     g_framePacingWorstUs.store(pacing.worstFrameUs, std::memory_order_relaxed);
     int flags = 0;
@@ -149,7 +170,7 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
     record[0] = g_renderTick.load(std::memory_order_relaxed);
     record[1] = g_frameCalls.load(std::memory_order_relaxed);
     record[2] = g_totalCalls.load(std::memory_order_relaxed);
-    record[3] = static_cast<std::uint64_t>(now);
+    record[3] = static_cast<std::uint64_t>(nowMs);
     g_frameSnapshot.publish(std::span<const std::uint8_t>(
         reinterpret_cast<const std::uint8_t *>(record), sizeof(record)));
   }

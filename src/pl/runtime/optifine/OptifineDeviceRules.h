@@ -18,16 +18,41 @@ constexpr int kOptifineMaxCores = 64;
 constexpr int kOptifineMinPerformanceCores = 4;
 
 /** A core counts as "performance" when its max frequency is at least this fraction of the
- *  highest core's. 0.9 excludes little cores clocked well below the big cluster. */
+ *  highest core's. Kept for reference; {@link BigClusterCoreCount} uses the largest frequency gap
+ *  instead, because a fixed ratio misses tri-cluster gold cores (see its note). */
 constexpr double kOptifinePerformanceCoreRatio = 0.9;
+
+/**
+ * @brief The number of cores in the big (fastest) cluster.
+ *
+ * <p>The cluster is found by the largest gap in the sorted frequency table, not by a fixed ratio of
+ * the fastest core. A tri-cluster SoC often has its gold cores below 0.9 of the prime core (a
+ * Snapdragon 8 Gen 1's 2.5GHz gold vs 3.0GHz prime is 0.83), so a 0.9 rule counts only the single
+ * prime core and the "need 4+" check then refuses to pin, silently doing nothing.
+ *
+ * @param maxFreqKhz per-core maximum frequency in kHz; 0 means unknown for that core.
+ * @param count number of entries.
+ * @return the number of cores in the big cluster, or 0 when there is no gap to cluster on (every
+ *         core equal, or no known frequency) -- the caller must then skip pinning.
+ */
+int BigClusterCoreCount(const std::uint64_t *maxFreqKhz, int count);
+
+/**
+ * @brief Writes the indices of the big cluster's cores, in core order.
+ *
+ * @param maxFreqKhz per-core maximum frequency in kHz; 0 means unknown.
+ * @param count number of entries.
+ * @param out receives the selected core indices.
+ * @param maxOut capacity of @p out.
+ * @return the number of indices written, or 0 when there is no cluster to select.
+ */
+int SelectBigClusterCoreIndices(const std::uint64_t *maxFreqKhz, int count, int *out, int maxOut);
 
 /**
  * @brief Counts the performance cores in a frequency table.
  *
- * @param maxFreqKhz per-core maximum frequency in kHz; 0 means unknown for that core.
- * @param count number of entries.
- * @return the number of cores at or above {@link kOptifinePerformanceCoreRatio} of the fastest
- *         core, or 0 when no core has a known frequency (the caller must then skip pinning).
+ * @deprecated Superseded by {@link BigClusterCoreCount}, which handles tri-cluster gold cores. Kept
+ * so the historical 0.9-ratio behaviour stays available and tested.
  */
 int CountPerformanceCores(const std::uint64_t *maxFreqKhz, int count);
 

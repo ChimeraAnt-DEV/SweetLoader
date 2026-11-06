@@ -16,11 +16,20 @@
  * than a claim that pacing changed.
  *
  * <p>Pure and allocation-free so it is host-tested and can run on the render thread without cost.
+ *
+ * <p><b>Threading.</b> {@link #onFrame} and {@link #reading} are render-thread-only, so their fields
+ * are plain. {@link #percentiles} is called from a diagnostics reader on another thread, so every
+ * field it shares with the render thread is a relaxed atomic (the value is approximate for the frame
+ * in flight, which is all a summary needs) and its scratch buffer is guarded by a mutex so two
+ * concurrent readers cannot corrupt each other.
  */
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 namespace pl::render {
 
@@ -94,13 +103,20 @@ public:
         if (count_ < kWindow) ++count_;
         ++sampleCount_;
 
-        // The long window is fed in lockstep so the percentiles cover the same samples.
-        if (percentileCount_ == 0) percentileFirstUs_ = nowUs;
-        percentileRing_[percentileNext_] = interval;
+        // The long window is fed in lockstep so the percentiles cover the same samples. The
+        // timestamp travels with each sample, so the span used for hitches-per-minute is the span of
+        // the samples actually still in the ring — not the whole session.
+        const std::size_t slot = percentileNext_;
+        percentileRing_[slot] = interval;
+        percentileStamp_[slot] = nowUs;
         percentileNext_ = (percentileNext_ + 1) % kPercentileWindow;
         if (percentileCount_ < kPercentileWindow) ++percentileCount_;
-        percentileLastUs_ = nowUs;
-        percentileSpanUs_ = percentileLastUs_ - percentileFirstUs_;
+        // The oldest sample in the window: the one just overwritten when the ring is full, else the
+        // first sample ever taken.
+        const std::size_t oldest = (percentileCount_ == kPercentileWindow) ? percentileNext_ : 0;
+        const long long oldestStamp = percentileStamp_[oldest];
+        percentileSpanUs_.store(oldestStamp == 0 ? 0 : nowUs - oldestStamp,
+                                std::memory_order_relaxed);
       }
     }
     lastUs_ = nowUs;
@@ -155,11 +171,16 @@ public:
   FramePacingReading percentiles() const {
     FramePacingReading out;
     out.sampleCount = sampleCount_;
-    const std::size_t n = percentileCount_;
+    const std::size_t n = percentileCount_.load(std::memory_order_relaxed);
     if (n == 0) return out;
 
-    // Copy and sort the live window. The scratch is a member so this does not allocate.
-    for (std::size_t i = 0; i < n; ++i) scratch_[i] = percentileRing_[i];
+    // Copy and sort the live window under a lock, so two concurrent readers cannot corrupt each
+    // other's scratch and a reader cannot race the render thread's writes mid-copy. The render
+    // thread never takes this lock, so a diagnostics read cannot stall a frame.
+    std::lock_guard<std::mutex> guard(scratchMutex_);
+    for (std::size_t i = 0; i < n; ++i) {
+      scratch_[i] = percentileRing_[i].load(std::memory_order_relaxed);
+    }
     std::sort(scratch_, scratch_ + n);
 
     out.p50Us = scratch_[n * 50 / 100];
@@ -172,11 +193,11 @@ public:
     for (std::size_t i = 0; i < n; ++i) {
       if (scratch_[i] > hitchThreshold) ++hitches;
     }
-    if (percentileSpanUs_ > 0) {
+    const long long span = percentileSpanUs_.load(std::memory_order_relaxed);
+    if (span > 0) {
       // hitches per minute = hitches * 60_000_000us / spanUs, done in 64-bit.
-      out.hitchesPerMinute = static_cast<int>(
-          (static_cast<long long>(hitches) * 60'000'000LL) /
-          static_cast<long long>(percentileSpanUs_));
+      out.hitchesPerMinute = static_cast<int>((static_cast<long long>(hitches) * 60'000'000LL) /
+                                              span);
     }
     return out;
   }
@@ -188,10 +209,10 @@ public:
     lastUs_ = 0;
     sampleCount_ = 0;
     percentileNext_ = 0;
-    percentileCount_ = 0;
-    percentileFirstUs_ = 0;
-    percentileLastUs_ = 0;
-    percentileSpanUs_ = 0;
+    percentileCount_.store(0, std::memory_order_relaxed);
+    percentileSpanUs_.store(0, std::memory_order_relaxed);
+    for (auto &v : percentileRing_) v.store(0, std::memory_order_relaxed);
+    for (auto &v : percentileStamp_) v = 0;
   }
 
 private:
@@ -203,13 +224,15 @@ private:
 
   /** The long window the percentiles are taken over. */
   static constexpr std::size_t kPercentileWindow = 2000;
-  long long percentileRing_[kPercentileWindow] = {};
+  std::array<std::atomic<long long>, kPercentileWindow> percentileRing_{};
+  /** The timestamp of each sample in the long window, so its true span is known. */
+  long long percentileStamp_[kPercentileWindow] = {};
+  /** Shared by percentiles() callers only; never touched by the render thread. */
   mutable long long scratch_[kPercentileWindow] = {};
+  mutable std::mutex scratchMutex_;
   std::size_t percentileNext_ = 0;
-  std::size_t percentileCount_ = 0;
-  long long percentileFirstUs_ = 0;
-  long long percentileLastUs_ = 0;
-  long long percentileSpanUs_ = 0;
+  std::atomic<std::size_t> percentileCount_{0};
+  std::atomic<long long> percentileSpanUs_{0};
 };
 
 } // namespace pl::render

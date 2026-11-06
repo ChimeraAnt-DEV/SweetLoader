@@ -11,6 +11,18 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Gradle passes no build type, so without this the Release branch of the flags below never fires and
+# only the unconditional -O2 applies (audit item 81). Default it here; an explicit -DCMAKE_BUILD_TYPE
+# from CI or a local build still wins.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    message(STATUS "preloader: CMAKE_BUILD_TYPE defaulted to Release")
+endif()
+
+# Make the build reproducible across machines: the compiler embeds the source path in debug info and
+# in __FILE__, which otherwise differs per checkout (audit item 106).
+add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
+
 set(PRELOADER_SOURCES
         src/pl/Mod.cpp
         src/pl/PreLoader.cpp
@@ -54,6 +66,7 @@ set(PRELOADER_SOURCES
         src/pl/runtime/mce_image_hook.cpp
         src/pl/runtime/GameLocalPlayer.cpp
         src/pl/runtime/GamePlayerRender.cpp
+        src/pl/runtime/SwapFrameBoundary.cpp
         src/pl/runtime/ModuleMap.cpp
         src/pl/runtime/GameResourcePackReload.cpp
         src/pl/runtime/OptifineConfig.cpp
@@ -103,10 +116,46 @@ target_compile_options(preloader PRIVATE
         # -O2 always: the Gradle CMake arguments set no build type, so an unoptimised default would
         # otherwise ship. A Release configuration gets -O3 on top.
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-O2>
-        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>>:-O3>)
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>>:-O3>
+        # Explicit NDEBUG: without it the asserts in fmt / nlohmann / lunasvg stay live in a default
+        # build, which is both slower and a crash surface (audit item 82).
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-DNDEBUG>
+        # Warnings that catch the passthrough-detour class of defect (audit item 96). -Wall -Wextra
+        # are advisory; the two -Werror= forms are hard errors because a missing return in a detour
+        # or a format-string mismatch is a real bug, not a style nit.
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wall>
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wextra>
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Werror=return-type>
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Werror=format>)
+
+# Hot files get -O3 even in a non-Release configure, and cold files get -Oz to cut page-ins at load
+# (audit items 87, 88). The render/scanner/input paths run every frame or every event; the bridges and
+# loaders run once at startup.
+set_source_files_properties(
+        src/pl/memory/Signature.cpp
+        src/pl/runtime/GamePlayerRender.cpp
+        src/pl/runtime/SwapFrameBoundary.cpp
+        src/pl/runtime/InputBridge.cpp
+        src/pl/runtime/GameLocalPlayer.cpp
+        PROPERTIES COMPILE_OPTIONS "-O3")
+set_source_files_properties(
+        src/pl/runtime/ModMenuBridge.cpp
+        src/pl/runtime/ExternalModBridgeJni.cpp
+        src/pl/runtime/AntEggLoader.cpp
+        PROPERTIES COMPILE_OPTIONS "-Oz")
 target_link_options(preloader PRIVATE
         # Dead code and unused data drop out once every function is in its own section.
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--gc-sections>
+        # Fold identical code and data. The four near-identical Optifine detours and the many fmt
+        # instantiations fold together, shrinking the mapped image (audit item 84).
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--icf=all>
+        # Do not export the static archives' (fmt, lunasvg) symbols into the dynsym. This both shrinks
+        # the dynamic symbol table (faster dlopen) and stops the preloader's copies clashing with the
+        # game's or a mod's copies of the same libraries (audit item 85).
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--exclude-libs,ALL>
+        # Packed relocation format: smaller relocations and faster dlopen on the API range this
+        # targets (audit item 86). Ignored by older linkers.
+        $<$<AND:$<PLATFORM_ID:Android>,$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>>:-Wl,--pack-dyn-relocs=android>
         # 16 KB page alignment, required by newer Android releases and ignored by older ones.
         $<$<PLATFORM_ID:Android>:-Wl,-z,max-page-size=16384>)
 
@@ -201,4 +250,8 @@ install(TARGETS preloader
 
 install(DIRECTORY include/pl
         DESTINATION include
-        FILES_MATCHING PATTERN "*.hpp")
+        FILES_MATCHING
+        PATTERN "*.hpp"
+        # The public C headers (BerryApiBridge.h, GameCosmetics.h) are part of the SDK surface too;
+        # without this an install ships an incomplete header set (audit item 107).
+        PATTERN "*.h")

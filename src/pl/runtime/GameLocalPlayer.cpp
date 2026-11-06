@@ -8,6 +8,7 @@
 #include <ctime>
 
 #include "pl/Logger.hpp"
+#include "pl/ipc/PlayerSnapshot.hpp"
 #include "pl/memory/Hook.hpp"
 #include "pl/memory/Vtable.hpp"
 
@@ -44,12 +45,10 @@ std::atomic_bool g_hookLive{false};
 //. 0 until resolved.
 std::atomic<std::uintptr_t> g_slotTarget{0};
 
-// Seqlock: the game thread writes the snapshot, the Java UI thread reads it, and a torn
+// The game thread writes the snapshot, the Java UI thread reads it. The seqlock lives in one shared
+// class (pl::ipc::PlayerSnapshot) so the ordering rules are fixed once and host-tested; a torn
 // cross-field read (a new x with an old y) must not be observable.
-std::atomic<std::uint32_t> g_seq{0};
-float g_position[3] = {0.0f, 0.0f, 0.0f};
-float g_rotation[2] = {0.0f, 0.0f};
-std::atomic<long long> g_stampMs{0};
+pl::ipc::PlayerSnapshot g_snapshot;
 
 long long MonotonicMs() {
   timespec ts{};
@@ -75,17 +74,17 @@ void PublishSnapshot(const void *localPlayer) {
   const auto *rotation = reinterpret_cast<const float *>(
       reinterpret_cast<std::uintptr_t>(localPlayer) + kActorRotationOffset);
 
-  float nextPosition[3] = {position[0], position[1], position[2]};
-  float nextRotation[2] = {rotation[0], rotation[1]};
-  if (!FinitePosition(nextPosition)) {
+  pl::ipc::PlayerTransform next;
+  next.position[0] = position[0];
+  next.position[1] = position[1];
+  next.position[2] = position[2];
+  next.rotation[0] = rotation[0];
+  next.rotation[1] = rotation[1];
+  if (!FinitePosition(next.position)) {
     return;
   }
-
-  g_seq.fetch_add(1, std::memory_order_acq_rel); // odd: write in progress
-  std::memcpy(g_position, nextPosition, sizeof(g_position));
-  std::memcpy(g_rotation, nextRotation, sizeof(g_rotation));
-  g_stampMs.store(MonotonicMs(), std::memory_order_relaxed);
-  g_seq.fetch_add(1, std::memory_order_release); // even: write complete
+  next.stampMs = MonotonicMs();
+  g_snapshot.publish(next);
 }
 
 // Reads the latest snapshot, or false when none is live. The dereference of the local
@@ -93,27 +92,15 @@ void PublishSnapshot(const void *localPlayer) {
 // the pointer); this side only ever touches the copy, so a session ending can never
 // leave the UI thread reading freed memory.
 bool ReadSnapshot(float outPosition[3], float outRotation[2]) {
-  std::uint32_t s1 = 0;
-  std::uint32_t s2 = 0;
-  float position[3];
-  float rotation[2];
-  long long stamp = 0;
-  do {
-    s1 = g_seq.load(std::memory_order_acquire);
-    if ((s1 & 1U) != 0U) {
-      return false;
-    }
-    std::memcpy(position, g_position, sizeof(position));
-    std::memcpy(rotation, g_rotation, sizeof(rotation));
-    stamp = g_stampMs.load(std::memory_order_relaxed);
-    s2 = g_seq.load(std::memory_order_acquire);
-  } while (s1 != s2);
-
-  if (stamp == 0 || MonotonicMs() - stamp > kSnapshotFreshMs) {
+  pl::ipc::PlayerTransform transform;
+  if (!g_snapshot.read(transform)) {
     return false;
   }
-  std::memcpy(outPosition, position, sizeof(position));
-  std::memcpy(outRotation, rotation, sizeof(rotation));
+  if (transform.stampMs == 0 || MonotonicMs() - transform.stampMs > kSnapshotFreshMs) {
+    return false;
+  }
+  std::memcpy(outPosition, transform.position, sizeof(transform.position));
+  std::memcpy(outRotation, transform.rotation, sizeof(transform.rotation));
   return true;
 }
 

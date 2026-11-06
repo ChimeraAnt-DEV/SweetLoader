@@ -1,6 +1,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <cerrno>
+
 #include <string>
 
 #include "pl/Logger.hpp"
@@ -27,12 +30,13 @@
 namespace pl::runtime {
 namespace {
 
-bool gApplied = false;
-unsigned long long gAppliedMask = 0;
+// Read and written by whichever thread runs the apply pass, so they must be atomic (audit item 14).
+std::atomic_bool gApplied{false};
+std::atomic<unsigned long long> gAppliedMask{0};
 
 void ApplyCpuAffinity(bool enabled, OptifineItemState &state) {
   if (!enabled) return;
-  if (gApplied) {
+  if (gApplied.load(std::memory_order_relaxed)) {
     MarkOptifineActive(state, "main thread pinned to performance cores");
     return;
   }
@@ -55,17 +59,22 @@ void ApplyCpuAffinity(bool enabled, OptifineItemState &state) {
     return;
   }
 
-  // Pin the calling thread (the main/game thread) rather than a guessed tid: by the time this
-  // runs the caller is already on the main thread, so gettid() is exactly the target.
+  // Pin the calling thread, but only after confirming the caller really is the process main thread.
+  // The apply pass can run on whichever thread ticked it, and pinning a random thread would leave
+  // the game thread unpinned while the item reports Active (audit item 15).
   const pid_t self = static_cast<pid_t>(::gettid());
+  if (self != ::getpid()) {
+    MarkOptifineSkipped(state, "apply pass is not on the main thread");
+    return;
+  }
   if (!SetThreadAffinity(self, mask)) {
     MarkOptifineSkipped(state, "sched_setaffinity refused");
     preloaderLogger.warn("Optifine affinity: sched_setaffinity failed (errno {})", errno);
     return;
   }
 
-  gApplied = true;
-  gAppliedMask = mask;
+  gApplied.store(true, std::memory_order_relaxed);
+  gAppliedMask.store(mask, std::memory_order_relaxed);
   MarkOptifineActive(state,
                      std::to_string(performanceCount) + " performance cores pinned");
   preloaderLogger.info("Optifine affinity: main thread pinned, mask 0x{:x}", mask);

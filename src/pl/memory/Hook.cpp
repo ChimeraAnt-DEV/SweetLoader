@@ -140,14 +140,16 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
   // linker's own functions (do_dlopen/do_dlsym) via an inline hook -- an operation that
   // faults on this build (see the "Start hook linker..." -> SIGSEGV sequence). The
   // inline-hook path used below is independent of the linker init, so false is correct.
-  static bool inited = false;
-  if (!inited) {
+  //
+  // std::call_once, not a `static bool` checked before the mutex: two threads could both see the
+  // flag false and both run GlossInit, allocating two trampoline pools (audit item 27).
+  static std::once_flag initFlag;
+  std::call_once(initFlag, []() {
     // Surface GlossHook's own "Hook success !" / "Hook failed !" and trampoline-allocation
     // lines, so logcat pinpoints the failing install and whether the trampoline came up.
     GlossEnableLog(true);
     GlossInit(false);
-    inited = true;
-  }
+  });
 
   std::lock_guard<std::mutex> lock(mtx);
   auto &map = hooks();

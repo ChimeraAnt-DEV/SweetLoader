@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "pl/Logger.hpp"
+#include "pl/memory/AtomicFileWrite.hpp"
 #include "pl/memory/ElfBuildId.hpp"
 #include "pl/memory/ModulePathMatch.hpp"
 #include "pl/memory/SignaturePattern.hpp"
@@ -299,9 +300,9 @@ void UpdateDiskCache(const ModuleInfo &module, std::string_view moduleName,
   const std::string text = SerializeSignatureScanCache(module.buildId, merged);
   std::error_code ec;
   std::filesystem::create_directories(directory, ec);
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out) return;
-  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+  // Atomic: a kill mid-write must not truncate the cache the previous launch wrote, or the next
+  // launch pays a full scan. WriteFileAtomically renames a complete temporary over the target.
+  pl::memory::WriteFileAtomically(path, text);
 }
 
 ModuleInfo getModuleInfoFresh(const std::string &moduleName) {
@@ -585,6 +586,17 @@ resolveSignatures(std::span<const std::string> signatures,
   // entirely. A cached entry that now falls outside the module is dropped by ApplyDiskCache.
   if (!pending.empty() && !module.regions.empty()) {
     ApplyDiskCache(module, moduleName, pending, results);
+    // Memoise the disk hits too, not only the scan results: a disk hit that is not memoised makes
+    // every later resolve re-open and re-parse the cache file (audit item 23).
+    {
+      std::unique_lock lock(cacheMutex);
+      for (const auto &signature : pending) {
+        const auto it = results.find(signature);
+        if (it != results.end() && it->second != 0) {
+          sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = it->second;
+        }
+      }
+    }
     pending.erase(std::remove_if(pending.begin(), pending.end(),
                                  [&results](const std::string &signature) {
                                    const auto it = results.find(signature);
@@ -629,7 +641,14 @@ resolveSignatures(std::span<const std::string> signatures,
   {
     std::unique_lock lock(cacheMutex);
     for (const auto &signature : pending) {
-      sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = results[signature];
+      const auto it = results.find(signature);
+      // Do not memoise a miss. A miss is often transient: resolution can run before the module is
+      // fully mapped (PreLoader.cpp documents the early attempt), so caching the 0 would make the
+      // later, correct attempt answer 0 for the life of the process (audit item 32). A genuine
+      // "pattern absent" is re-derived each launch by design (see UpdateDiskCache).
+      if (it != results.end() && it->second != 0) {
+        sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = it->second;
+      }
     }
   }
 

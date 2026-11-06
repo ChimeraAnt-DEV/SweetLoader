@@ -193,6 +193,23 @@ compile_run RuleProbeTest \
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 
+# The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
+# during play and starved cape/pet physics. Pure header.
+compile_run FrameTickClockTest \
+  "$here/FrameTickClockTest.cpp"
+
+# The atomic cache write: a truncated cache is worse than a missing one, because the previous good
+# cache is destroyed and the next launch pays a full scan. Pure header.
+compile_run AtomicFileWriteTest \
+  "$here/AtomicFileWriteTest.cpp"
+
+# The device rules that decide core pinning and the refresh-rate target, with the frequency tables of
+# real tri-cluster and bi-cluster SoCs. The old 0.9-ratio rule under-counts a tri-cluster's big cluster
+# and silently skipped pinning; the gap rule is pinned against nine tables.
+compile_run OptifineDeviceRulesTest \
+  "$root/src/pl/runtime/optifine/OptifineDeviceRules.cpp" \
+  "$here/OptifineDeviceRulesTest.cpp"
+
 compile_run ProcessMemoryTest \
   -I"$root/src" \
   "$root/src/pl/runtime/ProcessMemory.cpp" \
@@ -273,5 +290,46 @@ compile_run FuzzParseTest \
   "$root/src/pl/runtime/AntEggLoader.cpp" \
   "$root/src/pl/cosmetics/geometry/BedrockModelParser.cpp" \
   "$here/FuzzParseTest.cpp" "$zlib_link"
+
+# The seqlock's memory model, under ThreadSanitizer. The plain run above proves the payload is never
+# torn; this run proves the reader and the writer never touch the buffer without an ordering edge,
+# which is the half a torn-read check cannot see and the half that bites on ARM64. TSAN needs ASLR
+# disabled on this kernel, so it runs through `setarch -R` and is skipped (with a notice) where the
+# sanitizer or `setarch` is unavailable, so the suite still passes on a plain host.
+tsan_available=""
+if "$cxx" -std=c++20 -fsanitize=thread -x c++ - -o "$work/tsan-probe" >/dev/null 2>&1 <<<'int main(){return 0;}'; then
+  if command -v setarch >/dev/null 2>&1 &&
+     setarch "$(uname -m)" -R "$work/tsan-probe" >/dev/null 2>&1; then
+    tsan_available=1
+  fi
+fi
+if [[ -n "$tsan_available" ]]; then
+  echo "== SnapshotChannelTsanTest =="
+  # -Wno-tsan: the fences are a no-op under the sanitizer's own model, so the "not supported with
+  # -fsanitize=thread" warning is expected and would otherwise hide a real warning in the log.
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/SnapshotChannelTsanTest.cpp" -o "$work/SnapshotChannelTsanTest"
+  setarch "$(uname -m)" -R "$work/SnapshotChannelTsanTest"
+else
+  echo "== SnapshotChannelTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
+
+# The local-player seqlock, extracted from GameLocalPlayer.cpp into one shared class so the ordering
+# rules are pinned once. The plain run proves the transform is never torn and that a read landing in
+# a write window retries rather than reporting "no player"; the TSAN run proves the reader and the
+# writer share no unsynchronised access, which is the half the old plain-float fields failed.
+compile_run PlayerSnapshotTest \
+  "$here/PlayerSnapshotTest.cpp"
+
+if [[ -n "$tsan_available" ]]; then
+  echo "== PlayerSnapshotTsanTest =="
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/PlayerSnapshotTsanTest.cpp" -o "$work/PlayerSnapshotTsanTest"
+  setarch "$(uname -m)" -R "$work/PlayerSnapshotTsanTest"
+else
+  echo "== PlayerSnapshotTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
 
 echo "all cosmetics host tests passed"

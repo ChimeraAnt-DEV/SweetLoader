@@ -1,6 +1,9 @@
 #include <sched.h>
 #include <sys/types.h>
 
+#include <atomic>
+#include <cerrno>
+
 #include <string>
 
 #include "pl/Logger.hpp"
@@ -25,14 +28,18 @@
 namespace pl::runtime {
 namespace {
 
-/** Thread names to try, in order. Different builds name the render thread differently. */
-constexpr const char *kRenderThreadNames[] = {"Render", "render", "Minecraft Render",
-                                              "RenderThread"};
+/**
+ * Thread names to try, in order. Linux truncates a task's comm to 15 characters, so a longer name can
+ * never match ("Minecraft Render" is 16 and was silently dead -- audit item 12). The names are matched
+ * exactly (case-insensitively), so "Render" no longer hits Android's HWUI "RenderThread" (item 11).
+ */
+constexpr const char *kRenderThreadNames[] = {"Render", "render", "MinecraftRend", "RenderThread"};
 /** Lowest real-time priority: ahead of normal threads, behind everything else that asks. */
 constexpr int kRealtimePriority = 1;
 
-pid_t gRenderTid = -1;
-bool gApplied = false;
+// Read and written by whichever thread runs the apply pass, so they must be atomic (audit item 14).
+std::atomic<pid_t> gRenderTid{-1};
+std::atomic_bool gApplied{false};
 
 bool TryApplyToThread(pid_t tid, OptifineItemState &state) {
   int oldPolicy = 0;
@@ -51,7 +58,7 @@ bool TryApplyToThread(pid_t tid, OptifineItemState &state) {
   int newPolicy = 0;
   int newPriority = 0;
   GetThreadScheduling(tid, newPolicy, newPriority);
-  gApplied = true;
+  gApplied.store(true, std::memory_order_relaxed);
   state.needsRestart = false;
   MarkOptifineActive(state, "render thread SCHED_FIFO priority 1");
   preloaderLogger.info(
@@ -62,15 +69,29 @@ bool TryApplyToThread(pid_t tid, OptifineItemState &state) {
 
 void ApplyRenderPriority(bool enabled, OptifineItemState &state) {
   if (!enabled) return;
-  if (gApplied && gRenderTid > 0) {
-    MarkOptifineActive(state, "render thread SCHED_FIFO priority 1");
-    return;
+  const pid_t cached = gRenderTid.load(std::memory_order_relaxed);
+  if (gApplied.load(std::memory_order_relaxed) && cached > 0) {
+    // Revalidate the cached tid: the render thread can be recreated and the kernel can recycle a
+    // tid, so a stale one must not be reported Active (audit item 13).
+    bool stillRender = false;
+    for (const char *name : kRenderThreadNames) {
+      if (ThreadNameMatches(cached, name)) {
+        stillRender = true;
+        break;
+      }
+    }
+    if (stillRender) {
+      MarkOptifineActive(state, "render thread SCHED_FIFO priority 1");
+      return;
+    }
+    gApplied.store(false, std::memory_order_relaxed);
+    gRenderTid.store(-1, std::memory_order_relaxed);
   }
 
   for (const char *name : kRenderThreadNames) {
     const pid_t tid = FindThreadByName(name);
     if (tid > 0) {
-      gRenderTid = tid;
+      gRenderTid.store(tid, std::memory_order_relaxed);
       TryApplyToThread(tid, state);
       return;
     }
