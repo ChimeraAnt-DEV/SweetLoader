@@ -139,13 +139,17 @@ private:
    *
    * A plain `memcpy` here would race the other thread's access to the same bytes, which is undefined
    * behaviour even though the seqlock discards a torn result (and ThreadSanitizer reports it). Both
-   * sides therefore go through `std::atomic_ref` with relaxed ordering, which makes the access
-   * well-defined; the surrounding fences supply the ordering that makes a copied value consistent.
+   * sides therefore go through the compiler's `__atomic` builtins with relaxed ordering, which makes
+   * the access well-defined; the surrounding fences supply the ordering that makes a copied value
+   * consistent.
+   *
+   * `__atomic_*` is used rather than `std::atomic_ref`, which the NDK's libc++ does not implement —
+   * the builtins are the same atomics and are understood by both clang and gcc.
    *
    * 8-byte words are used only while <em>both</em> pointers are word-aligned — the `publish` source is
-   * a caller span that may start anywhere — and byte accesses cover the head and tail. The `atomic_ref`
-   * needs a non-const lvalue, so the source is `const_cast`; the storage is genuinely shared and
-   * mutated by the writer, which is exactly why the access must be atomic.
+   * a caller span that may start anywhere — and byte accesses cover the head and tail. The `__atomic`
+   * builtins take a non-const pointer, so the source is `const_cast`; the storage is genuinely shared
+   * and mutated by the writer, which is exactly why the access must be atomic.
    */
   static void CopyWords(std::uint8_t *dst, const std::uint8_t *src, std::size_t n) {
     using Word = std::uint64_t;
@@ -158,10 +162,9 @@ private:
       CopyByte(dst, s, i);
     }
     for (; i + sizeof(Word) <= n; i += sizeof(Word)) {
-      const Word word = std::atomic_ref<Word>(*reinterpret_cast<Word *>(s + i))
-                            .load(std::memory_order_relaxed);
-      std::atomic_ref<Word>(*reinterpret_cast<Word *>(dst + i))
-          .store(word, std::memory_order_relaxed);
+      const Word word =
+          __atomic_load_n(reinterpret_cast<Word *>(s + i), __ATOMIC_RELAXED);
+      __atomic_store_n(reinterpret_cast<Word *>(dst + i), word, __ATOMIC_RELAXED);
     }
     for (; i < n; ++i) {
       CopyByte(dst, s, i);
@@ -169,9 +172,8 @@ private:
   }
 
   static void CopyByte(std::uint8_t *dst, std::uint8_t *src, std::size_t i) {
-    std::atomic_ref<std::uint8_t>(dst[i]).store(
-        std::atomic_ref<std::uint8_t>(src[i]).load(std::memory_order_relaxed),
-        std::memory_order_relaxed);
+    const std::uint8_t value = __atomic_load_n(src + i, __ATOMIC_RELAXED);
+    __atomic_store_n(dst + i, value, __ATOMIC_RELAXED);
   }
 
   const std::size_t capacity_;
