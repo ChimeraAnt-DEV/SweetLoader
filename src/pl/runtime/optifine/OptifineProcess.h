@@ -2,6 +2,7 @@
 
 #include <sys/types.h>
 
+#include <cstdint>
 #include <string>
 
 /**
@@ -26,6 +27,14 @@ std::string ThreadName(pid_t tid);
 pid_t FindThreadByName(const std::string &needle);
 
 /**
+ * @brief True when the task @p tid still exists and its name equals @p expected (case-insensitive).
+ *
+ * A cached tid can be recycled by a new thread, so a caller that remembers a render tid must
+ * revalidate it before acting (audit item 13).
+ */
+bool ThreadNameMatches(pid_t tid, const std::string &expected);
+
+/**
  * @brief Sets a thread's scheduling policy/priority.
  * @return true on success; false (with errno left set) on any failure.
  */
@@ -41,7 +50,7 @@ bool GetThreadScheduling(pid_t tid, int &policy, int &priority);
  * @param maxCores capacity of {@code out}.
  * @return the number of cores read, or 0 when the table is unavailable.
  */
-int ReadCpuMaxFrequencies(unsigned long long *out, int maxCores);
+int ReadCpuMaxFrequencies(std::uint64_t *out, int maxCores);
 
 /**
  * @brief Reads the core indices whose max frequency is at or above the performance threshold.

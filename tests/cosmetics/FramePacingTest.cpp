@@ -6,8 +6,10 @@
  * and no lock claim when the refresh rate is unknown) are pinned without a device.
  */
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <thread>
 
 #include "pl/render/FramePacing.hpp"
 
@@ -195,6 +197,50 @@ int main() {
     FramePacingReading r = a.percentiles();
     expect(r.hitchesPerMinute == 0, "a perfectly steady window has no hitches");
     expect(r.p50Us == 16667 && r.p99Us == 16667, "every percentile is the steady interval");
+  }
+
+  // The span is the window's own span, not the whole session. A long steady run followed by a burst
+  // must report the burst's real rate. The window holds 2000 samples: with 1900 steady 1ms frames and
+  // 100 burst 10ms frames the span is 1900*1ms + 100*10ms = 2899ms, so 100 hitches is ~2069/min.
+  // Before the fix the span grew from the first sample ever taken (3000ms + 1000ms = 4000ms), which
+  // diluted the same burst to 1500/min — the exact defect the doc comment promised not to have. The
+  // bound sits between the two, so it fails against the old code and passes against the new.
+  {
+    FramePacingAnalyzer a;
+    long long t = 0;
+    for (int i = 0; i < 3000; ++i) {
+      t += 1000; // 1ms "frames": a long, irrelevant steady run
+      a.onFrame(t, 0);
+    }
+    for (int i = 0; i < 100; ++i) {
+      t += 10000; // 10ms "frames": the burst, above twice the 1ms median
+      a.onFrame(t, 0);
+    }
+    FramePacingReading r = a.percentiles();
+    expect(r.hitchesPerMinute > 1800,
+           "the window span is the ring's span, so a burst is not diluted by the session");
+  }
+
+  // Two concurrent percentile readers must not corrupt each other. The old code sorted into one
+  // shared scratch buffer, so a reader could see a torn median; the bound here fails against that.
+  {
+    FramePacingAnalyzer a;
+    long long t = 0;
+    for (int i = 0; i < 3000; ++i) {
+      t += 1000;
+      a.onFrame(t, 0);
+    }
+    std::atomic<int> bad{0};
+    auto work = [&]() {
+      for (int k = 0; k < 5000; ++k) {
+        if (a.percentiles().p50Us != 1000) bad.fetch_add(1, std::memory_order_relaxed);
+      }
+    };
+    std::thread t1(work);
+    std::thread t2(work);
+    t1.join();
+    t2.join();
+    expect(bad.load() == 0, "concurrent percentile readers agree on the median");
   }
 
   std::printf("FramePacingTest: %d checks passed\n", checks);

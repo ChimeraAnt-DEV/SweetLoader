@@ -1,6 +1,8 @@
 #include "pl/runtime/RegisterAwareHook.h"
 
+#include <atomic>
 #include <cstdint>
+#include <ctime>
 
 #if !defined(__aarch64__)
 #error "RegisterAwareHook is only implemented for AArch64; the preloader builds arm64-v8a only."
@@ -22,6 +24,7 @@ extern "C" {
 PassthroughContext pl_runtime_passthrough_ctx_skinCape{};
 PassthroughContext pl_runtime_passthrough_ctx_textureBind{};
 PassthroughContext pl_runtime_passthrough_ctx_packetRead{};
+PassthroughContext pl_runtime_passthrough_ctx_swapBuffers{};
 
 PassthroughContext *pl_runtime_passthrough_skinCape_ptr() {
   return &pl_runtime_passthrough_ctx_skinCape;
@@ -31,6 +34,9 @@ PassthroughContext *pl_runtime_passthrough_textureBind_ptr() {
 }
 PassthroughContext *pl_runtime_passthrough_packetRead_ptr() {
   return &pl_runtime_passthrough_ctx_packetRead;
+}
+PassthroughContext *pl_runtime_passthrough_swapBuffers_ptr() {
+  return &pl_runtime_passthrough_ctx_swapBuffers;
 }
 
 // The per-detour record stubs. A veneer cannot itself take the address of its context through
@@ -46,6 +52,24 @@ void *pl_runtime_passthrough_textureBind_record() {
 }
 void *pl_runtime_passthrough_packetRead_record() {
   return RecordPassthroughCall(&pl_runtime_passthrough_ctx_packetRead);
+}
+
+// The swap veneer's own counters. Kept separate from PassthroughContext so the frame-boundary stamp
+// is written only by this seam, and the other three veneers pay no clock read.
+std::atomic<std::uint64_t> pl_runtime_swap_buffers_count{0};
+std::atomic<long long> pl_runtime_swap_buffers_last_us{0};
+
+// The swap record stub: stamps the frame boundary, then returns the original trampoline for the
+// veneer to tail-branch to. The veneer has already saved every volatile register, so the present
+// call's return value (EGLBoolean in w0) and any FP/SIMD argument survive untouched.
+void *pl_runtime_passthrough_swapBuffers_record() {
+  timespec ts{};
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  pl_runtime_swap_buffers_last_us.store(
+      static_cast<long long>(ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000LL,
+      std::memory_order_relaxed);
+  pl_runtime_swap_buffers_count.fetch_add(1, std::memory_order_relaxed);
+  return reinterpret_cast<void *>(pl_runtime_passthrough_ctx_swapBuffers.original);
 }
 
 } // extern "C"
@@ -126,3 +150,5 @@ PASSTHROUGH_VENEER(pl_runtime_passthrough_textureBind_addr,
                    pl_runtime_passthrough_textureBind_record)
 PASSTHROUGH_VENEER(pl_runtime_passthrough_packetRead_addr,
                    pl_runtime_passthrough_packetRead_record)
+PASSTHROUGH_VENEER(pl_runtime_passthrough_swapBuffers_addr,
+                   pl_runtime_passthrough_swapBuffers_record)

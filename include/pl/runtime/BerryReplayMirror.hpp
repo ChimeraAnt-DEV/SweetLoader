@@ -89,9 +89,8 @@ struct ReplayApiMirror {
     std::int32_t (*loaded)(void);
     const char *(*status)(void);
 
-    // The capture (recorder) half. A host that can see the game's network stream
-    // records it here: `capture_start` opens a session, `capture_packet` feeds one
-    // datagram, and `save` exports it. Every pointer is optional.
+    // The capture half (ABI v2). Optional: a library built before it leaves these null and the
+    // packet capture stays off, so the launcher still works against an older libBerryAPI.so.
     std::int32_t (*capture_start)(void);
     std::int32_t (*capture_stop)(void);
     std::int32_t (*capture_state)(void);
@@ -152,11 +151,11 @@ inline bool ReplayApiUsable(const ReplayApiMirror &api) {
 }
 
 /**
- * @brief Whether the surface can record the live stream (the capture half).
+ * @brief Whether the surface provides the packet capture (ABI v2).
  *
- * <p>Separate from {@link ReplayApiUsable}: a build can play replays without being able to record
- * one, so the launcher shows "record" only when every capture call is present rather than calling a
- * null `capture_packet`.
+ * <p>Separate from {@link ReplayApiUsable} because the capture is optional: the replay *screen* does
+ * not need it, so a library without it is still usable for playback. The recorder checks this before
+ * starting a capture, so an old library records nothing rather than being driven through a null.
  */
 inline bool ReplayCaptureUsable(const ReplayApiMirror &api) {
     return api.capture_start != nullptr && api.capture_stop != nullptr &&
