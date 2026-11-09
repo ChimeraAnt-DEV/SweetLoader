@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "pl/Logger.hpp"
+#include "pl/memory/ModulePathMatch.hpp"
 #include "pl/runtime/GameLocalPlayer.h"
 
 namespace pl::cosmetics {
@@ -41,13 +42,13 @@ void ReadableRegionsFor(const std::string &moduleName, std::vector<Region> &out)
   if (!maps) return;
   char line[4096];
   while (std::fgets(line, sizeof(line), maps)) {
-    if (std::strstr(line, moduleName.c_str()) == nullptr) continue;
-    std::uintptr_t start = 0;
-    std::uintptr_t end = 0;
-    char perms[5] = {};
-    if (std::sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s", &start, &end, perms) != 3) continue;
-    if (end <= start || perms[0] != 'r') continue;
-    out.push_back(Region{start, end});
+    // Match the module by the basename of the maps path column, not `strstr` (see ModulePathMatch).
+    pl::memory::MapsLine parsed{};
+    if (!pl::memory::ParseMapsLine(line, parsed)) continue;
+    if (!pl::memory::MapsPathNamesModule(parsed.path, moduleName)) continue;
+    if (parsed.end <= parsed.start) continue;
+    if (!pl::memory::MapsPermsReadable(parsed.perms)) continue;
+    out.push_back(Region{parsed.start, parsed.end});
   }
   std::fclose(maps);
 }

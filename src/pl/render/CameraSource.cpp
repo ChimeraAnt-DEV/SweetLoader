@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "pl/Logger.hpp"
+#include "pl/memory/ModulePathMatch.hpp"
 
 namespace pl::render {
 namespace {
@@ -37,16 +38,20 @@ void ReadableRegionsFor(const std::string &moduleName, std::vector<Region> &out)
   if (!maps) return;
   char line[4096];
   while (std::fgets(line, sizeof(line), maps)) {
-    if (std::strstr(line, moduleName.c_str()) == nullptr) continue;
-    std::uintptr_t start = 0;
-    std::uintptr_t end = 0;
-    char perms[5] = {};
-    if (std::sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s", &start, &end, perms) != 3) continue;
-    if (end <= start) continue;
+    // Match the module by the basename of the maps path column, not `strstr`: the latter also
+    // matches `libminecraftpe.so.bak`, a path that merely contains the name, or a tag such as
+    // `[anon:libminecraftpe.so]`, which would scan the wrong regions.
+    pl::memory::MapsLine parsed{};
+    if (!pl::memory::ParseMapsLine(line, parsed)) continue;
+    if (!pl::memory::MapsPathNamesModule(parsed.path, moduleName)) continue;
+    if (parsed.end <= parsed.start) continue;
     // The camera lives in writable data (.data / .bss), not code. Scanning r-xp as well would
     // only add false positives from constant pools.
-    if (perms[0] != 'r' || perms[1] != 'w') continue;
-    out.push_back(Region{start, end});
+    if (!pl::memory::MapsPermsReadable(parsed.perms) ||
+        !pl::memory::MapsPermsWritable(parsed.perms)) {
+      continue;
+    }
+    out.push_back(Region{parsed.start, parsed.end});
   }
   std::fclose(maps);
 }

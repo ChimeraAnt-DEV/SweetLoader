@@ -600,7 +600,7 @@ void ReadMceImageHookDiagnostics(std::uint64_t out[4]) {
   out[0] = static_cast<std::uint64_t>(ResolveLoader());
   // The probe is the runtime proof of the sret/x8 ABI; a successful build of the 1x1 PNG means the
   // recovered convention held, so this reports what was actually observed, not a guess.
-  out[1] = g_imagePathVerified.load(std::memory_order_relaxed) ? 1U : 0U;
+  out[1] = g_probeRan.load(std::memory_order_relaxed) ? 1U : 0U;
   out[2] = g_imagePathVerified.load(std::memory_order_relaxed) ? 1U : 0U;
   out[3] = g_hookInstalled.load(std::memory_order_relaxed) ? 1U : 0U;
 }
