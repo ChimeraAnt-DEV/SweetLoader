@@ -7,6 +7,7 @@
 #include "pl/Export.hpp"
 #include "pl/Logger.hpp"
 #include "pl/internal/ModManager.h"
+#include "pl/hooks/DobbyHookManager.hpp"
 #include "pl/runtime/FeatureAvailability.hpp"
 #include "pl/runtime/GameHooks.h"
 #include "pl/runtime/GameHookRules.h"
@@ -188,6 +189,15 @@ extern "C" PL_EXPORT int pl_get_abi_version() { return PL_PRELOADER_ABI_VERSION;
 JNIEXPORT jint JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeAbiVersion(JNIEnv *, jclass) {
   return PL_PRELOADER_ABI_VERSION;
+}
+
+// Bounds the module-handle cache. The launcher calls this from Application.onTrimMemory, so a
+// session that hot-reloads mods (or resolves many distinct mod .so files) does not grow the cache
+// without bound. Returns the number of handles closed; the game module's handle is never closed.
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeCloseUnusedModuleHandles(JNIEnv *,
+                                                                                 jclass) {
+  return static_cast<jint>(pl::hooks::DobbyHookManager::instance().closeUnusedHandles());
 }
 
 } // extern "C"

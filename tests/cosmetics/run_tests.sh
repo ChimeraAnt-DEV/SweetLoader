@@ -177,6 +177,8 @@ compile_run Utf8Test \
 
 compile_run HookInstallGateTest \
   "$here/HookInstallGateTest.cpp"
+compile_run HandleCacheEvictionTest \
+  "$here/HandleCacheEvictionTest.cpp"
 
 compile_run JniAttachTest \
   "$here/JniAttachTest.cpp"

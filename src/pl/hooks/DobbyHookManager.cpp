@@ -10,12 +10,15 @@
 
 #include "pl/hooks/DobbyHookManager.hpp"
 
+#include <cstdint>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "pl/Gloss.h"
 #include "pl/Logger.hpp"
 #include "pl/memory/Hook.hpp"
+#include "pl/hooks/HandleCacheEviction.hpp"
 #include "pl/memory/HookTarget.hpp"
 
 namespace pl::hooks {
@@ -50,23 +53,62 @@ std::mutex &handleMutex() {
   return mutex;
 }
 
-std::unordered_map<std::string, GHandle> &handleCache() {
-  static std::unordered_map<std::string, GHandle> cache;
+/** @brief One cached module handle, with the generation it was last used in. */
+struct CachedHandle {
+  GHandle handle = nullptr;
+  std::uint64_t lastTouch = 0;
+};
+
+std::unordered_map<std::string, CachedHandle> &handleCache() {
+  static std::unordered_map<std::string, CachedHandle> cache;
   return cache;
 }
 
-/** @brief Opens (and caches) a module handle. Returns null when the module is not loaded. */
+/** @brief The maintenance generation counter; advanced by {@link closeUnusedHandles}. */
+std::uint64_t &handleGeneration() {
+  static std::uint64_t generation = 1;
+  return generation;
+}
+
+/** @brief The game module's handle is pinned: it is resolved on every install and must stay open. */
+constexpr const char *kPinnedModule = "libminecraftpe.so";
+
+/** @brief Opens (and caches) a module handle, marking it used in the current generation. */
 GHandle openModule(std::string_view module) {
   std::lock_guard<std::mutex> lock(handleMutex());
   std::string key(module);
+  const std::uint64_t gen = handleGeneration();
   auto it = handleCache().find(key);
-  if (it != handleCache().end()) return it->second;
+  if (it != handleCache().end()) {
+    it->second.lastTouch = gen;
+    return it->second.handle;
+  }
   GHandle handle = GlossOpen(key.c_str());
-  if (handle != nullptr) handleCache().emplace(key, handle);
+  if (handle != nullptr) handleCache().emplace(key, CachedHandle{handle, gen});
   return handle;
 }
 
 } // namespace
+
+std::size_t DobbyHookManager::closeUnusedHandles(std::uint64_t keepRecent) {
+  std::lock_guard<std::mutex> lock(handleMutex());
+  const std::uint64_t gen = handleGeneration() + 1;
+  handleGeneration() = gen;
+  std::vector<std::string> toClose;
+  for (const auto &entry : handleCache()) {
+    const bool pinned = entry.first == kPinnedModule;
+    if (ShouldEvictHandle(entry.second.lastTouch, gen, keepRecent, pinned)) {
+      toClose.push_back(entry.first);
+    }
+  }
+  for (const std::string &key : toClose) {
+    auto it = handleCache().find(key);
+    if (it == handleCache().end()) continue;
+    if (it->second.handle != nullptr) GlossClose(it->second.handle, false);
+    handleCache().erase(it);
+  }
+  return toClose.size();
+}
 
 DobbyHookManager &DobbyHookManager::instance() {
   static DobbyHookManager manager;

@@ -105,6 +105,19 @@ public:
 
   /** @brief True when @p address is non-null and instruction-aligned. */
   static bool isAddressSane(uintptr_t address);
+
+  /**
+   * @brief Closes and forgets module handles not used within the last @p keepRecent generations.
+   *
+   * <p>Resolution handles are cached so a repeated install does not reopen a module, but a session
+   * that hot-reloads mods (or resolves many distinct mod `.so`s) grows the cache without bound. The
+   * launcher's trim-memory path calls this to bound it. The game module's handle is pinned and never
+   * closed.
+   *
+   * @param keepRecent how many recent generations to keep (0 keeps only the current one)
+   * @return the number of handles closed
+   */
+  std::size_t closeUnusedHandles(std::uint64_t keepRecent = 1);
 };
 
 /**
