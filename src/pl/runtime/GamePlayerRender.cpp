@@ -136,11 +136,18 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
   // instead: the real boundary, exact even when the visible-model count changes (audit item 113).
   const std::uint64_t swapPresents = pl_runtime_swap_buffers_count.load(std::memory_order_relaxed);
   const bool swapBoundary = pl::runtime::IsSwapFrameBoundaryLive() && swapPresents != 0;
+  // Whether this call is the first of a new frame. The render entry runs once per rendered player
+  // model, so once-per-frame work is gated on this instead of running once per model.
+  bool frameStarted = true;
   if (swapBoundary) {
+    // The present hook counts the real frame, so a present count that moved since the last call
+    // means this call begins a new frame.
+    frameStarted = swapPresents != g_renderTick.load(std::memory_order_relaxed);
     g_frameCalls.store(1, std::memory_order_relaxed);
     g_renderTick.store(static_cast<std::uint32_t>(swapPresents), std::memory_order_relaxed);
     g_frameClock.onRenderCall(nowUs); // keep the fallback clock warm for a later detach
-  } else if (g_frameClock.onRenderCall(nowUs)) {
+  } else if (g_frameClock.onRenderCall(nowUs, pl::render::FrameTickClock::kDefaultMinIntervalUs,
+                                       &frameStarted)) {
     g_frameCalls.store(1, std::memory_order_relaxed);
     g_renderTick.store(g_frameClock.tick(), std::memory_order_relaxed);
   } else {
@@ -203,9 +210,13 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
       callback();
     }
   }
-  // Also dispatch the public mod render callbacks (pl/Render.hpp) from this same seam, so mods and
-  // the native cosmetics share one render-thread callback point.
-  ::pl::render::detail::DispatchRenderCallbacks();
+  // Dispatch the public mod render callbacks (pl/Render.hpp) once per frame, not once per rendered
+  // model. The entry runs per model, so dispatching on every call multiplied a mod's per-frame work
+  // by the number of visible players (audit item 2.2); the render context (camera, viewport) is the
+  // same for every model in a frame, so once is both correct and cheaper.
+  if (frameStarted) {
+    ::pl::render::detail::DispatchRenderCallbacks();
+  }
 }
 
 } // namespace
