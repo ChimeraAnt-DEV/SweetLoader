@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -247,6 +248,33 @@ public:
     image->format = format;
     image->stampMs = stampMs;
     std::atomic_store(&mSlot, ImagePtr(std::move(image)));
+  }
+
+  /**
+   * @brief Replaces the captured image, skipping the write when the payload is unchanged.
+   *
+   * <p>A skin or cape can be re-uploaded identical bytes (resource-pack reload, a re-join), and the
+   * capture path used to allocate a fresh vector and copy on every such upload. This compares the
+   * incoming bytes against what the slot already holds — same size, dimensions, format and content —
+   * and, when they match, keeps the existing snapshot (no allocation, no copy) and returns false.
+   * An empty write clears the slot, as {@link #set} does.
+   *
+   * @return true when a new snapshot was stored, false when the write was skipped or cleared
+   */
+  bool setIfChanged(const std::uint8_t *data, std::size_t size, std::uint32_t width,
+                    std::uint32_t height, std::uint32_t format, std::int64_t stampMs) {
+    if (data == nullptr || size == 0 || width == 0 || height == 0) {
+      clear();
+      return false;
+    }
+    const ImagePtr current = std::atomic_load(&mSlot);
+    if (current != nullptr && current->width == width && current->height == height &&
+        current->format == format && current->bytes.size() == size &&
+        std::memcmp(current->bytes.data(), data, size) == 0) {
+      return false;
+    }
+    set(std::vector<std::uint8_t>(data, data + size), width, height, format, stampMs);
+    return true;
   }
 
   /** @brief The captured image, or null when nothing has been captured. */

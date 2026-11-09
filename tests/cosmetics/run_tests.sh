@@ -179,6 +179,8 @@ compile_run HookInstallGateTest \
   "$here/HookInstallGateTest.cpp"
 compile_run HandleCacheEvictionTest \
   "$here/HandleCacheEvictionTest.cpp"
+compile_run CapturedImageSlotTest \
+  "$here/CapturedImageSlotTest.cpp"
 
 compile_run JniAttachTest \
   "$here/JniAttachTest.cpp"
