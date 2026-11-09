@@ -11,14 +11,19 @@
 
 #include <atomic>
 #include <cmath>
+#include <ctime>
 #include <numbers>
 #include <vector>
 
 #include "pl/Logger.hpp"
 #include "pl/render/CameraSource.h"
 #include "pl/render/GlesProbe.hpp"
+#include "pl/render/RenderDispatch.h"
 #include "pl/runtime/CallbackSnapshot.hpp"
 #include "pl/runtime/GameLocalPlayer.h"
+#include "pl/runtime/HighWaterMark.hpp"
+#include "pl/runtime/HookTiming.hpp"
+#include "pl/runtime/OnceReport.hpp"
 
 namespace pl::render {
 namespace {
@@ -165,6 +170,27 @@ bool ComputeViewProjection(float fovDegrees, float aspectRatio, float nearPlane,
   return out.isFinite();
 }
 
+// --- render-callback timing (audit item 3.12) ------------------------------------------
+
+namespace {
+
+// The dispatch times every callback with one monotonic clock read each. The read is always on (not
+// gated to a debug build) because it is one cheap read per callback and the aggregate is what lets
+// the launcher name a mod that stutters the frame; the *report* is rate-limited to once, so a
+// callback that is over budget every frame does not flood the log.
+long long MonotonicUsNow() {
+  timespec ts{};
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<long long>(ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000LL;
+}
+
+std::atomic<std::uint32_t> g_lastFrameCallbackCount{0};
+std::atomic<std::uint32_t> g_dispatchPasses{0};
+std::atomic<std::uint32_t> g_worstCallbackUs{0};
+std::atomic<std::uint32_t> g_overBudgetCallbackCount{0};
+
+} // namespace
+
 // --- dispatch (called from the render seam) --------------------------------------------
 
 namespace detail {
@@ -211,14 +237,45 @@ void DispatchRenderCallbacks() {
 
   g_live.store(true, std::memory_order_release);
 
+  // Each callback is timed (one monotonic read each) and isolated: a throw is swallowed so the
+  // remaining callbacks and the frame continue, and the report is rate-limited so a callback that
+  // throws every frame does not flood the log with a per-frame fmt::vformat allocation (audit item
+  // 3.11). The worst single-callback time is published for the diagnostics reader (item 3.12).
+  static pl::runtime::OnceReport throwReported;
+  std::uint32_t dispatched = 0;
+  std::uint32_t worstUs = 0;
   g_callbacks.forEach([&](const RenderCallback &callback) {
-    // A callback must never take the process down: a throw is swallowed and the frame continues.
+    const long long startedUs = MonotonicUsNow();
     try {
       callback(context);
     } catch (...) {
-      preloaderLogger.warn("Render callback threw; frame continues");
+      if (throwReported.shouldReport()) {
+        preloaderLogger.warn("Render callback threw; frame continues (reported once)");
+      }
+    }
+    const long long elapsedUs = MonotonicUsNow() - startedUs;
+    ++dispatched;
+    if (elapsedUs > 0 && static_cast<std::uint32_t>(elapsedUs) > worstUs) {
+      worstUs = static_cast<std::uint32_t>(elapsedUs);
+    }
+    if (pl::runtime::HookOverBudget(elapsedUs)) {
+      g_overBudgetCallbackCount.fetch_add(1, std::memory_order_relaxed);
     }
   });
+
+  g_lastFrameCallbackCount.store(dispatched, std::memory_order_relaxed);
+  g_dispatchPasses.fetch_add(1, std::memory_order_relaxed);
+  // Publish the worst observed time, not just this frame's, so a one-off stall is not overwritten by
+  // the next cheap frame before the launcher polls.
+  pl::runtime::RaiseHighWaterMark(g_worstCallbackUs, worstUs);
+}
+
+void ReadRenderCallbackStats(std::uint32_t out[4]) {
+  if (out == nullptr) return;
+  out[0] = g_lastFrameCallbackCount.load(std::memory_order_relaxed);
+  out[1] = g_dispatchPasses.load(std::memory_order_relaxed);
+  out[2] = g_worstCallbackUs.load(std::memory_order_relaxed);
+  out[3] = g_overBudgetCallbackCount.load(std::memory_order_relaxed);
 }
 
 } // namespace detail

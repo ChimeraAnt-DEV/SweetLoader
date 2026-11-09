@@ -1,5 +1,7 @@
 #include <jni.h>
 
+#include "pl/render/RenderDispatch.h"
+
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -261,6 +263,21 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadPlayerRenderStats(
   if (!pl::runtime::ReadPlayerRenderStats(stats)) {
     return nullptr;
   }
+  jintArray result = env->NewIntArray(4);
+  if (result != nullptr) {
+    jint values[4] = {static_cast<jint>(stats[0]), static_cast<jint>(stats[1]),
+                      static_cast<jint>(stats[2]), static_cast<jint>(stats[3])};
+    env->SetIntArrayRegion(result, 0, 4, values);
+  }
+  return result;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderCallbackStats(
+    JNIEnv *env, jclass clazz) {
+  (void)clazz;
+  std::uint32_t stats[4] = {0, 0, 0, 0};
+  pl::render::detail::ReadRenderCallbackStats(stats);
   jintArray result = env->NewIntArray(4);
   if (result != nullptr) {
     jint values[4] = {static_cast<jint>(stats[0]), static_cast<jint>(stats[1]),

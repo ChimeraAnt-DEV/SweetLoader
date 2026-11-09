@@ -228,6 +228,10 @@ compile_run KeybindIndexTest \
 compile_run RuntimeHandlesTest \
   "$here/RuntimeHandlesTest.cpp"
 
+# The atomic high-water-mark raiser behind the render-callback timing aggregate (audit item 3.12).
+compile_run HighWaterMarkTest \
+  "$here/HighWaterMarkTest.cpp"
+
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \
