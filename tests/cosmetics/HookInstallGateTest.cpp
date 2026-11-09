@@ -130,6 +130,53 @@ int main() {
     expect(gate.deferredCount() == 0, "start() clears the defer count");
   }
 
+  // The runtime-up probe: the gate must NOT install on the frame floor alone if the probe says the
+  // runtime is not yet up. A frame tick is not proof the engine's present call has run; the probe is.
+  {
+    HookInstallGate gate;
+    gate.start(0);
+    for (int i = 0; i < HookInstallGate::kMinFrameTicks + 2; ++i) {
+      expect(gate.tick(1000 + i * 16, /*runtimeUp=*/false) == InstallDecision::Wait,
+             "the gate waits while the runtime-up probe is not satisfied");
+    }
+    expect(!gate.isResolved(), "waiting on the probe does not resolve the gate");
+    expect(gate.tick(2000, /*runtimeUp=*/true) == InstallDecision::Install,
+           "the gate installs once the probe is satisfied");
+    expect(gate.isResolved(), "gate resolves after installing");
+  }
+
+  // A frame floor that is satisfied with the probe already up still installs on the same tick as
+  // before, so the probe does not add latency on the normal path.
+  {
+    HookInstallGate gate;
+    gate.start(0);
+    InstallDecision d = InstallDecision::Wait;
+    for (int i = 0; i < HookInstallGate::kMinFrameTicks; ++i) {
+      d = gate.tick(i * 16, /*runtimeUp=*/true);
+    }
+    expect(d == InstallDecision::Install, "probe up + grace past installs on the completing tick");
+  }
+
+  // The deadline still fires with the probe never satisfied, so a runtime that never presents
+  // settles rather than pending forever.
+  {
+    HookInstallGate gate;
+    gate.start(0);
+    expect(gate.tick(HookInstallGate::kGiveUpMs + 1, /*runtimeUp=*/false) == InstallDecision::GiveUp,
+           "the deadline gives up even when the probe is never satisfied");
+  }
+
+  // The probe derivation is pure: a live present probe requires a real present; an unavailable
+  // probe does not block (the frame floor still gates the install).
+  {
+    expect(pl::runtime::RuntimeProbeSatisfied(/*presentProbeLive=*/true, 0) == false,
+           "a live probe with no present is not satisfied");
+    expect(pl::runtime::RuntimeProbeSatisfied(/*presentProbeLive=*/true, 1) == true,
+           "a live probe with a present is satisfied");
+    expect(pl::runtime::RuntimeProbeSatisfied(/*presentProbeLive=*/false, 0) == true,
+           "an unavailable probe does not block the install");
+  }
+
   std::printf("HookInstallGateTest: %d checks passed\n", checks);
   return 0;
 }

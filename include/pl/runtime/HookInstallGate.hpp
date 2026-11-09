@@ -30,6 +30,8 @@
  * produces enough frames still settles.
  */
 
+#include <cstdint>
+
 namespace pl::runtime {
 
 /** What the caller should do on this frame. */
@@ -41,6 +43,24 @@ enum class InstallDecision {
     /** The wait exceeded its budget; give up so the state is never left "pending" forever. */
     GiveUp,
 };
+
+/**
+ * @brief Whether the runtime-up probe is satisfied.
+ *
+ * <p>The frame floor alone is not proof the engine is up: {@code ArmGameHookInstall} runs from the
+ * activity's {@code onCreate}, and a frame tick can arrive before {@code libminecraftpe.so} is fully
+ * mapped and relocated. The present probe ({@code eglSwapBuffers}) is the real "the engine has
+ * rendered a frame" signal. This is the pure rule the gate consults.
+ *
+ * @param presentProbeLive whether the present hook is installed
+ * @param presents        the present counter, when the probe is live
+ * @return true when the probe is unavailable (nothing to block on — the frame floor still gates the
+ *         install), or when it is live and has observed at least one present
+ */
+inline bool RuntimeProbeSatisfied(bool presentProbeLive, std::uint64_t presents) {
+    if (!presentProbeLive) return true;
+    return presents != 0;
+}
 
 /**
  * @brief The deferred-install state machine.
@@ -103,22 +123,33 @@ public:
     /** The number of frame ticks observed so far (diagnostics). */
     int frameTicks() const { return frameTicks_; }
 
-    /** Advances one frame and returns the decision. A resolved gate always returns Wait. */
-    InstallDecision tick(long long nowMs) {
+    /**
+     * Advances one frame and returns the decision. A resolved gate always returns Wait.
+     *
+     * <p>Installing requires <em>both</em> the frame floor and the runtime-up probe: a frame tick is
+     * not proof the engine has settled, so a satisfied floor with an unsatisfied probe keeps waiting
+     * (the deadline still fires, so a runtime that never presents settles rather than pending
+     * forever). The one-argument overload keeps the old behaviour for a caller with no probe.
+     */
+    InstallDecision tick(long long nowMs, bool runtimeUp) {
         if (resolved_) return InstallDecision::Wait;
         ++frameTicks_;
-        if (frameTicks_ >= kMinFrameTicks) {
+        if (frameTicks_ >= kMinFrameTicks && runtimeUp) {
             resolved_ = true;
             return InstallDecision::Install;
         }
         // Check the deadline even while the frame grace is still running: a runtime that never
-        // delivers enough frames must still settle rather than pend forever.
+        // delivers enough frames (or never satisfies the probe) must still settle rather than pend
+        // forever.
         if (nowMs - startedMs_ >= kGiveUpMs) {
             resolved_ = true;
             return InstallDecision::GiveUp;
         }
         return InstallDecision::Wait;
     }
+
+    /** Advances one frame with no probe, treating the runtime as up once the frame floor is met. */
+    InstallDecision tick(long long nowMs) { return tick(nowMs, /*runtimeUp=*/true); }
 
 private:
     long long startedMs_ = 0;

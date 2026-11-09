@@ -322,7 +322,15 @@ bool PumpGameHookInstall() {
   if (!g_installArmed.load(std::memory_order_acquire)) return false;
 
   const long long nowMs = MonotonicMs();
-  const InstallDecision decision = g_installGate.tick(nowMs);
+  // The runtime-up probe. A frame tick is not proof the engine has settled: ArmGameHookInstall runs
+  // from the activity's onCreate, and a tick can arrive before libminecraftpe.so is fully mapped and
+  // relocated. When the present hook is live, require it to have observed a real present; when the
+  // present hook could not be installed (a Vulkan-only build, no libEGL), the probe does not block
+  // and the frame floor alone gates the install.
+  const bool runtimeUp = RuntimeProbeSatisfied(
+      pl::runtime::IsSwapFrameBoundaryLive(),
+      pl_runtime_swap_buffers_count.load(std::memory_order_relaxed));
+  const InstallDecision decision = g_installGate.tick(nowMs, runtimeUp);
   if (decision == InstallDecision::Wait) return false;
 
   if (decision == InstallDecision::GiveUp) {
