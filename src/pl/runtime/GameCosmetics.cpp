@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstring>
 #include <ctime>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -16,6 +17,16 @@
 #include "pl/runtime/GamePlayerRender.h"
 #include "pl/runtime/RegisterAwareHook.h"
 #include "pl/runtime/mce_image_hook.hpp"
+#include "pl/runtime/PublishedBlob.hpp"
+
+// std::atomic<std::shared_ptr<T>> is not implemented in the NDK's libc++, so the pre-C++20
+// atomic_load/atomic_store free functions are the only way to publish a shared pointer here; their
+// deprecation is suppressed rather than left to warn on every build.
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 namespace pl::runtime {
 namespace {
@@ -66,8 +77,13 @@ std::unordered_map<std::uint64_t, std::vector<std::uint8_t>> g_capePixels;
 std::unordered_map<std::uint64_t, std::vector<std::uint8_t>> g_texturePixels;
 std::unordered_map<std::uint64_t, CosmeticImage> g_capeMeta;
 std::unordered_map<std::uint64_t, CosmeticImage> g_textureMeta;
-std::vector<std::uint8_t> g_geometry;
-std::uint64_t g_geometryHash = 0;
+// The geometry blob and its FNV hash, published as one immutable snapshot behind an atomic store so
+// the render thread reads it without the registry mutex and without a data race.
+struct GeometrySnapshot {
+  std::vector<std::uint8_t> bytes;
+  std::uint64_t hash = 0;
+};
+std::shared_ptr<const GeometrySnapshot> g_geometry;
 
 // Bumped on every registry mutation so the render path can skip a copy when nothing changed.
 std::atomic<std::uint32_t> g_registryVersion{1};
@@ -76,15 +92,13 @@ void BumpRegistryVersion() {
   g_registryVersion.fetch_add(1, std::memory_order_release);
 }
 
-// The per-frame transform buffer (CosmeticFrame wire layout) is double-buffered so the launcher's
-// writer thread never blocks the render thread: the JNI side writes into the *pending* slot while
-// the render hook reads the *published* slot, and a publish swaps them atomically under the short
-// mutex. The render thread's reads are lock-free after a single swap-in, which keeps it off the
-// writer's critical section entirely.
-std::vector<std::uint8_t> g_framePending;
-std::vector<std::uint8_t> g_framePublished;
+// The per-frame transform buffer (CosmeticFrame wire layout). An immutable buffer is published
+// behind an atomic store, so the render thread takes one atomic load and holds a stable view for the
+// whole frame: it never touches the writer's mutex and never races a `swap`. The previous shape
+// swapped the buffer in place under the mutex while the render thread read it lock-free, a data race
+// that on ARM64 can observe a torn vector and abort.
+pl::runtime::PublishedBlob g_frame;
 std::atomic<std::uint64_t> g_framePublishedVersion{0};
-std::uint64_t g_frameReaderVersion = 0;
 
 long long MonotonicMs() {
   timespec ts{};
@@ -382,31 +396,29 @@ std::size_t TextureOverrideCount() {
 }
 
 void SetRenderGeometry(const std::uint8_t *data, std::size_t size) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  g_geometry.assign(data, data + size);
+  // Build the new snapshot and its hash off the lock, then publish it with one atomic store, so the
+  // render thread reads geometry without the registry mutex and without a data race.
+  auto snapshot = std::make_shared<GeometrySnapshot>();
+  if (data != nullptr && size != 0) {
+    snapshot->bytes.assign(data, data + size);
+  }
   // FNV-1a, so a frame can cheaply tell the geometry changed without copying or comparing it.
   std::uint64_t hash = 1469598103934665603ULL;
-  for (std::uint8_t byte : g_geometry) {
+  for (std::uint8_t byte : snapshot->bytes) {
     hash ^= byte;
     hash *= 1099511628211ULL;
   }
-  g_geometryHash = hash;
+  snapshot->hash = hash;
+  std::atomic_store(&g_geometry, std::shared_ptr<const GeometrySnapshot>(std::move(snapshot)));
 }
 
 void SetCosmeticFrame(const std::uint8_t *data, std::size_t size) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  if (data == nullptr || size == 0) {
-    g_framePending.clear();
-    // Publish the empty frame so the render thread stops drawing the previous one.
-    g_framePublished.clear();
-    g_framePublishedVersion.fetch_add(1, std::memory_order_release);
-    return;
-  }
-  g_framePending.assign(data, data + size);
-  // Publish: swap the pending buffer into the read slot and bump the version. The render thread
-  // only ever reads g_framePublished, so this single atomic bump is what makes the new frame
-  // visible without the reader ever touching the writer's mutex.
-  g_framePublished.swap(g_framePending);
+  // Build the new buffer off the lock, then publish it with one atomic store: the render thread's
+  // reader only ever takes an atomic load, so it never blocks on this writer and never observes a
+  // half-updated vector. A null or empty frame publishes an empty buffer, which stops the reader
+  // drawing the previous frame.
+  g_frame.publish(data, size);
+  // Bump the version after the store so a reader that sees the new version also sees the new buffer.
   g_framePublishedVersion.fetch_add(1, std::memory_order_release);
 }
 
@@ -418,37 +430,28 @@ void SetCosmeticFrame(const std::uint8_t *data, std::size_t size) {
  * published slot because the writer swaps whole vectors, never mutating in place).
  */
 bool CosmeticFrameSnapshot(std::vector<std::uint8_t> &out, std::uint64_t &version) {
+  // One atomic load pins the published buffer for the whole call: the writer swaps a whole new
+  // buffer in, so this snapshot cannot be freed underneath us and is never mutated in place.
+  const bool ok = g_frame.snapshot(out);
   version = g_framePublishedVersion.load(std::memory_order_acquire);
-  if (g_framePublished.empty()) {
-    out.clear();
-    return false;
-  }
-  out = g_framePublished; // whole-vector copy; the writer never mutates this vector in place
-  return true;
+  return ok;
 }
 
-std::size_t CosmeticFrameSize() {
-  return g_framePublished.size();
-}
+std::size_t CosmeticFrameSize() { return g_frame.size(); }
 
-std::size_t CosmeticFrameBytes() {
-  return g_framePublished.size();
-}
+std::size_t CosmeticFrameBytes() { return g_frame.size(); }
 
-bool CosmeticFrameData(std::vector<std::uint8_t> &out) {
-  if (g_framePublished.empty()) {
-    out.clear();
-    return false;
-  }
-  out = g_framePublished;
-  return true;
-}
+bool CosmeticFrameData(std::vector<std::uint8_t> &out) { return g_frame.snapshot(out); }
 
 CosmeticFrameHeader ReadCosmeticFrameHeader() {
   CosmeticFrameHeader header;
-  const std::size_t size = g_framePublished.size();
+  // Pin the published buffer and read it in place: no copy for an 8-byte header, and the writer
+  // cannot free it mid-read.
+  const std::shared_ptr<const std::vector<std::uint8_t>> frame = g_frame.acquire();
+  if (frame == nullptr) return header;
+  const std::size_t size = frame->size();
   if (size < 8) return header;
-  const std::uint8_t *p = g_framePublished.data();
+  const std::uint8_t *p = frame->data();
   const std::uint32_t magic = static_cast<std::uint32_t>(p[0]) |
                               (static_cast<std::uint32_t>(p[1]) << 8) |
                               (static_cast<std::uint32_t>(p[2]) << 16) |
@@ -463,23 +466,23 @@ CosmeticFrameHeader ReadCosmeticFrameHeader() {
 }
 
 std::size_t RenderGeometrySize() {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  return g_geometry.size();
+  const std::shared_ptr<const GeometrySnapshot> geometry = std::atomic_load(&g_geometry);
+  return geometry == nullptr ? 0 : geometry->bytes.size();
 }
 
 bool RenderGeometryData(std::vector<std::uint8_t> &out) {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  if (g_geometry.empty()) {
+  const std::shared_ptr<const GeometrySnapshot> geometry = std::atomic_load(&g_geometry);
+  if (geometry == nullptr || geometry->bytes.empty()) {
     out.clear();
     return false;
   }
-  out = g_geometry;
+  out = geometry->bytes;
   return true;
 }
 
 std::uint64_t RenderGeometryHash() {
-  std::lock_guard<std::mutex> lock(g_mutex);
-  return g_geometryHash;
+  const std::shared_ptr<const GeometrySnapshot> geometry = std::atomic_load(&g_geometry);
+  return geometry == nullptr ? 0 : geometry->hash;
 }
 
 void InitCosmeticsHooks(std::size_t skinCapeVtableIndex, std::size_t textureBindVtableIndex,

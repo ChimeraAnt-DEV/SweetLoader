@@ -198,6 +198,11 @@ compile_run FramePacingTest \
 compile_run FrameTickClockTest \
   "$here/FrameTickClockTest.cpp"
 
+# The atomic-published blob the cosmetic frame and geometry use to cross from the launcher thread to
+# the render thread without a data race (its TSAN run is registered below).
+compile_run PublishedBlobTest \
+  "$here/PublishedBlobTest.cpp"
+
 # The atomic cache write: a truncated cache is worse than a missing one, because the previous good
 # cache is destroyed and the next launch pays a full scan. Pure header.
 compile_run AtomicFileWriteTest \
@@ -330,6 +335,17 @@ if [[ -n "$tsan_available" ]]; then
   setarch "$(uname -m)" -R "$work/PlayerSnapshotTsanTest"
 else
   echo "== PlayerSnapshotTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
+
+if [[ -n "$tsan_available" ]]; then
+  echo "== PublishedBlobTsanTest =="
+  # The publish/snapshot race the cosmetic frame used to have: one publisher, four readers.
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/PublishedBlobTsanTest.cpp" -o "$work/PublishedBlobTsanTest"
+  setarch "$(uname -m)" -R "$work/PublishedBlobTsanTest"
+else
+  echo "== PublishedBlobTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
 fi
 
 echo "all cosmetics host tests passed"
