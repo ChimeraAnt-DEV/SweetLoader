@@ -40,6 +40,17 @@ struct PlayerTransform {
   long long stampMs = 0;
 };
 
+/** @brief The outcome of a snapshot read, so a caller can tell "no data" from "contended". */
+enum class ReadResult {
+  /** A consistent transform was read into the output. */
+  Ok,
+  /** Nothing has ever been published; the output is untouched. */
+  NotPublished,
+  /** The writer stayed ahead for the whole retry budget; the output is untouched. Retrying next
+   *  frame, or keeping the last known transform, is the right response — this is not "no player". */
+  Contended,
+};
+
 /**
  * @brief A single-writer / multi-reader snapshot of {@link PlayerTransform}.
  *
@@ -74,17 +85,18 @@ public:
   }
 
   /**
-   * @brief Reads the latest consistent transform.
+   * @brief Reads the latest consistent transform, reporting why a read did not succeed.
    *
-   * @return true when a transform was read; false only when nothing has ever been published, or the
-   *         writer stayed ahead for the whole retry budget (in which case @p out is untouched). A
-   *         read that merely lands inside a write window retries rather than reporting "no player".
+   * @return {@link ReadResult::Ok} with @p out filled; {@link ReadResult::NotPublished} when nothing
+   *         has ever been published; or {@link ReadResult::Contended} when the writer stayed ahead
+   *         for the whole retry budget (in which case @p out is untouched and a caller may keep its
+   *         last known transform). A read that merely lands inside a write window retries.
    */
-  bool read(PlayerTransform &out) const {
+  ReadResult readWithResult(PlayerTransform &out) const {
     for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
       const std::uint32_t before = sequence_.load(std::memory_order_acquire);
-      if (before == 0) return false;            // Never published.
-      if ((before & 1u) != 0u) continue;        // A write is in progress; retry, do not give up.
+      if (before == 0) return ReadResult::NotPublished; // Never published.
+      if ((before & 1u) != 0u) continue;                // A write is in progress; retry.
 
       PlayerTransform next;
       for (int i = 0; i < 3; ++i) {
@@ -101,11 +113,19 @@ public:
       const std::uint32_t after = sequence_.load(std::memory_order_relaxed);
       if (before == after) {
         out = next;
-        return true;
+        return ReadResult::Ok;
       }
     }
-    return false;
+    return ReadResult::Contended;
   }
+
+  /**
+   * @brief Reads the latest consistent transform.
+   *
+   * @return true only on {@link ReadResult::Ok}; a contended read is reported as false, exactly as
+   *         before. Callers that need to distinguish contention use {@link #readWithResult}.
+   */
+  bool read(PlayerTransform &out) const { return readWithResult(out) == ReadResult::Ok; }
 
   /** @brief True once at least one transform has been published. */
   [[nodiscard]] bool hasSnapshot() const {

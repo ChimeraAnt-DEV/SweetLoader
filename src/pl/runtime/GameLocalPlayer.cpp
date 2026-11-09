@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 
 #include "pl/Logger.hpp"
 #include "pl/ipc/PlayerSnapshot.hpp"
@@ -58,6 +59,14 @@ std::atomic<std::uintptr_t> g_slotTarget{0};
 // cross-field read (a new x with an old y) must not be observable.
 pl::ipc::PlayerSnapshot g_snapshot;
 
+// The last transform a read returned consistently. Served when a read is merely *contended* (the
+// writer outran the retry budget) so a fast writer cannot make the UI flicker a position out of
+// existence; the freshness rule still applies, so a genuinely stale last-good is dropped. Guarded
+// by a mutex because the read runs on the UI thread and a recreate can race it.
+std::mutex g_lastGoodMutex;
+pl::ipc::PlayerTransform g_lastGood;
+bool g_hasLastGood = false;
+
 long long MonotonicMs() {
   timespec ts{};
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -101,8 +110,18 @@ void PublishSnapshot(const void *localPlayer) {
 // leave the UI thread reading freed memory.
 bool ReadSnapshot(float outPosition[3], float outRotation[2]) {
   pl::ipc::PlayerTransform transform;
-  if (!g_snapshot.read(transform)) {
+  const pl::ipc::ReadResult result = g_snapshot.readWithResult(transform);
+  if (result == pl::ipc::ReadResult::NotPublished) {
     return false;
+  }
+  if (result == pl::ipc::ReadResult::Contended) {
+    std::lock_guard<std::mutex> lock(g_lastGoodMutex);
+    if (!g_hasLastGood) return false;
+    transform = g_lastGood;
+  } else {
+    std::lock_guard<std::mutex> lock(g_lastGoodMutex);
+    g_lastGood = transform;
+    g_hasLastGood = true;
   }
   FreshnessInputs fresh;
   fresh.nowMs = MonotonicMs();

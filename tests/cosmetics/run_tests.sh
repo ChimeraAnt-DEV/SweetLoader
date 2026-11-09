@@ -340,6 +340,10 @@ fi
 compile_run PlayerSnapshotTest \
   "$here/PlayerSnapshotTest.cpp"
 
+# The tri-state read: NotPublished vs Ok vs Contended.
+compile_run PlayerSnapshotResultTest \
+  "$here/PlayerSnapshotResultTest.cpp"
+
 if [[ -n "$tsan_available" ]]; then
   echo "== PlayerSnapshotTsanTest =="
   "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
