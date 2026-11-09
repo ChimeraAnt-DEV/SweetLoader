@@ -21,7 +21,9 @@
  * are plain. {@link #percentiles} is called from a diagnostics reader on another thread, so every
  * field it shares with the render thread is a relaxed atomic (the value is approximate for the frame
  * in flight, which is all a summary needs) and its scratch buffer is guarded by a mutex so two
- * concurrent readers cannot corrupt each other.
+ * concurrent readers cannot corrupt each other. The percentile result is memoized on a sample
+ * generation, so a diagnostics page that polls repeatedly does not re-sort the 2000-sample window on
+ * every call (audit item 2.3).
  */
 
 #include <algorithm>
@@ -117,6 +119,8 @@ public:
         const long long oldestStamp = percentileStamp_[oldest];
         percentileSpanUs_.store(oldestStamp == 0 ? 0 : nowUs - oldestStamp,
                                 std::memory_order_relaxed);
+        // A new sample invalidates the memoized percentile reading.
+        percentileGeneration_.fetch_add(1, std::memory_order_release);
       }
     }
     lastUs_ = nowUs;
@@ -169,6 +173,12 @@ public:
    * so a long session does not dilute a burst.
    */
   FramePacingReading percentiles() const {
+    // Memoized on the sample generation: the sort below is O(n log n) over 2000 samples, and a
+    // diagnostics page can poll far faster than frames arrive, so recomputing an unchanged window is
+    // wasted work (audit item 2.3). The generation is bumped only when a new sample lands, so a
+    // repeat poll returns the cached reading without touching the ring.
+    const std::uint64_t generation = percentileGeneration_.load(std::memory_order_acquire);
+
     FramePacingReading out;
     out.sampleCount = sampleCount_;
     const std::size_t n = percentileCount_.load(std::memory_order_relaxed);
@@ -176,8 +186,10 @@ public:
 
     // Copy and sort the live window under a lock, so two concurrent readers cannot corrupt each
     // other's scratch and a reader cannot race the render thread's writes mid-copy. The render
-    // thread never takes this lock, so a diagnostics read cannot stall a frame.
+    // thread never takes this lock, so a diagnostics read cannot stall a frame. The cache fields are
+    // only touched under this same lock.
     std::lock_guard<std::mutex> guard(scratchMutex_);
+    if (cachedGeneration_ == generation) return cachedPercentiles_;
     for (std::size_t i = 0; i < n; ++i) {
       scratch_[i] = percentileRing_[i].load(std::memory_order_relaxed);
     }
@@ -199,6 +211,8 @@ public:
       out.hitchesPerMinute = static_cast<int>((static_cast<long long>(hitches) * 60'000'000LL) /
                                               span);
     }
+    cachedPercentiles_ = out;
+    cachedGeneration_ = generation;
     return out;
   }
 
@@ -211,6 +225,8 @@ public:
     percentileNext_ = 0;
     percentileCount_.store(0, std::memory_order_relaxed);
     percentileSpanUs_.store(0, std::memory_order_relaxed);
+    percentileGeneration_.fetch_add(1, std::memory_order_release);
+    cachedGeneration_ = ~0ULL;
     for (auto &v : percentileRing_) v.store(0, std::memory_order_relaxed);
     for (auto &v : percentileStamp_) v = 0;
   }
@@ -230,6 +246,11 @@ private:
   /** Shared by percentiles() callers only; never touched by the render thread. */
   mutable long long scratch_[kPercentileWindow] = {};
   mutable std::mutex scratchMutex_;
+  /** Bumped whenever a sample lands or the window resets; keys the memoized percentile reading. */
+  std::atomic<std::uint64_t> percentileGeneration_{0};
+  /** The memoized percentile reading and the generation it was computed for (scratchMutex_-guarded). */
+  mutable FramePacingReading cachedPercentiles_{};
+  mutable std::uint64_t cachedGeneration_ = ~0ULL;
   std::size_t percentileNext_ = 0;
   std::atomic<std::size_t> percentileCount_{0};
   std::atomic<long long> percentileSpanUs_{0};

@@ -243,6 +243,29 @@ int main() {
     expect(bad.load() == 0, "concurrent percentile readers agree on the median");
   }
 
+  // The percentile reading is memoized on a sample generation, but a new sample must still be
+  // reflected: a repeat poll of an unchanged window returns the same reading, and the first poll
+  // after a new frame recomputes it.
+  {
+    FramePacingAnalyzer a;
+    long long t = 0;
+    for (int i = 0; i < 40; ++i) {
+      t += 1000;
+      a.onFrame(t, 0);
+    }
+    const FramePacingReading first = a.percentiles();
+    expect(first.p50Us == 1000, "the steady window reads 1ms");
+    const FramePacingReading repeat = a.percentiles();
+    expect(repeat.p50Us == first.p50Us && repeat.sampleCount == first.sampleCount,
+           "a repeat poll of an unchanged window returns the same reading");
+    // A burst frame lands; the next poll must reflect the new sample, not the cache.
+    t += 50000;
+    a.onFrame(t, 0);
+    const FramePacingReading after = a.percentiles();
+    expect(after.p99Us == 50000, "a new sample is reflected after the cache is invalidated");
+    expect(after.sampleCount == first.sampleCount + 1, "the sample count advanced");
+  }
+
   std::printf("FramePacingTest: %d checks passed\n", checks);
   return 0;
 }
