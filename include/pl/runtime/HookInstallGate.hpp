@@ -20,6 +20,14 @@
  * the runtime is up and on the same thread that calls the render entry (so the code patch never
  * races the renderer). This gate is the pure rule for when that deferred install runs, so the
  * "installed exactly once, never waited forever" invariants are host-tested without a device.
+ *
+ * <p>A single frame tick is <em>not</em> proof the runtime is settled: {@code ArmGameHookInstall}
+ * runs from the activity's {@code onCreate}, and the first frame can arrive before
+ * {@code libminecraftpe.so} is fully mapped and relocated, which is exactly the "Hook installed: no"
+ * case this gate exists to avoid. The gate therefore observes a short grace of frame ticks first
+ * (each tick is a real rendered frame, so the grace is measured in frames, not wall time), and the
+ * give-up deadline is checked even while the grace is still running, so a runtime that never
+ * produces enough frames still settles.
  */
 
 namespace pl::runtime {
@@ -44,8 +52,15 @@ enum class InstallDecision {
  */
 class HookInstallGate {
 public:
-    /** Frames to observe before installing. One is enough: the first tick proves the runtime is up. */
-    static constexpr int kMinFrameTicks = 1;
+    /**
+     * Frames to observe before installing.
+     *
+     * <p>Four, not one: the first frames after {@code onCreate} can run before the game module is
+     * fully mapped and relocated, so the install would resolve nothing. Four rendered frames are a
+     * few tens of milliseconds — imperceptible on a loading screen, but enough for the runtime to
+     * settle.
+     */
+    static constexpr int kMinFrameTicks = 4;
     /** Never wait longer than this for the runtime; a stuck loading screen must not pend forever. */
     static constexpr long long kGiveUpMs = 30'000;
 
@@ -96,6 +111,8 @@ public:
             resolved_ = true;
             return InstallDecision::Install;
         }
+        // Check the deadline even while the frame grace is still running: a runtime that never
+        // delivers enough frames must still settle rather than pend forever.
         if (nowMs - startedMs_ >= kGiveUpMs) {
             resolved_ = true;
             return InstallDecision::GiveUp;
