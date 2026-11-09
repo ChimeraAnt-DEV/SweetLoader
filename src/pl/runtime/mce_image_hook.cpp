@@ -426,13 +426,16 @@ bool CopyCapturedSkin(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *wi
                       std::size_t *outSize) {
   const CapturedImageSlot::ImagePtr image = g_skinCapture.get();
   if (!image || image->bytes.empty() || image->width == 0 || image->height == 0) return false;
+  // Metadata and size are always reported when a capture is held, so a caller can pass out == null
+  // to size the destination exactly and allocate once instead of guessing a worst-case buffer.
   if (outSize != nullptr) *outSize = image->bytes.size();
-  if (out == nullptr || maxBytes < image->bytes.size()) return false;
-  std::memcpy(out, image->bytes.data(), image->bytes.size());
   if (width != nullptr) *width = image->width;
   if (height != nullptr) *height = image->height;
   if (format != nullptr) *format = image->format;
   if (stampMs != nullptr) *stampMs = image->stampMs;
+  if (out == nullptr) return true;
+  if (maxBytes < image->bytes.size()) return false;
+  std::memcpy(out, image->bytes.data(), image->bytes.size());
   return true;
 }
 
@@ -449,13 +452,15 @@ bool CopyCapturedCape(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *wi
                       std::size_t *outSize) {
   const CapturedImageSlot::ImagePtr image = g_capeCapture.get();
   if (!image || image->bytes.empty() || image->width == 0 || image->height == 0) return false;
+  // See CopyCapturedSkin: out == null is a metadata/size query, so the caller allocates exactly.
   if (outSize != nullptr) *outSize = image->bytes.size();
-  if (out == nullptr || maxBytes < image->bytes.size()) return false;
-  std::memcpy(out, image->bytes.data(), image->bytes.size());
   if (width != nullptr) *width = image->width;
   if (height != nullptr) *height = image->height;
   if (format != nullptr) *format = image->format;
   if (stampMs != nullptr) *stampMs = image->stampMs;
+  if (out == nullptr) return true;
+  if (maxBytes < image->bytes.size()) return false;
+  std::memcpy(out, image->bytes.data(), image->bytes.size());
   return true;
 }
 

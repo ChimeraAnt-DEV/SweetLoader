@@ -236,6 +236,10 @@ bool IsImagePathVerified();
  * @param stampMs   receives the monotonic capture time (0 when none)
  * @param outSize   receives the payload byte length
  * @return true when a capture was copied; false when none is held or the buffer is too small
+ *
+ * @note Passing @p out as null is a metadata/size query: the width, height, format, stamp and size
+ *       are filled and true is returned when a capture is held, without copying. This lets a caller
+ *       size the destination exactly and allocate once.
  */
 bool CopyCapturedSkin(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *width,
                       std::uint32_t *height, std::uint32_t *format, std::int64_t *stampMs,
@@ -269,6 +273,8 @@ bool HasCapturedSkin();
  * @param stampMs   receives the monotonic capture time (0 when none)
  * @param outSize   receives the payload byte length
  * @return true when a capture was copied; false when none is held or the buffer is too small
+ *
+ * @note Passing @p out as null is a metadata/size query (see {@link CopyCapturedSkin}).
  */
 bool CopyCapturedCape(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *width,
                       std::uint32_t *height, std::uint32_t *format, std::int64_t *stampMs,
