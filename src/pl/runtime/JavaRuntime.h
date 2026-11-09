@@ -10,6 +10,13 @@ namespace pl::runtime {
 
 void SetJavaVm(JavaVM *vm);
 JavaVM *GetJavaVm();
+/**
+ * @brief Marks JVM teardown as begun, so a thread-exit detach stands down.
+ *
+ * <p>Called from `JNI_OnUnload`. Detaching from a VM that is already gone is undefined, so the
+ * `thread_local` attachment destructor checks this flag before calling `DetachCurrentThread`.
+ */
+void MarkJavaVmShuttingDown();
 
 void SetActivity(JNIEnv *env, jobject activity);
 void ClearActivity(JNIEnv *env);

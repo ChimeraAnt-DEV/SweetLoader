@@ -1,5 +1,6 @@
 #include "pl/runtime/JavaRuntime.h"
 #include "pl/runtime/JniAttach.hpp"
+#include "pl/runtime/RuntimeHandles.hpp"
 #include "pl/runtime/SafeJni.hpp"
 #include "pl/Platform.hpp"
 #include <algorithm>
@@ -8,8 +9,10 @@
 namespace pl::runtime {
 namespace {
 
-JavaVM *g_vm = nullptr;
-jobject g_activity = nullptr;
+// The JVM and activity handles cross threads (JNI_OnLoad / nativeSetActivity on one, ScopedJniEnv /
+// the call helpers on any), so they live in one struct of atomics (audit items 3.7-3.9) together
+// with the teardown flag that stands a thread-exit detach down during JVM shutdown (item 3.10).
+pl::runtime::RuntimeHandles g_runtime;
 
 // One attachment per native thread, kept for the thread's whole life.
 //
@@ -24,8 +27,11 @@ struct ThreadAttachment {
   pl::jni::ThreadAttachmentLifetime lifetime;
 
   ~ThreadAttachment() {
-    if (lifetime.mustDetachOnThreadExit() && g_vm != nullptr) {
-      g_vm->DetachCurrentThread();
+    JavaVM *vm = g_runtime.GetVm();
+    if (vm != nullptr &&
+        pl::runtime::ShouldDetachOnThreadExit(lifetime.mustDetachOnThreadExit(),
+                                              g_runtime.IsVmShuttingDown())) {
+      vm->DetachCurrentThread();
     }
   }
 };
@@ -35,20 +41,21 @@ thread_local ThreadAttachment t_attachment;
 // Resolves this thread's env once. Returns nullptr when the thread cannot be attached.
 JNIEnv *AcquireThreadEnv() {
   // No VM yet: do not resolve, so a later SetJavaVm is still picked up by the next call.
-  if (!g_vm) return nullptr;
+  JavaVM *vm = g_runtime.GetVm();
+  if (!vm) return nullptr;
   ThreadAttachment &attachment = t_attachment;
   if (attachment.lifetime.resolved()) return attachment.env;
 
   JNIEnv *env = nullptr;
-  const jint status = g_vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4);
+  const jint status = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4);
   const pl::jni::AttachAction action = pl::jni::DecideAttach(static_cast<int>(status), true);
   // The lifetime rule (which thread owns the detach) is the pure, host-tested part; this is only
   // the JNI call it decides on.
   if (attachment.lifetime.resolve(action)) {
 #if defined(__ANDROID__)
-    if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
+    if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
 #else
-    if (g_vm->AttachCurrentThread(reinterpret_cast<void **>(&env), nullptr) != JNI_OK) return nullptr;
+    if (vm->AttachCurrentThread(reinterpret_cast<void **>(&env), nullptr) != JNI_OK) return nullptr;
 #endif
   }
   if (!attachment.lifetime.usable()) return nullptr;
@@ -58,9 +65,13 @@ JNIEnv *AcquireThreadEnv() {
 
 } // namespace
 
-void SetJavaVm(JavaVM *vm) { g_vm = vm; }
+void SetJavaVm(JavaVM *vm) { g_runtime.vm.store(vm, std::memory_order_release); }
 
-JavaVM *GetJavaVm() { return g_vm; }
+JavaVM *GetJavaVm() { return g_runtime.GetVm(); }
+
+void MarkJavaVmShuttingDown() {
+  g_runtime.vmShuttingDown.store(true, std::memory_order_release);
+}
 
 ScopedJniEnv::ScopedJniEnv() {
   JNIEnv *env = AcquireThreadEnv();
@@ -91,29 +102,30 @@ ScopedJniEnv::~ScopedJniEnv() { release(); }
 void SetActivity(JNIEnv *env, jobject activity) {
   ClearActivity(env);
   if (activity) {
-    g_activity = env->NewGlobalRef(activity);
+    g_runtime.activity.store(env->NewGlobalRef(activity), std::memory_order_release);
   }
 }
 
 void ClearActivity(JNIEnv *env) {
-  if (g_activity) {
-    env->DeleteGlobalRef(g_activity);
-    g_activity = nullptr;
+  jobject previous = g_runtime.activity.exchange(nullptr, std::memory_order_acq_rel);
+  if (previous) {
+    env->DeleteGlobalRef(previous);
   }
 }
 
 void CallActivityVoidMethod(const char *methodName) {
-  if (!g_activity) return;
+  jobject activity = g_runtime.GetActivity();
+  if (!activity) return;
 
   ScopedJniEnv scope;
   if (!scope.valid()) return;
   JNIEnv *env = scope.env();
 
-  jclass cls = env->GetObjectClass(g_activity);
+  jclass cls = env->GetObjectClass(activity);
   if (cls) {
     jmethodID mid = env->GetMethodID(cls, methodName, "()V");
     if (mid) {
-      env->CallVoidMethod(g_activity, mid);
+      env->CallVoidMethod(activity, mid);
     }
   }
   // The scope's destructor pops the local frame (the thread's attachment outlives it); an
@@ -125,20 +137,21 @@ void CallActivityVoidMethod(const char *methodName) {
 }
 
 bool SetClipboardTextImpl(std::string_view text) {
-  if (!g_activity) return false;
+  jobject activity = g_runtime.GetActivity();
+  if (!activity) return false;
 
   ScopedJniEnv scope;
   if (!scope.valid()) return false;
   JNIEnv *env = scope.env();
 
   bool success = false;
-  jclass activityClass = env->GetObjectClass(g_activity);
+  jclass activityClass = env->GetObjectClass(activity);
   jstring serviceName = pl::jni::NewString(env, "clipboard");
   jobject manager = nullptr;
   if (activityClass && serviceName) {
     jmethodID getSystemService = env->GetMethodID(
         activityClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
-    if (getSystemService) manager = env->CallObjectMethod(g_activity, getSystemService, serviceName);
+    if (getSystemService) manager = env->CallObjectMethod(activity, getSystemService, serviceName);
   }
 
   jclass clipDataClass = env->FindClass("android/content/ClipData");
@@ -171,20 +184,21 @@ bool SetClipboardTextImpl(std::string_view text) {
 }
 
 bool CallActivityStringMethod(const char *methodName, const std::string &value) {
-  if (!g_activity) return false;
+  jobject activity = g_runtime.GetActivity();
+  if (!activity) return false;
 
   ScopedJniEnv scope;
   if (!scope.valid()) return false;
   JNIEnv *env = scope.env();
 
   bool called = false;
-  jclass cls = env->GetObjectClass(g_activity);
+  jclass cls = env->GetObjectClass(activity);
   if (cls) {
     jmethodID mid = env->GetMethodID(cls, methodName, "(Ljava/lang/String;)V");
     if (mid) {
       jstring argument = pl::jni::NewString(env, value);
       if (argument) {
-        env->CallVoidMethod(g_activity, mid, argument);
+        env->CallVoidMethod(activity, mid, argument);
         called = !env->ExceptionCheck();
       }
     }

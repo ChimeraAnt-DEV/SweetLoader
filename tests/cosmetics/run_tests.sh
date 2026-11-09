@@ -82,11 +82,27 @@ else
   done
 fi
 
+# jni.h, for the host tests that exercise the cross-thread JVM handles (RuntimeHandles). The JDK's
+# include dir carries jni.h and jni_md.h (in include/linux); the NDK sysroot carries jni.h too. This
+# is best-effort: only the tests that include a jni.h header need it, so a missing dir is not fatal.
+jni_include=""
+for jdk in "${JAVA_HOME:-}" /workspace/tools/jdk-* /usr/lib/jvm/*; do
+  [[ -n "$jdk" && -f "$jdk/include/jni.h" ]] || continue
+  jni_include="$jdk/include"
+  [[ -d "$jdk/include/linux" ]] && jni_include="$jni_include -I$jdk/include/linux"
+  break
+done
+if [[ -z "$jni_include" ]]; then
+  ndk_jni="$(ls -d /workspace/android-sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include 2>/dev/null | head -1 || true)"
+  [[ -n "$ndk_jni" && -f "$ndk_jni/jni.h" ]] && jni_include="$ndk_jni"
+fi
+
 compile_run() {
   local name="$1"; shift
   echo "== $name =="
   "$cxx" -std=c++20 -O1 -g \
     -I"$root/include" -I"$root/src" -I"$nlohmann" ${zlib_include:+-I"$zlib_include"} \
+    ${jni_include:+-I$jni_include} \
     "$@" -o "$work/$name"
   "$work/$name"
 }
@@ -206,6 +222,11 @@ compile_run FramePacingTest \
 # instead of a walk over every module and config entry (audit item 2.18). Pure header.
 compile_run KeybindIndexTest \
   "$here/KeybindIndexTest.cpp"
+
+# The cross-thread JVM/activity handles and the thread-exit detach rule (audit items 3.7-3.10). Pure
+# header (needs jni.h from the JDK/NDK, resolved above).
+compile_run RuntimeHandlesTest \
+  "$here/RuntimeHandlesTest.cpp"
 
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.

@@ -60,6 +60,14 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
   return JNI_VERSION_1_4;
 }
 
+JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
+  (void)vm;
+  (void)reserved;
+  // Teardown has begun: a native thread exiting now must not call DetachCurrentThread on a VM that
+  // may already be gone (audit item 3.10).
+  pl::runtime::MarkJavaVmShuttingDown();
+}
+
 JNIEXPORT jboolean JNICALL
 Java_org_chimeramc_client_core_mods_ModManager_nativeLoadMod__Ljava_lang_String_2Lorg_chimeramc_client_core_mods_Mod_2(
     JNIEnv *env, jclass clazz, jstring libPath, jobject modObj) {
