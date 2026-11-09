@@ -202,6 +202,11 @@ compile_run RuleProbeTest \
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 
+# The sorted key-code index behind the Mod Menu key callback, so a key event is a binary search
+# instead of a walk over every module and config entry (audit item 2.18). Pure header.
+compile_run KeybindIndexTest \
+  "$here/KeybindIndexTest.cpp"
+
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \

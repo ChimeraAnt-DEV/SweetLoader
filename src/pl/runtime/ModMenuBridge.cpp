@@ -1,5 +1,7 @@
 #include "pl/runtime/ModMenuBridge.h"
 
+#include "pl/runtime/KeybindIndex.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -58,6 +60,42 @@ namespace pl::runtime {
         
         static bool g_keyCallbackRegistered = false;
 
+        // One indexed keybind: the module and config key it fires on, and the callback to run. The
+        // KeybindIndex stores only the key code and this vector's slot, so a lookup never copies a
+        // std::function.
+        struct KeybindTarget {
+            std::string module_id;
+            std::string config_key;
+            std::function<void(std::string_view, std::string_view, bool)> callback;
+        };
+        pl::runtime::KeybindIndex g_keybindIndex;
+        std::vector<KeybindTarget> g_keybindTargets;
+
+        // Rebuilds the key-code index from the registry. Caller holds g_modMenuMutex. A keybind whose
+        // value does not parse, or parses to 0, is simply not indexed (0 means "unbound"), so the
+        // per-event path never parses a string.
+        void RebuildKeybindIndexLocked() {
+            std::vector<pl::runtime::KeybindEntry> entries;
+            g_keybindTargets.clear();
+            for (auto& mod : g_registeredModules) {
+                if (!mod.enabled || !mod.on_keybind) continue;
+                for (auto& cfg : mod.configs) {
+                    if (cfg.type != pl::modmenu::ConfigType::Keybind) continue;
+                    if (cfg.current_value.empty()) continue;
+                    int key = 0;
+                    try {
+                        key = std::stoi(cfg.current_value);
+                    } catch (...) {
+                        continue;
+                    }
+                    if (key == 0) continue;
+                    entries.push_back({key, static_cast<int>(g_keybindTargets.size())});
+                    g_keybindTargets.push_back({mod.module_id, cfg.key, mod.on_keybind});
+                }
+            }
+            g_keybindIndex.rebuild(std::move(entries));
+        }
+
         void RegisterKeyCallbackIfNeeded() {
             if (g_keyCallbackRegistered) return;
             g_keyCallbackRegistered = true;
@@ -68,30 +106,23 @@ namespace pl::runtime {
 
                 {
                     std::lock_guard<std::mutex> lock(g_modMenuMutex);
-                    for (auto& mod : g_registeredModules) {
-                        if (!mod.enabled) continue;
-                        if (!mod.on_keybind) continue;
-
-                        for (auto& cfg : mod.configs) {
-                            if (cfg.type == pl::modmenu::ConfigType::Keybind) {
-                                try {
-                                    if (!cfg.current_value.empty()) {
-                                        int key = std::stoi(cfg.current_value);
-                                        if (key != 0 && key == event.keyCode) {
-                                            auto cb = mod.on_keybind;
-                                            std::string mid = mod.module_id;
-                                            std::string ckey = cfg.key;
-                                            bool isDown = event.isKeyDown;
-                                            callbacksToInvoke.push_back([cb, mid, ckey, isDown]() {
-                                                cb(mid, ckey, isDown);
-                                            });
-                                            consumed = true;
-                                        }
-                                    }
-                                } catch (...) {
-                                }
-                            }
+                    // O(log n + matches) against the prebuilt index instead of an O(modules x
+                    // configs) scan with a std::stoi per entry (audit item 2.18).
+                    std::vector<int> matches;
+                    g_keybindIndex.find(event.keyCode, matches);
+                    for (int slot : matches) {
+                        if (slot < 0 || static_cast<std::size_t>(slot) >= g_keybindTargets.size()) {
+                            continue;
                         }
+                        const KeybindTarget& target = g_keybindTargets[slot];
+                        auto cb = target.callback;
+                        std::string mid = target.module_id;
+                        std::string ckey = target.config_key;
+                        bool isDown = event.isKeyDown;
+                        callbacksToInvoke.push_back([cb, mid, ckey, isDown]() {
+                            cb(mid, ckey, isDown);
+                        });
+                        consumed = true;
                     }
                 }
 
@@ -632,6 +663,7 @@ namespace pl::runtime {
 
             RegisterKeyCallbackIfNeeded();
             g_registeredModules.push_back(std::move(entry));
+            RebuildKeybindIndexLocked();
             for (auto &button : g_registeredButtons) {
                 if (button.module_id == registeredModuleId) {
                     button.module_enabled = registeredEnabled;
@@ -662,6 +694,7 @@ namespace pl::runtime {
                                        return button.module_id == module_id;
                                    }),
                     g_registeredButtons.end());
+            RebuildKeybindIndexLocked();
         }
 
         bool DrawCommandsEqual(const RegisteredModule &mod,
@@ -978,6 +1011,9 @@ namespace pl::runtime {
                 if (button.module_id == module_id)
                     button.module_enabled = enabled;
             }
+            // A toggle changes which keybinds are live (an enable can add them, a disable removes
+            // them), so the index is rebuilt here.
+            RebuildKeybindIndexLocked();
         }
         if (callback)
             callback(module_id, enabled);
@@ -1004,6 +1040,8 @@ namespace pl::runtime {
                     break;
                 }
             }
+            // A keybind's value is what the index keys on, so a config set rebuilds it.
+            RebuildKeybindIndexLocked();
         }
         if (callback)
             callback(module_id, key, safeValue);
