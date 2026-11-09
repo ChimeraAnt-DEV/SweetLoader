@@ -111,9 +111,15 @@ int main() {
     std::atomic<int> torn{0};
     std::atomic<int> reads{0};
 
+    // The writer must not finish before the reader has had a chance to observe a snapshot, or the
+    // test would be timing-dependent: the reader thread could start after the writer has already
+    // published its last payload and set the stop flag, leaving `reads` at 0 through no fault of the
+    // channel. Keep publishing until the reader has read at least once (bounded by a generous cap so
+    // a real regression that never yields a readable snapshot still terminates), then stop.
     std::thread writer([&]() {
-      for (int i = 0; i < 200000 && !stop.load(); ++i) {
+      for (int i = 0; i < 20000000; ++i) {
         channel.publish(std::span<const std::uint8_t>(i % 2 == 0 ? a : b));
+        if (reads.load() > 0) break;
       }
       stop.store(true);
     });
