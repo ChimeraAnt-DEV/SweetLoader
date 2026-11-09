@@ -212,6 +212,10 @@ compile_run PublishedBlobTest \
 compile_run SnapshotFreshnessTest \
   "$here/SnapshotFreshnessTest.cpp"
 
+# The pure rule that finds the camera view/projection pair in a float buffer.
+compile_run CameraBlockScanTest \
+  "$here/CameraBlockScanTest.cpp"
+
 # The atomic cache write: a truncated cache is worse than a missing one, because the previous good
 # cache is destroyed and the next launch pays a full scan. Pure header.
 compile_run AtomicFileWriteTest \

@@ -40,6 +40,9 @@ public:
   /// Runs the one-time scan. Safe to call repeatedly; only the first call scans.
   static void ResolveOnce();
 
+  /// Starts the one-time scan on a detached worker so it never runs on the render thread.
+  static void ResolveAsync();
+
   /// True when the one-time scan found a candidate camera block.
   static bool HasResolvedAddress();
 

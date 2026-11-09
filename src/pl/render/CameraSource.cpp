@@ -12,10 +12,12 @@
 #include <inttypes.h>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "pl/Logger.hpp"
 #include "pl/memory/ModulePathMatch.hpp"
+#include "pl/render/CameraBlockScan.hpp"
 
 namespace pl::render {
 namespace {
@@ -61,44 +63,11 @@ bool Finite(float v) { return std::isfinite(v); }
 } // namespace
 
 bool CameraSource::ValidateProjection(const float *m) {
-  // Column-major perspective: m[0] and m[5] are the focal scales (>1 for a normal FOV), m[10] is
-  // the negative near/far remap and m[11] is -1.
-  const float m0 = m[0], m5 = m[5], m10 = m[10], m11 = m[11];
-  if (!Finite(m0) || !Finite(m5) || !Finite(m10) || !Finite(m11)) return false;
-  if (!(m0 > 0.5F && m0 < 6.0F)) return false;
-  if (!(m5 > 0.5F && m5 < 6.0F)) return false;
-  if (!(m10 < -0.5F && m10 > -2.0F)) return false;
-  if (std::fabs(m11 + 1.0F) > 0.25F) return false;
-  // Off-diagonal entries of a symmetric perspective are zero.
-  if (std::fabs(m[1]) > 0.05F || std::fabs(m[4]) > 0.05F) return false;
-  return true;
+  return IsPerspectiveProjection(m);
 }
 
 bool CameraSource::ValidateView(const float *m) {
-  // A view matrix is a rigid transform: the bottom row is (0,0,0,1) and the upper-left 3x3 is
-  // orthonormal with determinant +1. Checking length of the basis vectors is enough to reject
-  // the random data that otherwise passes a loose check.
-  for (int i = 0; i < 16; ++i) {
-    if (!Finite(m[i])) return false;
-  }
-  if (std::fabs(m[3]) > 0.05F || std::fabs(m[7]) > 0.05F || std::fabs(m[11]) > 0.05F) return false;
-  if (std::fabs(m[15] - 1.0F) > 0.05F) return false;
-
-  const float cx = m[0], cy = m[1], cz = m[2];
-  const float ux = m[4], uy = m[5], uz = m[6];
-  const float fx = m[8], fy = m[9], fz = m[10];
-  auto length = [](float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); };
-  const float lc = length(cx, cy, cz);
-  const float lu = length(ux, uy, uz);
-  const float lf = length(fx, fy, fz);
-  if (lc < 0.5F || lc > 2.0F) return false;
-  if (lu < 0.5F || lu > 2.0F) return false;
-  if (lf < 0.5F || lf > 2.0F) return false;
-  // Orthogonality of the basis.
-  if (std::fabs(cx * ux + cy * uy + cz * uz) > 0.1F) return false;
-  if (std::fabs(cx * fx + cy * fy + cz * fz) > 0.1F) return false;
-  if (std::fabs(ux * fx + uy * fy + uz * fz) > 0.1F) return false;
-  return true;
+  return IsRigidView(m);
 }
 
 void CameraSource::ResolveOnce() {
@@ -114,25 +83,32 @@ void CameraSource::ResolveOnce() {
       const std::size_t count = (region.end - region.start) / sizeof(float);
       if (count < 32) continue;
       const float *base = reinterpret_cast<const float *>(region.start);
-      // Look for a projection matrix whose immediately-preceding 16 floats are a view matrix.
-      for (std::size_t i = 16; i + 16 <= count; ++i) {
-        const float *candidateProjection = base + i;
-        if (!ValidateProjection(candidateProjection)) continue;
-        const float *candidateView = base + i - 16;
-        if (!ValidateView(candidateView)) continue;
+      const std::size_t found = FindViewProjectionPair(base, count);
+      if (found == kNoCameraPair) continue;
 
-        const std::uintptr_t viewAddr =
-            region.start + (i - 16) * sizeof(float);
-        const std::uintptr_t projAddr = region.start + i * sizeof(float);
-        g_viewAddress.store(viewAddr, std::memory_order_release);
-        g_projectionAddress.store(projAddr, std::memory_order_release);
-        preloaderLogger.info("Camera source: resolved view {:x} projection {:x}", viewAddr,
-                             projAddr);
-        return;
-      }
+      const std::uintptr_t viewAddr = region.start + found * sizeof(float);
+      const std::uintptr_t projAddr = viewAddr + 16 * sizeof(float);
+      g_viewAddress.store(viewAddr, std::memory_order_release);
+      g_projectionAddress.store(projAddr, std::memory_order_release);
+      preloaderLogger.info("Camera source: resolved view {:x} projection {:x}", viewAddr, projAddr);
+      return;
     }
     preloaderLogger.info(
         "Camera source: no view/projection pair found; callers fall back to ComputeViewProjection");
+  });
+}
+
+void CameraSource::ResolveAsync() {
+  // The scan walks hundreds of megabytes of writable data and must never run on the render thread.
+  // A detached worker runs the one-time scan; the render path reads whatever is published when it is
+  // ready and falls back to ComputeViewProjection until then. call_once inside ResolveOnce makes a
+  // later synchronous ResolveOnce (and this worker) agree on a single scan.
+  static std::once_flag s_requested;
+  std::call_once(s_requested, [] {
+    std::thread([] {
+      preloaderLogger.info("Camera source: background scan started");
+      ResolveOnce();
+    }).detach();
   });
 }
 

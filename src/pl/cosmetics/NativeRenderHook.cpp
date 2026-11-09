@@ -196,17 +196,13 @@ bool InitNativeCosmeticRenderHook(std::size_t vtableIndex) {
   // the feed owns the hook and runs this callback once per frame after the game's render.
   pl::runtime::RegisterPostRenderCallback(&OnPlayerRenderFrame);
 
-  // Best-effort: resolve the real view-projection matrix once, off the render thread. The scan is
-  // cached in CameraSource and revalidated every frame cheaply; when it is unavailable the anchor
-  // falls back to the live local-player pose (position + rotation), which keeps the anchor on the
-  // player rather than at the render origin.
-  pl::render::CameraSource::ResolveOnce();
-  if (pl::render::CameraSource::HasResolvedAddress()) {
-    preloaderLogger.info(
-        "Native cosmetics: camera matrix resolved; anchoring via real view-projection");
-  } else {
-    preloaderLogger.info("Native cosmetics: no camera matrix; anchoring via local-player pose");
-  }
+  // Best-effort: resolve the real view-projection matrix once. The scan walks the game's whole
+  // writable data, so it is started on a background thread here (this function runs on the frame
+  // thread during init) and the render path uses whatever is published when it is ready, falling
+  // back to the live local-player pose (position + rotation) until then.
+  pl::render::CameraSource::ResolveAsync();
+  preloaderLogger.info(
+      "Native cosmetics: camera scan started; anchoring via local-player pose until it resolves");
 
   preloaderLogger.info("Native cosmetics: registered post-render callback");
   return true;
