@@ -107,6 +107,16 @@ struct SeamAbi {
 constexpr std::uint32_t kHostSeamAbiVersion = 8;
 
 /**
+ * @brief The `sizeof(SeamMirror)` this layout produces, pinned at compile time.
+ *
+ * <p>BerryAPI refuses a seam whose `size` is not exactly its own `sizeof(BerrySeamC)`, so the mirror
+ * must match field for field. Pinning the number here turns a field added, removed or reordered in
+ * the mirror into a compile error instead of a bind that silently fails on the device.
+ */
+static_assert(sizeof(SeamMirror) == 112,
+              "SeamMirror must match BerryAPI's BerrySeamC (ABI 8) layout");
+
+/**
  * @brief Whether the host's mirrored struct matches the library's.
  *
  * <p>A zero on either side means the query did not resolve, which is treated as a mismatch: binding
