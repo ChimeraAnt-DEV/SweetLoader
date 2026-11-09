@@ -9,6 +9,8 @@
 
 #include "pl/Logger.hpp"
 #include "pl/ipc/PlayerSnapshot.hpp"
+#include "pl/runtime/SnapshotFreshness.hpp"
+#include "pl/runtime/SwapFrameBoundary.h"
 #include "pl/memory/Hook.hpp"
 #include "pl/memory/Vtable.hpp"
 
@@ -30,9 +32,15 @@ constexpr const char *kGameModule = "libminecraftpe.so";
 
 // A snapshot is considered live for this long after the last game call. The hook runs
 // every frame while a world is loaded, so during play the stamp is always fresh; after
-// teardown it goes stale within this window and the readers stop reporting a position
-// instead of handing the caller a stale one.
+// teardown the readers stop reporting a position. The window is the backstop for a build
+// with no present hook; when one is live the present gap catches teardown in a frame or
+// two instead of leaving a stale position for the whole window (see SnapshotFreshness).
 constexpr long long kSnapshotFreshMs = 2000;
+
+// No present for longer than this, with a present hook live, means the game has stopped
+// presenting and the session is over. Generous enough to survive a loading stall or a
+// paused frame, short enough that a teardown is not reported as a live player.
+constexpr long long kPresentGapMs = 1500;
 
 void *(*g_origGetLocalPlayer)(void *) = nullptr;
 std::atomic_bool g_hookInstalled{false};
@@ -96,7 +104,20 @@ bool ReadSnapshot(float outPosition[3], float outRotation[2]) {
   if (!g_snapshot.read(transform)) {
     return false;
   }
-  if (transform.stampMs == 0 || MonotonicMs() - transform.stampMs > kSnapshotFreshMs) {
+  FreshnessInputs fresh;
+  fresh.nowMs = MonotonicMs();
+  fresh.stampMs = transform.stampMs;
+  fresh.freshWindowMs = kSnapshotFreshMs;
+  fresh.presentGapMs = kPresentGapMs;
+  // The present hook's "last present" is in microseconds; convert once here. `presentTracked` is
+  // false on a Vulkan-only build (no libEGL present call), where the window alone decides.
+  fresh.presentTracked = pl::runtime::IsSwapFrameBoundaryLive();
+  if (fresh.presentTracked) {
+    const long long lastPresentUs =
+        pl_runtime_swap_buffers_last_us.load(std::memory_order_relaxed);
+    fresh.lastPresentMs = lastPresentUs > 0 ? lastPresentUs / 1000LL : 0;
+  }
+  if (!IsSnapshotFresh(fresh)) {
     return false;
   }
   std::memcpy(outPosition, transform.position, sizeof(transform.position));

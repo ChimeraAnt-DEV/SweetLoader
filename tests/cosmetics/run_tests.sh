@@ -208,6 +208,10 @@ compile_run FrameTickClockTest \
 compile_run PublishedBlobTest \
   "$here/PublishedBlobTest.cpp"
 
+# The pure rule that decides whether a local-player snapshot is still live (teardown-aware).
+compile_run SnapshotFreshnessTest \
+  "$here/SnapshotFreshnessTest.cpp"
+
 # The atomic cache write: a truncated cache is worse than a missing one, because the previous good
 # cache is destroyed and the next launch pays a full scan. Pure header.
 compile_run AtomicFileWriteTest \
