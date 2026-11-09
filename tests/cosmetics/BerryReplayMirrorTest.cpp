@@ -43,6 +43,11 @@ static ReplayApiMirror CompleteApi() {
     api.set_local_player = nullptr;
     api.loaded = []() -> std::int32_t { return 0; };
     api.status = nullptr;
+    api.capture_start = []() -> std::int32_t { return 0; };
+    api.capture_stop = []() -> std::int32_t { return 0; };
+    api.capture_state = []() -> std::int32_t { return 0; };
+    api.capture_packet = [](std::int32_t, std::uint32_t, const void *, std::size_t,
+                            std::uint64_t) -> std::int32_t { return 0; };
     return api;
 }
 
@@ -99,6 +104,30 @@ int main() {
     api.status = nullptr;
     expect(ReplayApiUsable(api),
            "a surface missing only the optional calls is still usable");
+
+    // --- ReplayCaptureUsable: the recorder half is separate from playback. ---
+    api = CompleteApi();
+    expect(ReplayCaptureUsable(api), "a surface with every capture call can record");
+    api = CompleteApi();
+    api.capture_start = nullptr;
+    expect(!ReplayCaptureUsable(api), "no capture_start means no recording");
+    api = CompleteApi();
+    api.capture_stop = nullptr;
+    expect(!ReplayCaptureUsable(api), "no capture_stop means no recording");
+    api = CompleteApi();
+    api.capture_state = nullptr;
+    expect(!ReplayCaptureUsable(api), "no capture_state means no recording");
+    api = CompleteApi();
+    api.capture_packet = nullptr;
+    expect(!ReplayCaptureUsable(api), "no capture_packet means no recording");
+    // A v1 surface (no capture fields at all) still plays back, it just cannot record.
+    api = CompleteApi();
+    api.capture_start = nullptr;
+    api.capture_stop = nullptr;
+    api.capture_state = nullptr;
+    api.capture_packet = nullptr;
+    expect(ReplayApiUsable(api), "a capture-less surface is still usable for playback");
+    expect(!ReplayCaptureUsable(api), "a capture-less surface cannot record");
 
     // --- ReplayTickLength ---
     ReplayInfoMirror info{};

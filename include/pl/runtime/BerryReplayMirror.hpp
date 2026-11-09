@@ -30,6 +30,15 @@ enum class ReplayStatus : std::int32_t {
     BadReplay = 2,
     BadArgument = 3,
     NotLoaded = 4,
+    NotRecording = 5,
+};
+
+/** The capture state, mirroring the `capture_state()` return values. */
+enum class ReplayCaptureState : std::int32_t {
+    Idle = 0,
+    Recording = 1,
+    Throttled = 2,
+    Stopped = 3,
 };
 
 /** The loaded replay's summary, matching `BerryReplayInfo` field for field. */
@@ -99,9 +108,21 @@ struct ReplayAbi {
  * @brief The replay ABI version this mirror targets.
  *
  * <p>Must equal `BERRY_REPLAY_ABI_VERSION` in the library. `ReplayMirrorMatches` compares the two, so
- * a bump on either side is caught before a pointer is called.
+ * a bump on either side is caught before a pointer is called. v2 grew the capture (recorder) fields
+ * (`capture_start`/`capture_stop`/`capture_state`/`capture_packet`), so the mirrored struct is the
+ * full v2 layout and a v1 library (a shorter struct) is refused by the size check.
  */
 constexpr std::uint32_t kHostReplayAbiVersion = 2;
+
+/**
+ * @brief The `sizeof(ReplayApiMirror)` this layout produces, pinned at compile time.
+ *
+ * <p>BerryAPI refuses a surface whose `size` is not exactly its own `sizeof(BerryReplayApi)`, so the
+ * mirror must match field for field. Pinning the number here turns a field added, removed or
+ * reordered in the mirror into a compile error instead of a surface that is silently refused.
+ */
+static_assert(sizeof(ReplayApiMirror) == 144,
+              "ReplayApiMirror must match BerryAPI's BerryReplayApi (ABI 2) layout");
 
 /**
  * @brief Whether the host's mirrored struct matches the library's.

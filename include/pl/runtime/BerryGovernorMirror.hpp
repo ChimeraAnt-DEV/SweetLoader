@@ -84,6 +84,16 @@ struct GovernorAbi {
 constexpr std::uint32_t kHostGovernorAbiVersion = 1;
 
 /**
+ * @brief The `sizeof(GovernorApiMirror)` this layout produces, pinned at compile time.
+ *
+ * <p>BerryAPI refuses a surface whose `size` is not exactly its own `sizeof(BerryGovernorApi)`, so
+ * the mirror must match field for field. Pinning the number here turns a field added, removed or
+ * reordered in the mirror into a compile error instead of a surface that is silently refused.
+ */
+static_assert(sizeof(GovernorApiMirror) == 48,
+              "GovernorApiMirror must match BerryAPI's BerryGovernorApi (ABI 1) layout");
+
+/**
  * @brief Whether the host's mirrored struct matches the library's.
  *
  * <p>A zero on either side means the query did not resolve, which is a mismatch.

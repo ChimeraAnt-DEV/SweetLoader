@@ -30,8 +30,13 @@ namespace {
 constexpr const char *kLibraryName = "libBerryAPI.so";
 
 // The C ABI BerryAPI exports. Read-only after the first successful load.
-using InjectFn = bool (*)();
-using IsAttachedFn = bool (*)();
+//
+// BERRY_Inject / BERRY_IsAttached return `int` (0/1), not C++ `bool`: BerryAPI's own header
+// documents that a 1-byte bool return leaves the upper result-register bytes undefined, so a
+// caller that declared `bool (*)()` could read a true as false. The typedefs match the real
+// signature.
+using InjectFn = int (*)();
+using IsAttachedFn = int (*)();
 using VersionFn = const char *(*)();
 using SetWorldSeamFn = std::int32_t (*)(const void *);
 using ClearWorldSeamFn = void (*)();
@@ -161,7 +166,7 @@ std::string Version() {
 bool Attached() {
   if (!g_loaded.load(std::memory_order_acquire)) return false;
   if (!g_hasAttachQuery.load(std::memory_order_relaxed) || g_isAttached == nullptr) return false;
-  return g_isAttached();
+  return g_isAttached() != 0;
 }
 
 bool EnsureAttached() {
