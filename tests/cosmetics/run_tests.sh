@@ -187,6 +187,11 @@ compile_run SnapshotChannelTest \
 compile_run GameHookRuleMergeTest \
   "$here/GameHookRuleMergeTest.cpp"
 
+# The rules-file parse cache: the readers that used to reopen and reparse the JSON on every call.
+compile_run RulesFileCacheTest \
+  -I"$root/src" \
+  "$here/RulesFileCacheTest.cpp"
+
 compile_run RuleProbeTest \
   "$here/RuleProbeTest.cpp"
 

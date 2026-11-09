@@ -343,7 +343,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   // additions (indices 9..16) are the rules/install/camera/library-mapping/triangle state the
   // Stage-1/4/5/6 fixes added, index 17 is the classified GPU family and index 18 is the
   // live hook count. -1 means "unknown / not available".
-  constexpr int kFields = 19;
+  constexpr int kFields = 21;
   jint values[kFields];
   for (int i = 0; i < kFields; ++i) values[i] = -1;
 
@@ -388,6 +388,10 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   values[12] = pl::runtime::GameHookRulesMergeConflicts();
   values[13] = pl::runtime::GameHookRulesHaveRenderIndex() ? 1 : 0;
   values[14] = pl::runtime::GameHookRulesLoadAttempted() ? 1 : 0;
+  // Index 19/20 distinguish "a path was supplied" and "the file was parsed" from "a read was
+  // tried": a missing or malformed file reports attempted but not loaded.
+  values[19] = pl::runtime::GameHookRulesConfigured() ? 1 : 0;
+  values[20] = pl::runtime::GameHookRulesLoaded() ? 1 : 0;
 
   // How many times `libpreloader.so` is mapped into this process. A second copy has its own empty
   // registry, so Java would publish to one and the hook would draw from another — the count is the
