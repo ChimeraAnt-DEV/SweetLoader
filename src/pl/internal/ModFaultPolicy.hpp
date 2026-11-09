@@ -77,7 +77,17 @@ public:
     return decision;
   }
 
-  /** Records a success, clearing the mod's fault budget. Does not re-enable a disabled mod. */
+  /**
+   * Records a success, clearing the mod's fault budget.
+   *
+   * <p>Deliberately does <em>not</em> re-enable a disabled mod. A disabled mod is one that exhausted
+   * its fault budget, and it is disabled before its entry points are ever called again -- so it can
+   * never reach this method with a success, and reaching it would mean the mod ran despite being
+   * disabled. Re-enabling is a user action, not a side effect of a successful call: the user fixes
+   * the mod (or a missing dependency) and re-enables it explicitly through {@link #clear}, which
+   * resets both the fault count and the disabled flag. Clearing the fault count here, without
+   * clearing the flag, is exactly the intended split.
+   */
   void recordSuccess(const std::string &modId) { mFaults.erase(modId); }
 
   /** The mod's consecutive fault count, or 0 when it has none. */
