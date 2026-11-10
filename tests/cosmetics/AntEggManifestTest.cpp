@@ -290,6 +290,32 @@ void ASandboxRootCannotEscapeWithParentSegments() {
         "an empty allowed root is refused");
 }
 
+void ReadsTheSchemaVersion() {
+  pl::runtime::AntEggManifest manifest;
+  std::string error;
+  // An absent field reads as version 1 (a package written before the field existed).
+  Check(pl::runtime::AntEggLoader::ParseManifest(NativeManifest(), manifest, error),
+        "a manifest without schema_version still parses: " + error);
+  Check(manifest.schema_version == 1, "an absent schema_version reads as 1");
+
+  // An explicit version 1 is accepted.
+  manifest = {};
+  Check(pl::runtime::AntEggLoader::ParseManifest(NativeManifest("\"schema_version\":1"), manifest, error),
+        "schema_version 1 parses: " + error);
+  Check(manifest.schema_version == 1, "schema_version 1 is read");
+
+  // A future version is refused rather than misread.
+  manifest = {};
+  Check(!pl::runtime::AntEggLoader::ParseManifest(NativeManifest("\"schema_version\":2"), manifest, error),
+        "a future schema_version is refused");
+
+  // A non-integer is refused.
+  manifest = {};
+  Check(!pl::runtime::AntEggLoader::ParseManifest(
+            NativeManifest("\"schema_version\":\"one\""), manifest, error),
+        "a non-integer schema_version is refused");
+}
+
 void LooksLikeAntEggIsCaseInsensitive() {
   Check(pl::runtime::AntEggLoader::LooksLikeAntEgg("mod.antegg"), ".antegg is recognised");
   Check(pl::runtime::AntEggLoader::LooksLikeAntEgg("MOD.ANTEGG"), "the extension is case-insensitive");
@@ -316,6 +342,7 @@ int main() {
   TheSandboxRootMustLiveInsideTheAllowedRoot();
   ASandboxRootCannotEscapeWithParentSegments();
   LooksLikeAntEggIsCaseInsensitive();
+  ReadsTheSchemaVersion();
 
   if (g_failures == 0) {
     std::printf("AntEggManifestTest: all %d checks passed\n", g_checks);

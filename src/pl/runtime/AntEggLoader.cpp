@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -10,6 +11,8 @@
 
 #include <nlohmann/json.hpp>
 #include <zlib.h>
+
+#include "pl/runtime/AntEggZip.hpp"
 
 namespace pl::runtime {
 namespace {
@@ -126,6 +129,7 @@ bool IsSafeAbsolutePath(const std::string& value) {
 struct ZipEntryRecord {
   std::string name;
   uint16_t method = 0;
+  uint32_t crc = 0;
   uint32_t compressed_size = 0;
   uint32_t uncompressed_size = 0;
   uint32_t local_offset = 0;
@@ -145,6 +149,11 @@ bool ParseCentralDirectory(const std::vector<uint8_t>& data, std::vector<ZipEntr
   }
   if (eocd == std::string::npos) return false;
 
+  // A ZIP64 archive uses 64-bit entry counts and offsets in a record this parser does not read, so
+  // the 32-bit fields below would be misread. Refuse it rather than extract the wrong bytes
+  // (audit item 12.3).
+  if (HasZip64EndOfCentralDirectory(data.data(), data.size())) return false;
+
   uint16_t entry_count = ReadU16(data, eocd + 10);
   uint32_t cd_offset = ReadU32(data, eocd + 16);
   if (cd_offset >= data.size()) return false;
@@ -155,6 +164,7 @@ bool ParseCentralDirectory(const std::vector<uint8_t>& data, std::vector<ZipEntr
     if (ReadU32(data, cursor) != 0x02014b50) return false;
     ZipEntryRecord record;
     record.method = ReadU16(data, cursor + 10);
+    record.crc = ReadU32(data, cursor + 16);
     record.compressed_size = ReadU32(data, cursor + 20);
     record.uncompressed_size = ReadU32(data, cursor + 24);
     uint16_t name_len = ReadU16(data, cursor + 28);
@@ -184,7 +194,10 @@ bool ExtractEntryData(const std::vector<uint8_t>& data, const ZipEntryRecord& en
   if (entry.method == 0) {
     if (entry.compressed_size > kMaxUncompressedBytes) return false;
     out.assign(data.begin() + start, data.begin() + start + entry.compressed_size);
-    return true;
+    // Verify the stored CRC before the bytes are used: a corrupted entry must not be extracted as
+    // if it were the mod (audit item 12.5).
+    const uLong computed = ::crc32(0L, out.data(), static_cast<uInt>(out.size()));
+    return ZipCrcMatches(entry.crc, static_cast<uint32_t>(computed));
   }
   if (entry.method != 8) return false;
 
@@ -202,7 +215,34 @@ bool ExtractEntryData(const std::vector<uint8_t>& data, const ZipEntryRecord& en
   inflateEnd(&stream);
   if (status != Z_STREAM_END) return false;
   out.resize(stream.total_out);
-  return true;
+  // Verify the stored CRC before the bytes are used (audit item 12.5).
+  const uLong computed = ::crc32(0L, out.data(), static_cast<uInt>(out.size()));
+  return ZipCrcMatches(entry.crc, static_cast<uint32_t>(computed));
+}
+
+// A staging or backup directory left behind by a crash is removed after this long. The window is
+// generous: an extraction in progress must never be mistaken for a leak, and a day is far longer
+// than any real extraction takes (audit item 12.6).
+constexpr auto kStaleStagingAge = std::chrono::hours(24);
+
+/// Removes `.X.extracting` and `.X.old` leftovers under `root` that are older than the window.
+void CleanStaleStagingDirs(const fs::path& root) {
+  std::error_code ec;
+  if (!fs::is_directory(root, ec)) return;
+  const auto now = fs::file_time_type::clock::now();
+  for (const auto& entry : fs::directory_iterator(root, ec)) {
+    if (ec) return;
+    const std::string name = entry.path().filename().string();
+    const bool staged = name.size() > 1 && name.front() == '.' &&
+                        (name.ends_with(".extracting") || name.ends_with(".old"));
+    if (!staged) continue;
+    std::error_code timeEc;
+    const auto written = fs::last_write_time(entry.path(), timeEc);
+    if (timeEc) continue;
+    if (now - written < kStaleStagingAge) continue;
+    std::error_code removeEc;
+    fs::remove_all(entry.path(), removeEc);
+  }
 }
 
 /// True when `candidate` is `root` or lives under it, on canonical paths.
@@ -282,6 +322,21 @@ bool AntEggLoader::ParseManifest(const std::string& json, AntEggManifest& out,
     }
     return true;
   };
+
+  // Schema version (audit item 12.8): absent is the legacy value 1; a present value must be the one
+  // this build understands, so a newer manifest is refused rather than misread.
+  auto schema = root.find("schema_version");
+  if (schema != root.end()) {
+    if (!schema->is_number_integer()) {
+      error = "schema_version must be an integer";
+      return false;
+    }
+    out.schema_version = schema->get<int>();
+    if (out.schema_version != 1) {
+      error = "unsupported schema_version; this build reads version 1";
+      return false;
+    }
+  }
 
   if (!require_string("name", out.name)) return false;
   if (!require_string("version", out.version)) return false;
@@ -413,8 +468,23 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
   std::error_code ec;
   fs::path root(sandbox_root);
   fs::create_directories(root, ec);
+  // Drop staging/backup directories a previous crash left behind, so they do not accumulate
+  // (audit item 12.6). Only ones old enough to be certainly abandoned are touched.
+  CleanStaleStagingDirs(root);
   fs::path stage = root / ("." + manifest.Id() + ".extracting");
   fs::path target = root / manifest.Id();
+  fs::path backup = root / ("." + manifest.Id() + ".old");
+
+  // Recovery (audit item 12.7): a crash between the two renames of the swap below leaves the
+  // previous mod under `backup`. If the target is missing, restore it so the installed mod is never
+  // lost; either way drop a stale backup so the swap starts clean.
+  if (fs::exists(backup) && !fs::exists(target)) {
+    fs::rename(backup, target, ec);
+    ec.clear();
+  }
+  fs::remove_all(backup, ec);
+  ec.clear();
+
   fs::remove_all(stage, ec);
   fs::create_directories(stage, ec);
   if (ec) {
@@ -464,13 +534,34 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
     return false;
   }
 
-  fs::remove_all(target, ec);
+  // Atomic swap (audit item 12.7): removing the target then renaming the stage into place leaves a
+  // window where the target does not exist, so a crash there loses the installed mod. Move the old
+  // target aside first, move the new one in, then drop the old one. If the second rename fails the
+  // old mod is restored, so the swap is a no-op rather than a loss.
+  ec.clear();
+  fs::remove_all(backup, ec);
+  ec.clear();
+  if (fs::exists(target)) {
+    fs::rename(target, backup, ec);
+    if (ec) {
+      fs::remove_all(stage, ec);
+      error = "could not move the existing mod aside";
+      return false;
+    }
+  }
   fs::rename(stage, target, ec);
   if (ec) {
-    fs::remove_all(stage, ec);
+    if (fs::exists(backup)) {
+      std::error_code restoreEc;
+      fs::rename(backup, target, restoreEc);
+    }
+    std::error_code cleanupEc;
+    fs::remove_all(stage, cleanupEc);
     error = "could not move the extracted mod into place";
     return false;
   }
+  std::error_code dropEc;
+  fs::remove_all(backup, dropEc);
   return true;
 }
 

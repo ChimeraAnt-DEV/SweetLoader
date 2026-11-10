@@ -19,6 +19,12 @@ struct AntEggManifest {
   std::string author;
   std::string type;       // "native" or "script"
   std::string entry_point;
+  /**
+   * The manifest format version (audit item 12.8). Absent reads as 1 for a package written before
+   * the field existed; any value other than the supported one is refused rather than guessed at, so
+   * a future format is not silently half-read.
+   */
+  int schema_version = 1;
   std::vector<std::string> dependencies;
 
   /**

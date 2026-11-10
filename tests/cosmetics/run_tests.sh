@@ -355,6 +355,12 @@ compile_run AntEggManifestTest \
   "$root/src/pl/runtime/AntEggLoader.cpp" \
   "$here/AntEggManifestTest.cpp" "$zlib_link"
 
+# The pure ZIP rules the .antegg reader enforces (audit items 12.3, 12.5): the CRC32 check and the
+# ZIP64 refusal.
+compile_run AntEggZipTest \
+  -I"$root/src" \
+  "$here/AntEggZipTest.cpp"
+
 # Fuzz-shaped invariants for the three parsers that read untrusted data (item 458): the signature
 # parser, the egg.json reader and the Bedrock geometry parser. Deterministic and seeded, so a
 # failure reproduces from the seed alone.
