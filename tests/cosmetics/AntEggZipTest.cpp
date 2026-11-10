@@ -10,11 +10,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "pl/runtime/AntEggZip.hpp"
 
 using pl::runtime::HasZip64EndOfCentralDirectory;
+using pl::runtime::IsSafeZipEntryName;
 using pl::runtime::kZip64EocdLocatorSignature;
 using pl::runtime::kZip64EocdSignature;
 using pl::runtime::ZipCrcMatches;
@@ -76,6 +78,19 @@ int main() {
   // Degenerate inputs do not crash.
   expect(!HasZip64EndOfCentralDirectory(nullptr, 0), "a null buffer is not ZIP64");
   expect(!HasZip64EndOfCentralDirectory(plain.data(), 3), "a buffer shorter than a signature is not ZIP64");
+
+  // The lexical entry-name rule (audit item 2.15).
+  expect(IsSafeZipEntryName("lib/libtest.so"), "a normal entry name is safe");
+  expect(IsSafeZipEntryName("egg.json"), "a top-level file is safe");
+  expect(IsSafeZipEntryName("a/b/c/d.txt"), "a nested path is safe");
+  expect(!IsSafeZipEntryName(""), "an empty name is refused");
+  expect(!IsSafeZipEntryName("/etc/passwd"), "an absolute name is refused");
+  expect(!IsSafeZipEntryName("../escape.so"), "a leading parent segment is refused");
+  expect(!IsSafeZipEntryName("a/../../escape.so"), "an embedded parent segment is refused");
+  expect(!IsSafeZipEntryName("a/.."), "a trailing parent segment is refused");
+  expect(IsSafeZipEntryName("..hidden"), "a name starting with dots but not a parent is safe");
+  expect(IsSafeZipEntryName("a..b/c"), "dots inside a segment are safe");
+  expect(!IsSafeZipEntryName(std::string("a\0b", 3)), "a NUL byte is refused");
 
   std::printf("AntEggZipTest: %d checks passed\n", checks);
   return 0;

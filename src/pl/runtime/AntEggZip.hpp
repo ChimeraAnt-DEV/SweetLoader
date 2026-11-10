@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 
 namespace pl::runtime {
 
@@ -36,6 +37,32 @@ inline constexpr std::uint32_t kZip64EocdLocatorSignature = 0x07064b50u;
 
 /** @brief The signature of the ZIP64 end-of-central-directory record. */
 inline constexpr std::uint32_t kZip64EocdSignature = 0x06064b50u;
+
+/**
+ * @brief Whether a ZIP entry name stays inside the archive root, checked lexically.
+ *
+ * <p>The extractor used to call {@code weakly_canonical} (a realpath syscall) once per entry, so a
+ * hundred-entry package paid a hundred syscalls before writing a byte (audit item 2.15). The
+ * staging directory is created empty by the extractor, so nothing under it can be a symlink yet and
+ * a lexical check is sufficient: refuse an absolute name, a name with a parent (`..`) segment, a
+ * name with a NUL, and an empty name. Rejecting every `..` is deliberately stricter than resolving
+ * it -- a package has no reason to name a parent directory, and refusing it needs no filesystem.
+ */
+inline bool IsSafeZipEntryName(std::string_view name) noexcept {
+  if (name.empty()) return false;
+  if (name.front() == '/') return false;
+  if (name.find('\0') != std::string_view::npos) return false;
+  std::size_t start = 0;
+  while (start <= name.size()) {
+    const std::size_t slash = name.find('/', start);
+    const std::string_view segment =
+        name.substr(start, slash == std::string_view::npos ? std::string_view::npos : slash - start);
+    if (segment == "..") return false;
+    if (slash == std::string_view::npos) break;
+    start = slash + 1;
+  }
+  return true;
+}
 
 /**
  * @brief Whether the buffer carries a ZIP64 end-of-central-directory locator.

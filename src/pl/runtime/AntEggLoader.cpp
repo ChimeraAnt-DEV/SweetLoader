@@ -465,6 +465,17 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
     return false;
   }
 
+  // Validate every entry name up front, lexically (audit item 2.15). The staging directory is
+  // created empty below, so no entry can traverse a symlink, and a lexical check costs no syscalls
+  // where the per-entry canonical check cost one realpath each.
+  for (const auto& entry : entries) {
+    if (entry.name.empty()) continue;
+    if (!IsSafeZipEntryName(entry.name)) {
+      error = "package entry escapes the sandbox: " + entry.name;
+      return false;
+    }
+  }
+
   std::error_code ec;
   fs::path root(sandbox_root);
   fs::create_directories(root, ec);
@@ -496,11 +507,6 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
   for (const auto& entry : entries) {
     if (entry.name.empty()) continue;
     fs::path destination = stage / entry.name;
-    if (!IsInside(stage, destination)) {
-      fs::remove_all(stage, ec);
-      error = "package entry escapes the sandbox: " + entry.name;
-      return false;
-    }
     if (entry.is_directory) {
       fs::create_directories(destination, ec);
       continue;
