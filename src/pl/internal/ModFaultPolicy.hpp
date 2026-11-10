@@ -67,6 +67,26 @@ inline ModFaultDecision DecideAfterFault(int faultCount) {
  */
 class ModFaultTracker {
 public:
+  /**
+   * @brief Seeds a mod's persisted budget, restoring a fault count earned in an earlier session.
+   *
+   * <p>Called once per mod at load, before the first fault is recorded, so a mod that faulted three
+   * times across three launches is disabled on the third rather than retried forever (audit item
+   * 6.5). A zero count with `disabled` false is a no-op; a disabled flag alone disables the mod.
+   */
+  void seedFaults(const std::string &modId, int faultCount, bool disabled) {
+    if (faultCount > 0) {
+      mFaults[modId] = faultCount;
+    } else {
+      mFaults.erase(modId);
+    }
+    if (disabled) {
+      mDisabled[modId] = true;
+    } else {
+      mDisabled.erase(modId);
+    }
+  }
+
   /** Records one fault and returns the decision for that mod. */
   ModFaultDecision recordFault(const std::string &modId) {
     const int count = ++mFaults[modId];

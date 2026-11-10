@@ -122,6 +122,28 @@ int main() {
   faultsArePerMod();
   resetForgetsEverything();
 
+  // Seeding a persisted budget restores a fault count from an earlier session (audit item 6.5).
+  {
+    ModFaultTracker tracker;
+    tracker.seedFaults("mod.seeded", 2, false);
+    expect(tracker.faultsFor("mod.seeded") == 2, "a seeded fault count is restored");
+    expect(!tracker.isDisabled("mod.seeded"), "a seeded count below the budget does not disable");
+    // One more fault takes it to the budget and disables it.
+    expect(tracker.recordFault("mod.seeded").action == ModFaultAction::Disable,
+           "a seeded count at the budget minus one disables on the next fault");
+
+    ModFaultTracker disabledTracker;
+    disabledTracker.seedFaults("mod.disabled", 3, true);
+    expect(disabledTracker.isDisabled("mod.disabled"), "a seeded disabled flag disables the mod");
+    expect(disabledTracker.faultsFor("mod.disabled") == 3, "the seeded count is kept with the flag");
+
+    // Seeding with zero and not-disabled clears any prior state.
+    ModFaultTracker cleared;
+    cleared.seedFaults("mod.cleared", 0, false);
+    expect(cleared.faultsFor("mod.cleared") == 0, "seeding zero clears the count");
+    expect(!cleared.isDisabled("mod.cleared"), "seeding not-disabled clears the flag");
+  }
+
   std::printf("ModFaultPolicyTest: %d checks passed\n", checks);
   return 0;
 }

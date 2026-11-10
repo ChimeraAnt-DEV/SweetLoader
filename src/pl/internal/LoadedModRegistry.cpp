@@ -1,11 +1,16 @@
 #include "LoadedModRegistry.h"
 
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "pl/Logger.hpp"
+#include "pl/internal/ModFaultStore.hpp"
 #include "pl/internal/ModLoadOrder.hpp"
+#include "pl/memory/AtomicFileWrite.hpp"
 
 namespace pl::internal::mod {
 namespace {
@@ -17,6 +22,56 @@ std::vector<std::string> gLoadedModOrder;
 ModFaultTracker &modFaultTracker() {
   static ModFaultTracker tracker;
   return tracker;
+}
+
+namespace {
+
+std::mutex gFaultStoreMutex;
+std::string gFaultStorePath;
+ModFaultStore gFaultStore;
+
+void LoadFaultStoreLocked() {
+  gFaultStore.clear();
+  if (gFaultStorePath.empty()) return;
+  std::ifstream in(gFaultStorePath, std::ios::binary);
+  if (!in) return;
+  std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  gFaultStore = ParseModFaultStore(text);
+}
+
+void SaveFaultStoreLocked() {
+  if (gFaultStorePath.empty()) return;
+  // Atomic write: a kill mid-write must not truncate the store the previous launch wrote.
+  pl::memory::WriteFileAtomically(gFaultStorePath, SerializeModFaultStore(gFaultStore));
+}
+
+} // namespace
+
+void SetModFaultStorePath(const std::string &path) {
+  std::lock_guard<std::mutex> lock(gFaultStoreMutex);
+  if (gFaultStorePath == path) return;
+  gFaultStorePath = path;
+  LoadFaultStoreLocked();
+}
+
+void SeedModFaultsFromStore(const std::string &modId, const std::string &version) {
+  std::lock_guard<std::mutex> lock(gFaultStoreMutex);
+  ModFaultRecord record;
+  if (!ShouldApplyPersistedFaults(gFaultStore, MakeModFaultKey(modId, version), record)) return;
+  modFaultTracker().seedFaults(modId, record.faults, record.disabled);
+}
+
+void PersistModFaultState(const std::string &modId, const std::string &version, int faults,
+                          bool disabled) {
+  std::lock_guard<std::mutex> lock(gFaultStoreMutex);
+  if (gFaultStorePath.empty()) return;
+  const std::string key = MakeModFaultKey(modId, version);
+  if (faults <= 0 && !disabled) {
+    gFaultStore.erase(key);
+  } else {
+    gFaultStore[key] = ModFaultRecord{faults, disabled};
+  }
+  SaveFaultStoreLocked();
 }
 
 bool isModAlreadyRegistered(const std::string &normalizedLibraryPath) {

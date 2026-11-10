@@ -6,6 +6,7 @@
 
 #include "pl/Export.hpp"
 #include "pl/Logger.hpp"
+#include "pl/internal/LoadedModRegistry.h"
 #include "pl/internal/ModManager.h"
 #include "pl/hooks/DobbyHookManager.hpp"
 #include "pl/runtime/FeatureAvailability.hpp"
@@ -83,6 +84,19 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeLoadMod__Ljava_lang_String_
   (void)clazz;
   (void)modObj;
   return LoadModFromJava(env, libPath, modRootPath);
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_core_mods_ModManager_nativeSetModFaultStorePath(JNIEnv *env, jclass,
+                                                                          jstring path) {
+  if (path == nullptr) {
+    pl::internal::mod::SetModFaultStorePath(std::string());
+    return;
+  }
+  const char *chars = env->GetStringUTFChars(path, nullptr);
+  if (chars == nullptr) return;
+  pl::internal::mod::SetModFaultStorePath(std::string(chars));
+  env->ReleaseStringUTFChars(path, chars);
 }
 
 JNIEXPORT void JNICALL

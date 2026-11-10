@@ -23,6 +23,11 @@ bool ModManager::LoadModLibrary(
     return false;
   }
 
+  // Restore this mod's persisted fault budget before the check below, so a mod that faulted on
+  // earlier launches is disabled on this one rather than retried forever (audit item 6.5). Keyed on
+  // the mod id and version, so a version update starts with a fresh budget.
+  SeedModFaultsFromStore(modInfoStorage.modId, modInfoStorage.version);
+
   // A mod that exhausted its fault budget is refused before anything is loaded, so a mod
   // that faults on every launch costs one launch attempt, not one per launch forever. The user can
   // re-enable it, which clears the budget.
@@ -56,6 +61,8 @@ bool ModManager::LoadModLibrary(
     // The mod loaded as a library but its lifecycle entry failed. That is this mod's
     // fault and no other mod's, so it is counted here and the rest of the set keeps loading.
     const ModFaultDecision decision = modFaultTracker().recordFault(modInfoStorage.modId);
+    PersistModFaultState(modInfoStorage.modId, modInfoStorage.version, decision.faultCount,
+                         decision.action == ModFaultAction::Disable);
     if (decision.action == ModFaultAction::Disable) {
       preloaderLogger.error(
           "Disabling mod {} after {} consecutive faults; re-enable it to retry",
@@ -64,8 +71,10 @@ bool ModManager::LoadModLibrary(
     return false;
   }
 
-  // A mod that reached this point loaded successfully, so its fault budget is reset.
+  // A mod that reached this point loaded successfully, so its fault budget is reset, and the reset
+  // is persisted so a later launch does not restore a spent budget (audit item 6.5).
   modFaultTracker().recordSuccess(modInfoStorage.modId);
+  PersistModFaultState(modInfoStorage.modId, modInfoStorage.version, 0, false);
   registerLoadedMod(normalizedLibraryPath, std::move(*entry));
   return true;
 }
@@ -86,6 +95,7 @@ void ModManager::EnableLoadedMods() {
     if (enableLoadedModEntry(*entry)) {
       setLoadedModState(key, LoadedModState::Enabled);
       modFaultTracker().recordSuccess(entry->modId);
+      PersistModFaultState(entry->modId, entry->version, 0, false);
       continue;
     }
 
@@ -93,6 +103,8 @@ void ModManager::EnableLoadedMods() {
     // disabled after its budget is spent, and the loop keeps going so one broken mod cannot stop
     // every other mod from enabling.
     const ModFaultDecision decision = modFaultTracker().recordFault(entry->modId);
+    PersistModFaultState(entry->modId, entry->version, decision.faultCount,
+                         decision.action == ModFaultAction::Disable);
     if (decision.action == ModFaultAction::Disable) {
       preloaderLogger.error(
           "Disabling mod {} after {} consecutive enable faults; re-enable it to retry",

@@ -215,6 +215,10 @@ compile_run RulesFileCacheTest \
 compile_run RuleProbeTest \
   "$here/RuleProbeTest.cpp"
 
+# The persisted per-mod fault budget (audit item 6.5).
+compile_run ModFaultStoreTest \
+  "$here/ModFaultStoreTest.cpp"
+
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 

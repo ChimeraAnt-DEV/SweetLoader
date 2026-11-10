@@ -28,6 +28,8 @@ enum class LoadedModState {
 struct LoadedModEntry {
   std::string libraryPath;
   std::string modId;
+  /** The mod's declared version, part of the persisted fault key (audit item 6.5). */
+  std::string version;
   /** The mod ids this mod declares it needs loaded first, from its manifest. */
   std::vector<std::string> dependencies;
   LoadedModKind kind{LoadedModKind::NoEntry};
@@ -60,5 +62,31 @@ void setLoadedModState(const std::string &key, LoadedModState state);
  * is the same process-scoped state, and the loader consults it before loading a mod.
  */
 ModFaultTracker &modFaultTracker();
+
+/**
+ * @brief Points the persisted fault store at a file, reloading it when the path changes.
+ *
+ * <p>The file is `mods/.faults.json` (the mods directory's parent-relative store). An empty path
+ * disables persistence, which is the safe default: nothing is read and nothing is written.
+ */
+void SetModFaultStorePath(const std::string &path);
+
+/**
+ * @brief Restores a mod's persisted fault budget into the in-memory tracker.
+ *
+ * <p>Called once per mod at load, before the disabled check, so a mod that faulted in an earlier
+ * session is disabled on the launch that exhausts its budget rather than retried forever (audit item
+ * 6.5). Keyed on the mod id and version, so a version update starts with a fresh budget.
+ */
+void SeedModFaultsFromStore(const std::string &modId, const std::string &version);
+
+/**
+ * @brief Writes a mod's current fault state back to the persisted store.
+ *
+ * <p>A no-op when persistence is disabled. A zero fault count with `disabled` false clears the
+ * record, which is what a successful load/enable does.
+ */
+void PersistModFaultState(const std::string &modId, const std::string &version, int faults,
+                          bool disabled);
 
 } // namespace pl::internal::mod
