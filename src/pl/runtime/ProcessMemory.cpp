@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <mutex>
 #include <string>
 #include <unistd.h>
 
@@ -67,6 +69,23 @@ std::uint64_t ResidentPagesToKb(std::uint64_t residentPages, std::uint64_t pageS
 }
 
 ProcessMemoryReading ReadProcessMemory() {
+  // A UI-thread poll every frame read both /proc files (100us+ each). Memoize for 1 s: a footprint
+  // that changes within a second is not a leak signal, and the poll is a status display.
+  static std::mutex cacheMutex;
+  static ProcessMemoryReading cached;
+  static long long cachedAtMs = 0;
+
+  const long long nowMs =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count();
+  {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    if (ProcessMemoryCacheFresh(cachedAtMs, nowMs, kProcessMemoryTtlMs)) {
+      return cached;
+    }
+  }
+
   ProcessMemoryReading reading;
 
   std::string smaps;
@@ -92,6 +111,11 @@ ProcessMemoryReading ReadProcessMemory() {
     }
   }
 
+  {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    cached = reading;
+    cachedAtMs = nowMs;
+  }
   return reading;
 }
 

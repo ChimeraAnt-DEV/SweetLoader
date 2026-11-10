@@ -53,6 +53,15 @@ PL_EXPORT bool isExecutableAddress(uintptr_t address, std::string_view moduleNam
 PL_EXPORT void SetSignatureCacheDirectory(std::string_view directory);
 
 /**
+ * @brief Drops the resolver's in-memory memoization: resolved hits, remembered misses and parsed
+ *        patterns.
+ *
+ * Called when the signature rules are (re)delivered. A new rule set can name signatures the previous
+ * one did not, so a "not present" remembered under the old rules must not answer the new ones.
+ */
+PL_EXPORT void ClearSignatureCaches();
+
+/**
  * @brief Resolves a vtable slot by the diagnostic string its function references, not by index.
  *
  * The slot index of a virtual function moves between Minecraft builds, so a hardcoded index is

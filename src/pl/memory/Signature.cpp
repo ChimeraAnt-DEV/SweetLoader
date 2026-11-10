@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdint>
+#include <deque>
 #include <dlfcn.h>
 #include <mutex>
 #include <queue>
@@ -15,12 +17,15 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "pl/Logger.hpp"
 #include "pl/memory/AtomicFileWrite.hpp"
 #include "pl/memory/ElfBuildId.hpp"
 #include "pl/memory/ModulePathMatch.hpp"
+#include "pl/memory/RegionLiveness.hpp"
+#include "pl/memory/SignatureCachePolicy.hpp"
 #include "pl/memory/SignaturePattern.hpp"
 #include "pl/memory/SignatureScanCache.hpp"
 
@@ -73,7 +78,12 @@ struct AnchorNode {
 };
 
 std::unordered_map<std::string, uintptr_t> sigCache;
+// Signatures proven absent in this exact build. A miss is only remembered when the scan actually ran
+// over a readable module and found nothing (audit item 4.6); a transient miss is never cached.
+std::unordered_set<std::string> sigNegativeCache;
 std::unordered_map<std::string, ParsedPattern> patternCache;
+// Insertion order for the parsed-pattern cache, so it can be capped (audit item 4.5).
+std::deque<std::string> patternInsertionOrder;
 std::shared_mutex cacheMutex;
 
 // Thin adapters over the pure parser in SignaturePattern.hpp, so the scan below reads unchanged.
@@ -104,19 +114,29 @@ size_t ReadRegionSafely(uintptr_t start, size_t size, uint8_t *out);
 // region list no longer describes this module, and the caller re-reads it.
 bool RegionsAreMapped(const ModuleInfo &module) {
   if (module.regions.empty()) return false;
-  unsigned char probe = 0;
-  for (const auto &region : module.regions) {
-    iovec local{&probe, 1};
-    iovec remote{reinterpret_cast<void *>(region.start), 1};
-    if (::process_vm_readv(::getpid(), &local, 1, &remote, 1, 0) != 1) {
-      return false;
-    }
-  }
 
+  // Every region probe and the base's ELF magic are read in ONE `process_vm_readv` call with an
+  // iovec array, instead of one syscall per region (audit item 4.3): a module with 10 regions paid
+  // 10 syscalls per re-validation. `process_vm_readv` stops at the first unmapped region and returns
+  // the bytes read so far, so a short total means a region is gone.
+  const std::size_t regionCount = module.regions.size();
+  std::vector<unsigned char> probes(regionCount, 0);
   unsigned char magic[4] = {};
-  const size_t magicRead = ReadRegionSafely(module.base, sizeof(magic), magic);
-  if (magicRead != sizeof(magic)) return false;
-  return magic[0] == 0x7F && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
+  std::vector<iovec> local(regionCount + 1);
+  std::vector<iovec> remote(regionCount + 1);
+  for (std::size_t i = 0; i < regionCount; ++i) {
+    local[i] = iovec{&probes[i], 1};
+    remote[i] = iovec{reinterpret_cast<void *>(module.regions[i].start), 1};
+  }
+  local[regionCount] = iovec{magic, sizeof(magic)};
+  remote[regionCount] = iovec{reinterpret_cast<void *>(module.base), sizeof(magic)};
+
+  const ssize_t read = ::process_vm_readv(::getpid(), local.data(),
+                                          static_cast<unsigned long>(local.size()),
+                                          remote.data(),
+                                          static_cast<unsigned long>(remote.size()), 0);
+  if (read != static_cast<ssize_t>(regionCount + sizeof(magic))) return false;
+  return pl::memory::IsElfMagic(magic);
 }
 
 // Collects a module's readable regions, and its executable subset, by matching the **basename** of
@@ -202,6 +222,9 @@ void *ResolveExportedSymbol(std::string_view moduleName, std::string_view signat
 // a module that was unmapped or reloaded at different addresses is re-read instead of answering from
 // a stale region list.
 std::unordered_map<std::string, ModuleInfo> moduleCache;
+
+// Last successful region re-validation per module, in steady-clock ms (audit item 4.3).
+std::unordered_map<std::string, long long> regionValidatedMs;
 
 // The on-disk scan cache directory. Empty until the launcher sets it, which keeps
 // the default behaviour exactly as before: no file is read and none is written.
@@ -305,15 +328,35 @@ void UpdateDiskCache(const ModuleInfo &module, std::string_view moduleName,
   pl::memory::WriteFileAtomically(path, text);
 }
 
+// How long a successful region re-validation is trusted before the next one. The process is very
+// unlikely to unmap libminecraftpe.so within a frame, so re-probing on every resolve of the same
+// batch was pure syscall overhead (audit item 4.3, second half).
+constexpr long long kRegionValidationTtlMs = 16;
+
+long long SteadyMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 ModuleInfo getModuleInfoFresh(const std::string &moduleName) {
   {
     std::shared_lock lock(cacheMutex);
     const auto it = moduleCache.find(moduleName);
     if (it != moduleCache.end()) {
       ModuleInfo cached = it->second;
-      // Cheap identity re-check: the regions must still be mapped. This costs a few
-      // `process_vm_readv` calls and catches a module that was unmapped since it was cached.
-      if (RegionsAreMapped(cached)) return cached;
+      const auto validated = regionValidatedMs.find(moduleName);
+      const long long now = SteadyMs();
+      // Within the TTL the cached regions are trusted; past it, one batched re-validation decides.
+      if (validated != regionValidatedMs.end() &&
+          now - validated->second < kRegionValidationTtlMs) {
+        return cached;
+      }
+      if (RegionsAreMapped(cached)) {
+        std::unique_lock writeLock(cacheMutex);
+        regionValidatedMs[moduleName] = now;
+        return cached;
+      }
       // Fall through to a fresh read; the stale entry is replaced below.
     }
   }
@@ -323,6 +366,7 @@ ModuleInfo getModuleInfoFresh(const std::string &moduleName) {
 
   std::unique_lock lock(cacheMutex);
   moduleCache[moduleName] = module;
+  regionValidatedMs[moduleName] = SteadyMs();
   return module;
 }
 
@@ -336,6 +380,16 @@ ParsedPattern getCachedPattern(const std::string &signature) {
   ParsedPattern pattern = parsePattern(signature);
   std::unique_lock lock(cacheMutex);
   const auto [it, inserted] = patternCache.emplace(signature, pattern);
+  if (inserted) {
+    patternInsertionOrder.push_back(signature);
+    // The cache is bounded: past the cap, evict the oldest patterns so a long-running session with
+    // rules updates cannot grow it without limit (audit item 4.5).
+    while (pl::memory::PatternCacheNeedsTrim(patternCache.size()) &&
+           !patternInsertionOrder.empty()) {
+      patternCache.erase(patternInsertionOrder.front());
+      patternInsertionOrder.pop_front();
+    }
+  }
   return inserted ? pattern : it->second;
 }
 
@@ -557,6 +611,9 @@ resolveSignatures(std::span<const std::string> signatures,
   std::unordered_map<std::string, uintptr_t> results;
   std::vector<std::string> pending;
   std::unordered_map<std::string, size_t> pendingLookup;
+  // The signatures the byte-pattern scan actually ran over, so a miss from this set (and only this
+  // set) can be remembered as "absent in this build" (audit item 4.6).
+  std::vector<std::string> scannedSignatures;
 
   if (moduleName.empty()) {
     for (const auto &signature : signatures) results[signature] = 0;
@@ -575,6 +632,9 @@ resolveSignatures(std::span<const std::string> signatures,
       const auto cached = sigCache.find(key);
       if (cached != sigCache.end()) {
         results[signature] = cached->second;
+      } else if (sigNegativeCache.find(key) != sigNegativeCache.end()) {
+        // Known absent in this build: answer 0 without re-scanning (audit item 4.6).
+        results[signature] = 0;
       } else if (pendingLookup.emplace(signature, pending.size()).second) {
         pending.push_back(signature);
       }
@@ -635,6 +695,7 @@ resolveSignatures(std::span<const std::string> signatures,
       const std::vector<MemoryRegion> &scanRegions =
           module.execRegions.empty() ? module.readOnlyRegions : module.execRegions;
       scanCompiledPatterns(scanRegions, compiled, results);
+      scannedSignatures = patterns;
     }
   }
 
@@ -648,6 +709,16 @@ resolveSignatures(std::span<const std::string> signatures,
       // "pattern absent" is re-derived each launch by design (see UpdateDiskCache).
       if (it != results.end() && it->second != 0) {
         sigCache[makeSignatureCacheKey(moduleName, module.buildId, signature)] = it->second;
+      }
+    }
+    // Remember a genuine "absent" for the session, so a later resolve of the same signature does not
+    // re-run the full scan (audit item 4.6). Only a miss the scan actually produced qualifies; a
+    // miss from a module with no readable regions, or one the resolve never reached, is transient.
+    for (const auto &signature : scannedSignatures) {
+      const auto it = results.find(signature);
+      const std::uintptr_t address = it == results.end() ? 0 : it->second;
+      if (pl::memory::MissIsCacheable(!module.regions.empty(), true, address)) {
+        sigNegativeCache.insert(makeSignatureCacheKey(moduleName, module.buildId, signature));
       }
     }
   }
@@ -664,6 +735,17 @@ resolveSignatures(std::span<const std::string> signatures,
 void SetSignatureCacheDirectory(std::string_view directory) {
   std::lock_guard lock(g_cacheDirMutex);
   g_cacheDir.assign(directory);
+}
+
+void ClearSignatureCaches() {
+  // Drop the memoized hits, the remembered misses and the parsed patterns. Called when the rules
+  // are (re)delivered, because a new rule set can name signatures the previous one did not, and a
+  // remembered "absent" from the previous rule set must not answer the new one.
+  std::unique_lock lock(cacheMutex);
+  sigCache.clear();
+  sigNegativeCache.clear();
+  patternCache.clear();
+  patternInsertionOrder.clear();
 }
 
 uintptr_t resolveSignature(std::string_view signature,

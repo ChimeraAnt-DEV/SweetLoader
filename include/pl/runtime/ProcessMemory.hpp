@@ -46,7 +46,30 @@ bool ParseSmapsRollupPss(const char *text, std::size_t length, std::uint64_t &ou
  */
 std::uint64_t ResidentPagesToKb(std::uint64_t residentPages, std::uint64_t pageSizeKb);
 
-/** Reads the current footprint. A missing or unreadable source reads as zero, never an estimate. */
+/**
+ * @brief Whether a cached reading taken at @p lastMs is still fresh at @p nowMs.
+ *
+ * <p>A reading older than @p ttlMs is stale. A clock that has gone backwards (a negative delta) is
+ * treated as fresh, so a wrap does not force a re-read on every call.
+ */
+inline bool ProcessMemoryCacheFresh(long long lastMs, long long nowMs, long long ttlMs) noexcept {
+  if (lastMs <= 0) return false;
+  const long long age = nowMs - lastMs;
+  // A negative age (a clock that moved backwards) reads as fresh rather than forcing a re-read on
+  // every call until the clock catches up.
+  return age < 0 || age < ttlMs;
+}
+
+/**
+ * @brief Reads the current footprint, memoized for a short TTL.
+ *
+ * <p>Reading `/proc/self/smaps_rollup` and `/proc/self/statm` costs 100us+ per call and the launcher
+ * polls this from the UI thread, so a reading is reused for {@code kProcessMemoryTtlMs} (1 s) rather
+ * than re-read every poll. A missing or unreadable source reads as zero, never an estimate.
+ */
 ProcessMemoryReading ReadProcessMemory();
+
+/** The TTL for the memoized footprint reading, in milliseconds. */
+inline constexpr long long kProcessMemoryTtlMs = 1000;
 
 } // namespace pl::runtime

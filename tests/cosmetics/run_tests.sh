@@ -232,6 +232,14 @@ compile_run RuntimeHandlesTest \
 compile_run HighWaterMarkTest \
   "$here/HighWaterMarkTest.cpp"
 
+# The cached-region liveness rule behind the batched process_vm_readv re-validation (audit item 4.3).
+compile_run RegionLivenessTest \
+  "$here/RegionLivenessTest.cpp"
+
+# The bounded-pattern-cache and negative-cache rules (audit items 4.5, 4.6).
+compile_run SignatureCachePolicyTest \
+  "$here/SignatureCachePolicyTest.cpp"
+
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \

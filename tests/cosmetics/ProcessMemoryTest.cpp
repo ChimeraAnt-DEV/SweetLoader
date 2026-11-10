@@ -82,6 +82,15 @@ int main() {
   expect(ResidentPagesToKb(100, 0) == 0, "an unknown page size reads as unavailable");
   expect(ResidentPagesToKb(1024, 4) == 4096, "resident pages convert to KiB");
 
+  // The memoization TTL: a reading is fresh only within the window, and a clock that went backwards
+  // reads as fresh so a wrap does not force a re-read on every call.
+  expect(!pl::runtime::ProcessMemoryCacheFresh(0, 5000, 1000), "an unset reading is never fresh");
+  expect(pl::runtime::ProcessMemoryCacheFresh(5000, 5000, 1000), "a just-taken reading is fresh");
+  expect(pl::runtime::ProcessMemoryCacheFresh(5000, 5999, 1000), "a reading within the TTL is fresh");
+  expect(!pl::runtime::ProcessMemoryCacheFresh(5000, 6000, 1000), "a reading at the TTL is stale");
+  expect(!pl::runtime::ProcessMemoryCacheFresh(5000, 9000, 1000), "an old reading is stale");
+  expect(pl::runtime::ProcessMemoryCacheFresh(5000, 4000, 1000), "a backwards clock reads as fresh");
+
   std::printf("ProcessMemoryTest: %d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

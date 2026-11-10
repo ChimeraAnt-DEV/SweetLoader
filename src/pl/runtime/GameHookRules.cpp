@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include "pl/Logger.hpp"
+#include "pl/memory/Signature.hpp"
 #include "pl/runtime/RulesFileCache.hpp"
 #include "pl/runtime/GameHookRuleMerge.hpp"
 #include "pl/runtime/RuleProbe.hpp"
@@ -179,6 +180,10 @@ void ConfigureGameHookRules(std::string rulesPath, std::string minecraftVersion)
     std::lock_guard<std::mutex> cacheLock(g_rulesCacheMutex);
     g_rulesCache.invalidate();
   }
+  // A new rule set can name signatures the previous one did not, and a remembered "absent" from the
+  // previous set must not answer the new one, so the resolver's memoized hits and misses are dropped
+  // (audit item 4.6).
+  pl::memory::ClearSignatureCaches();
 
   std::uint64_t deliveredRevision = 0;
   if (auto root = LoadRulesDocument(rulesPath)) {
