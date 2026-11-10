@@ -7,8 +7,22 @@
 
 #include "pl/Logger.hpp"
 #include "pl/internal/LoadedModRegistry.h"
+#include "pl/internal/ModLoadError.hpp"
 #include "pl/internal/ModManifest.h"
 #include "pl/internal/NativeModLifecycle.h"
+
+namespace {
+
+pl::internal::mod::ModLoadErrorStore &modLoadErrorStore() {
+  static pl::internal::mod::ModLoadErrorStore store;
+  return store;
+}
+
+void SetLoadError(std::string message) { modLoadErrorStore().set(std::move(message)); }
+
+} // namespace
+
+std::string ModManager::LastLoadError() { return modLoadErrorStore().get(); }
 
 bool ModManager::LoadModLibrary(
     const std::filesystem::path &libraryPath,
@@ -16,10 +30,16 @@ bool ModManager::LoadModLibrary(
     JavaVM *vm) {
   using namespace pl::internal::mod;
 
+  // A fresh attempt clears the previous reason, so a stale message is never read back for this load
+  // (audit item 6.17).
+  modLoadErrorStore().clear();
+
   RuntimeModInfo modInfoStorage;
   if (!createRuntimeModInfo(libraryPath, sourceModDirectory, modInfoStorage)) {
     // A manifest that cannot be parsed is not attributable to a mod id yet, so it is reported
     // without a fault count: the failure is the manifest's, not the mod's runtime behaviour.
+    SetLoadError("the mod manifest could not be read or is invalid: " +
+                 libraryPath.string());
     return false;
   }
 
@@ -35,6 +55,7 @@ bool ModManager::LoadModLibrary(
     preloaderLogger.warn(
         "Refusing to load mod {}: it faulted {} times in a row and is disabled until re-enabled",
         modInfoStorage.modId, modFaultTracker().faultsFor(modInfoStorage.modId));
+    SetLoadError("the mod is disabled after repeated faults; re-enable it to retry");
     return false;
   }
 
@@ -52,6 +73,8 @@ bool ModManager::LoadModLibrary(
     preloaderLogger.error("Failed to load mod library {}: {}",
                           libraryPathString,
                           loadError ? loadError : "unknown error");
+    SetLoadError(std::string("the mod library could not be loaded: ") +
+                 (loadError ? loadError : "unknown dlopen error"));
     return false;
   }
 
@@ -68,6 +91,8 @@ bool ModManager::LoadModLibrary(
           "Disabling mod {} after {} consecutive faults; re-enable it to retry",
           modInfoStorage.modId, decision.faultCount);
     }
+    SetLoadError("the mod's load entry point failed; the mod is now disabled after " +
+                 std::to_string(decision.faultCount) + " fault(s)");
     return false;
   }
 
@@ -110,6 +135,7 @@ void ModManager::EnableLoadedMods() {
           "Disabling mod {} after {} consecutive enable faults; re-enable it to retry",
           entry->modId, decision.faultCount);
     }
+    SetLoadError("the mod's enable entry point failed for " + entry->modId);
   }
 }
 

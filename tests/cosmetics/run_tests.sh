@@ -219,6 +219,11 @@ compile_run RuleProbeTest \
 compile_run ModFaultStoreTest \
   "$here/ModFaultStoreTest.cpp"
 
+# The mod-load error slot: the reason behind a failed nativeLoadMod (audit item 6.17).
+compile_run ModLoadErrorTest \
+  -I"$root/src" \
+  "$here/ModLoadErrorTest.cpp" -pthread
+
 compile_run FramePacingTest \
   "$here/FramePacingTest.cpp"
 

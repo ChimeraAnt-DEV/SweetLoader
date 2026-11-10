@@ -86,6 +86,12 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeLoadMod__Ljava_lang_String_
   return LoadModFromJava(env, libPath, modRootPath);
 }
 
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_core_mods_ModManager_nativeLastModLoadError(JNIEnv *env, jclass) {
+  const std::string message = ModManager::LastLoadError();
+  return env->NewStringUTF(message.c_str());
+}
+
 JNIEXPORT void JNICALL
 Java_org_chimeramc_client_core_mods_ModManager_nativeSetModFaultStorePath(JNIEnv *env, jclass,
                                                                           jstring path) {
