@@ -31,6 +31,7 @@
 #include "pl/Export.hpp"
 #include "pl/runtime/BerryReplayMirror.hpp"
 #include "pl/runtime/BerryGovernorMirror.hpp"
+#include "pl/runtime/BerryCosmeticMirror.hpp"
 
 namespace pl::berry {
 
@@ -154,5 +155,17 @@ PL_EXPORT const GovernorApiMirror *GovernorApi();
 
 /** True when the governor surface resolved and passed its ABI check. */
 PL_EXPORT bool GovernorAvailable();
+
+/**
+ * @brief The cosmetics surface, or null when this library does not provide one.
+ *
+ * <p>Resolves `BERRY_GetCosmeticApi` and checks `BERRY_CosmeticStructSize`/
+ * `BERRY_CosmeticAbiVersion` against the host's mirror before returning it. The returned pointer is
+ * owned by the library; a caller must still treat every field as optional.
+ */
+PL_EXPORT const CosmeticApiMirror *CosmeticApi();
+
+/** True when the cosmetics surface resolved and passed its ABI check. */
+PL_EXPORT bool CosmeticAvailable();
 
 } // namespace pl::berry

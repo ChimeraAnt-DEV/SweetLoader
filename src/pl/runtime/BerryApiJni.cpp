@@ -9,7 +9,9 @@
 
 #include <jni.h>
 
+#include <cstdio>
 #include <cstring>
+#include <vector>
 #include <string>
 
 #include "pl/runtime/BerryApiBridge.h"
@@ -396,6 +398,277 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorSetCeiling(JNIEnv *, 
                                                                       jfloat ceiling) {
   const pl::berry::GovernorApiMirror *api = Governor();
   if (api != nullptr && api->set_ceiling != nullptr) api->set_ceiling(ceiling);
+}
+
+} // extern "C"
+
+// --- Cosmetics surface ----------------------------------------------------------------------
+//
+// The launcher's cosmetics screen drives BerryAPI's own cosmetics system through these: the
+// catalog, the local loadout, the wardrobe presets, the remote-render gate and the service
+// counters. A missing library or a missing ABI answers the fail-closed default, so the screen shows
+// "not available" rather than crashing. The player-model hook is installed by the preloader itself
+// (see CosmeticHook.cpp) once the game's player-render target is resolved; these JNI entries only
+// expose its state, so Java never has to own a raw game pointer.
+
+#include "pl/runtime/BerryCosmeticMirror.hpp"
+
+namespace {
+
+const pl::berry::CosmeticApiMirror *Cosmetic() { return pl::berry::CosmeticApi(); }
+
+/** Reads a fixed-size C string into a Java string, stopping at the buffer's NUL. */
+jstring FixedString(JNIEnv *env, const char *value, std::size_t cap) {
+  if (value == nullptr) return env->NewStringUTF("");
+  std::size_t len = 0;
+  while (len < cap && value[len] != '\0') ++len;
+  std::string s(value, len);
+  return env->NewStringUTF(s.c_str());
+}
+
+} // namespace
+
+extern "C" {
+
+/** True when the cosmetics surface resolved and passed its ABI check. */
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticAvailable(JNIEnv *, jclass) {
+  return pl::berry::CosmeticAvailable() ? JNI_TRUE : JNI_FALSE;
+}
+
+/**
+ * Reloads the catalog from a pack directory and an asset directory. Returns the number of assets
+ * registered, or 0 when the surface is absent or the load was refused.
+ */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticReload(JNIEnv *env, jclass,
+                                                                 jstring packDir, jstring assetDir) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->reload_packs == nullptr) return 0;
+  const char *pack = packDir != nullptr ? env->GetStringUTFChars(packDir, nullptr) : nullptr;
+  const char *asset = assetDir != nullptr ? env->GetStringUTFChars(assetDir, nullptr) : nullptr;
+  const std::uint32_t count = api->reload_packs(pack, asset);
+  if (pack != nullptr) env->ReleaseStringUTFChars(packDir, pack);
+  if (asset != nullptr) env->ReleaseStringUTFChars(assetDir, asset);
+  return static_cast<jint>(count);
+}
+
+/** The number of registered assets, or 0 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticRegistryCount(JNIEnv *, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->registry_count == nullptr) return 0;
+  return static_cast<jint>(api->registry_count());
+}
+
+/**
+ * The catalog as an array of String[20] records, or an empty array when unavailable. Each record is
+ * one asset, every field rendered as text so no numeric width crosses the boundary:
+ * {id, slot, bone, geometry, texture, offsetX, offsetY, offsetZ, pitch, yaw, roll, scale,
+ *  tintR, tintG, tintB, trail, animation, animationSpeed, pack, author}.
+ */
+JNIEXPORT jobjectArray JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticCatalog(JNIEnv *env, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  jclass stringClass = env->FindClass("java/lang/String");
+  if (api == nullptr || api->list == nullptr || stringClass == nullptr) {
+    return env->NewObjectArray(0, stringClass != nullptr ? stringClass : env->FindClass("java/lang/Object"), nullptr);
+  }
+  const std::uint32_t count = api->registry_count != nullptr ? api->registry_count() : 0;
+  if (count == 0) return env->NewObjectArray(0, stringClass, nullptr);
+  std::vector<pl::berry::CosmeticAssetMirror> records(count);
+  std::size_t written = 0;
+  if (api->list(records.data(), records.size(), &written) != 0) {
+    return env->NewObjectArray(0, stringClass, nullptr);
+  }
+  constexpr jsize kFields = 20;
+  jobjectArray out = env->NewObjectArray(static_cast<jsize>(written), stringClass, nullptr);
+  if (out == nullptr) return env->NewObjectArray(0, stringClass, nullptr);
+  auto num = [](double v) { char b[32]; std::snprintf(b, sizeof(b), "%g", v); return std::string(b); };
+  for (jsize i = 0; i < static_cast<jsize>(written); ++i) {
+    const pl::berry::CosmeticAssetMirror &r = records[static_cast<std::size_t>(i)];
+    std::string fields[kFields] = {
+        std::string(r.id), num(r.slot), num(r.bone), num(static_cast<double>(r.geometry)),
+        num(static_cast<double>(r.texture)), num(r.offset_x), num(r.offset_y), num(r.offset_z),
+        num(r.rotation_pitch), num(r.rotation_yaw), num(r.rotation_roll), num(r.scale),
+        num(r.tint_r), num(r.tint_g), num(r.tint_b), num(r.trail), std::string(r.animation),
+        num(r.animation_speed), std::string(r.pack), std::string(r.author)};
+    jobjectArray record = env->NewObjectArray(kFields, stringClass, nullptr);
+    if (record == nullptr) continue;
+    for (jsize f = 0; f < kFields; ++f) {
+      jstring s = env->NewStringUTF(fields[f].c_str());
+      if (s != nullptr) env->SetObjectArrayElement(record, f, s);
+    }
+    env->SetObjectArrayElement(out, i, record);
+  }
+  return out;
+}
+
+/** Equips an asset on the local player. Returns the ABI status (0 = ok). */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticEquip(JNIEnv *env, jclass, jstring id) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->equip == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  if (id == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const char *asset = env->GetStringUTFChars(id, nullptr);
+  if (asset == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const jint status = api->equip(asset);
+  env->ReleaseStringUTFChars(id, asset);
+  return status;
+}
+
+/** Removes whatever is in a slot. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticUnequip(JNIEnv *, jclass, jint slot) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->unequip == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  return api->unequip(slot);
+}
+
+/** The asset id equipped in a slot, or "" when empty or unavailable. */
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticEquipped(JNIEnv *env, jclass, jint slot) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->equipped == nullptr) return env->NewStringUTF("");
+  char buf[pl::berry::kCosmeticMaxId];
+  if (api->equipped(slot, buf, sizeof(buf)) != 0) return env->NewStringUTF("");
+  return env->NewStringUTF(buf);
+}
+
+/** Empties the local loadout. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticClearLoadout(JNIEnv *, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->clear_loadout == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  return api->clear_loadout();
+}
+
+/** Saves the current loadout as a preset. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticSavePreset(JNIEnv *env, jclass,
+                                                                     jstring name) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->save_preset == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  if (name == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const char *n = env->GetStringUTFChars(name, nullptr);
+  if (n == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const jint status = api->save_preset(n);
+  env->ReleaseStringUTFChars(name, n);
+  return status;
+}
+
+/** Replaces the loadout with a preset. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticApplyPreset(JNIEnv *env, jclass,
+                                                                      jstring name) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->apply_preset == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  if (name == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const char *n = env->GetStringUTFChars(name, nullptr);
+  if (n == nullptr) return static_cast<jint>(pl::berry::CosmeticStatus::BadArgument);
+  const jint status = api->apply_preset(n);
+  env->ReleaseStringUTFChars(name, n);
+  return status;
+}
+
+/** 1 when a preset exists, 0 when not, -1 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticHasPreset(JNIEnv *env, jclass,
+                                                                    jstring name) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->has_preset == nullptr) return -1;
+  if (name == nullptr) return -1;
+  const char *n = env->GetStringUTFChars(name, nullptr);
+  if (n == nullptr) return -1;
+  const jint has = api->has_preset(n);
+  env->ReleaseStringUTFChars(name, n);
+  return has;
+}
+
+/** The preset names as a String[], or an empty array when unavailable. */
+JNIEXPORT jobjectArray JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticPresetNames(JNIEnv *env, jclass) {
+  jclass stringClass = env->FindClass("java/lang/String");
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->preset_names == nullptr) {
+    return env->NewObjectArray(0, stringClass != nullptr ? stringClass : env->FindClass("java/lang/Object"), nullptr);
+  }
+  const std::uint32_t presetCount = api->stats != nullptr ? [&] {
+    pl::berry::CosmeticStatsMirror st{};
+    api->stats(&st);
+    return st.preset_count;
+  }() : 0;
+  if (presetCount == 0) return env->NewObjectArray(0, stringClass, nullptr);
+  constexpr std::size_t kNameCap = 128;
+  std::vector<char> names(static_cast<std::size_t>(presetCount) * kNameCap, '\0');
+  std::size_t written = 0;
+  if (api->preset_names(names.data(), kNameCap, presetCount, &written) != 0) {
+    return env->NewObjectArray(0, stringClass, nullptr);
+  }
+  jobjectArray out = env->NewObjectArray(static_cast<jsize>(written), stringClass, nullptr);
+  if (out == nullptr) return env->NewObjectArray(0, stringClass, nullptr);
+  for (jsize i = 0; i < static_cast<jsize>(written); ++i) {
+    jstring s = FixedString(env, names.data() + static_cast<std::size_t>(i) * kNameCap, kNameCap);
+    if (s != nullptr) env->SetObjectArrayElement(out, i, s);
+  }
+  return out;
+}
+
+/** Sets the local-only render gate. Returns the ABI status. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticSetLocalOnly(JNIEnv *, jclass,
+                                                                        jboolean localOnly) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->set_local_only == nullptr) {
+    return static_cast<jint>(pl::berry::CosmeticStatus::NotAttached);
+  }
+  return api->set_local_only(localOnly == JNI_TRUE ? 1 : 0);
+}
+
+/** The local-only render gate (1/0), or -1 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticLocalOnly(JNIEnv *, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->local_only == nullptr) return -1;
+  return api->local_only();
+}
+
+/**
+ * The service counters as long[8]: {frames, submitted, skippedNoBone, skippedNotOwned, cacheHits,
+ * cacheMisses, registryCount, presetCount}, or an empty array when unavailable.
+ */
+JNIEXPORT jlongArray JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticStats(JNIEnv *env, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->stats == nullptr) return env->NewLongArray(0);
+  pl::berry::CosmeticStatsMirror st{};
+  api->stats(&st);
+  jlong values[8] = {
+      static_cast<jlong>(st.frames), static_cast<jlong>(st.submitted),
+      static_cast<jlong>(st.skipped_no_bone), static_cast<jlong>(st.skipped_not_owned),
+      static_cast<jlong>(st.cache_hits), static_cast<jlong>(st.cache_misses),
+      static_cast<jlong>(st.registry_count), static_cast<jlong>(st.preset_count)};
+  jlongArray out = env->NewLongArray(8);
+  if (out != nullptr) env->SetLongArrayRegion(out, 0, 8, values);
+  return out;
+}
+
+/** 1 when a player-model hook is installed, 0 when not, -1 when unavailable. */
+JNIEXPORT jint JNICALL
+Java_org_chimeramc_client_preloader_BerryApi_nativeCosmeticHasPlayerModelHook(JNIEnv *, jclass) {
+  const pl::berry::CosmeticApiMirror *api = Cosmetic();
+  if (api == nullptr || api->has_player_model_hook == nullptr) return -1;
+  return api->has_player_model_hook();
 }
 
 } // extern "C"
