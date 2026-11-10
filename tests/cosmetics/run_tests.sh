@@ -177,6 +177,10 @@ compile_run Utf8Test \
 
 compile_run HookInstallGateTest \
   "$here/HookInstallGateTest.cpp"
+compile_run HandleCacheEvictionTest \
+  "$here/HandleCacheEvictionTest.cpp"
+compile_run CapturedImageSlotTest \
+  "$here/CapturedImageSlotTest.cpp"
 
 compile_run JniAttachTest \
   "$here/JniAttachTest.cpp"
@@ -186,6 +190,11 @@ compile_run SnapshotChannelTest \
 
 compile_run GameHookRuleMergeTest \
   "$here/GameHookRuleMergeTest.cpp"
+
+# The rules-file parse cache: the readers that used to reopen and reparse the JSON on every call.
+compile_run RulesFileCacheTest \
+  -I"$root/src" \
+  "$here/RulesFileCacheTest.cpp"
 
 compile_run RuleProbeTest \
   "$here/RuleProbeTest.cpp"
@@ -197,6 +206,19 @@ compile_run FramePacingTest \
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \
   "$here/FrameTickClockTest.cpp"
+
+# The atomic-published blob the cosmetic frame and geometry use to cross from the launcher thread to
+# the render thread without a data race (its TSAN run is registered below).
+compile_run PublishedBlobTest \
+  "$here/PublishedBlobTest.cpp"
+
+# The pure rule that decides whether a local-player snapshot is still live (teardown-aware).
+compile_run SnapshotFreshnessTest \
+  "$here/SnapshotFreshnessTest.cpp"
+
+# The pure rule that finds the camera view/projection pair in a float buffer.
+compile_run CameraBlockScanTest \
+  "$here/CameraBlockScanTest.cpp"
 
 # The atomic cache write: a truncated cache is worse than a missing one, because the previous good
 # cache is destroyed and the next launch pays a full scan. Pure header.
@@ -251,6 +273,10 @@ compile_run BerryReplayMirrorTest \
 # The BerryAPI governor ABI mirror, same shape.
 compile_run BerryGovernorMirrorTest \
   "$here/BerryGovernorMirrorTest.cpp"
+
+# The BerryAPI cosmetic ABI mirror, same shape.
+compile_run BerryCosmeticMirrorTest \
+  "$here/BerryCosmeticMirrorTest.cpp"
 
 compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
@@ -322,6 +348,10 @@ fi
 compile_run PlayerSnapshotTest \
   "$here/PlayerSnapshotTest.cpp"
 
+# The tri-state read: NotPublished vs Ok vs Contended.
+compile_run PlayerSnapshotResultTest \
+  "$here/PlayerSnapshotResultTest.cpp"
+
 if [[ -n "$tsan_available" ]]; then
   echo "== PlayerSnapshotTsanTest =="
   "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
@@ -330,6 +360,17 @@ if [[ -n "$tsan_available" ]]; then
   setarch "$(uname -m)" -R "$work/PlayerSnapshotTsanTest"
 else
   echo "== PlayerSnapshotTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
+fi
+
+if [[ -n "$tsan_available" ]]; then
+  echo "== PublishedBlobTsanTest =="
+  # The publish/snapshot race the cosmetic frame used to have: one publisher, four readers.
+  "$cxx" -std=c++20 -O1 -g -fsanitize=thread -Wno-tsan \
+    -I"$root/include" -I"$root/src" \
+    "$here/PublishedBlobTsanTest.cpp" -o "$work/PublishedBlobTsanTest"
+  setarch "$(uname -m)" -R "$work/PublishedBlobTsanTest"
+else
+  echo "== PublishedBlobTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
 fi
 
 echo "all cosmetics host tests passed"

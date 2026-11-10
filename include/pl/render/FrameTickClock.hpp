@@ -41,14 +41,19 @@ public:
    * @brief Records one render-entry call.
    *
    * @param nowUs a monotonic microsecond timestamp.
+   * @param minIntervalUs the frame floor: a call at least this long after the previous one begins a
+   *        new frame.
+   * @param outFrameStarted when non-null, set to whether this call began a new frame.
    * @return true when this call begins a new frame.
    */
-  bool onRenderCall(long long nowUs, long long minIntervalUs = kDefaultMinIntervalUs) {
+  bool onRenderCall(long long nowUs, long long minIntervalUs = kDefaultMinIntervalUs,
+                    bool *outFrameStarted = nullptr) {
     const bool newFrame =
         !started_ || nowUs < lastUs_ || (nowUs - lastUs_) >= minIntervalUs;
     lastUs_ = nowUs;
     started_ = true;
     if (newFrame) ++tick_;
+    if (outFrameStarted != nullptr) *outFrameStarted = newFrame;
     return newFrame;
   }
 

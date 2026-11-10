@@ -12,9 +12,12 @@
 #include <utility>
 #include <vector>
 
+#include <sys/stat.h>
+
 #include <nlohmann/json.hpp>
 
 #include "pl/Logger.hpp"
+#include "pl/runtime/RulesFileCache.hpp"
 #include "pl/runtime/GameHookRuleMerge.hpp"
 #include "pl/runtime/RuleProbe.hpp"
 #include "pl/runtime/VersionCompare.hpp"
@@ -32,8 +35,15 @@ std::atomic<int> g_lastMergeConflictCount{0};
 std::atomic<bool> g_lastRuleHadRenderIndex{false};
 std::atomic<std::uint64_t> g_lastRulesRevision{0};
 std::atomic<bool> g_rulesLoadAttempted{false};
+std::atomic<bool> g_rulesLoaded{false};
 std::mutex g_lastRuleSummaryMutex;
 std::string g_lastRuleSummary;
+
+// One parsed copy of the rules file, shared by every reader. The file is re-read and re-parsed only
+// when its path/mtime/size changes, so a single install (which reads the rules for signatures, the
+// Optifine slots and the feature gate) reads the file once rather than several times.
+std::mutex g_rulesCacheMutex;
+RulesFileCache g_rulesCache;
 
 std::string Trim(std::string value) {
   auto isNotSpace = [](unsigned char ch) { return !std::isspace(ch); };
@@ -56,6 +66,31 @@ std::optional<std::string> ReadTextFile(const std::string &path) {
 
   return std::string(std::istreambuf_iterator<char>(file),
                      std::istreambuf_iterator<char>());
+}
+
+// Returns the parsed rules document for [rulesPath], reading and parsing it only when the file's
+// identity (path, mtime, size) changed since the last call. The returned shared pointer is
+// immutable, so a caller may keep using it after the lock is released.
+std::shared_ptr<const nlohmann::json> LoadRulesDocument(const std::string &rulesPath) {
+  if (rulesPath.empty()) return nullptr;
+
+  std::int64_t mtimeMs = -1;
+  std::uint64_t size = 0;
+  struct stat st {};
+  if (::stat(rulesPath.c_str(), &st) == 0) {
+    mtimeMs = static_cast<std::int64_t>(st.st_mtime) * 1000LL;
+    size = static_cast<std::uint64_t>(st.st_size);
+  }
+
+  std::lock_guard<std::mutex> lock(g_rulesCacheMutex);
+  return g_rulesCache.get(rulesPath, mtimeMs, size,
+                          [&rulesPath]() -> std::shared_ptr<const nlohmann::json> {
+                            auto content = ReadTextFile(rulesPath);
+                            if (!content) return nullptr;
+                            nlohmann::json root = nlohmann::json::parse(*content, nullptr, false);
+                            if (root.is_discarded()) return nullptr;
+                            return std::make_shared<const nlohmann::json>(std::move(root));
+                          });
 }
 
 std::optional<std::string> ReadStringField(const nlohmann::json &object,
@@ -139,12 +174,16 @@ void ConfigureGameHookRules(std::string rulesPath, std::string minecraftVersion)
   // the diagnostics report used to print "revision 0" for a file that was in fact delivered and
   // carried a revision. Recording it from the delivered file makes the report say what was actually
   // handed over, independently of whether the hooks armed.
+  // A fresh delivery may point at a rewritten file; drop the cache so the next reader re-parses.
+  {
+    std::lock_guard<std::mutex> cacheLock(g_rulesCacheMutex);
+    g_rulesCache.invalidate();
+  }
+
   std::uint64_t deliveredRevision = 0;
-  if (auto content = ReadTextFile(rulesPath)) {
-    nlohmann::json root = nlohmann::json::parse(*content, nullptr, false);
-    if (!root.is_discarded() && root.is_object() && root.contains("revision") &&
-        root["revision"].is_number_unsigned()) {
-      deliveredRevision = root["revision"].get<std::uint64_t>();
+  if (auto root = LoadRulesDocument(rulesPath)) {
+    if (root->is_object() && root->contains("revision") && (*root)["revision"].is_number_unsigned()) {
+      deliveredRevision = (*root)["revision"].get<std::uint64_t>();
     }
   }
 
@@ -165,15 +204,15 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
 
   g_rulesLoadAttempted.store(true, std::memory_order_release);
 
-  auto content = ReadTextFile(rulesPath);
-  if (!content) {
+  auto document = LoadRulesDocument(rulesPath);
+  if (!document) {
     preloaderLogger.warn("Preloader runtime data is unavailable: {}",
                           rulesPath.empty() ? "<empty>" : rulesPath);
     return std::nullopt;
   }
 
-  nlohmann::json root = nlohmann::json::parse(*content, nullptr, false);
-  if (root.is_discarded() || !root.is_object()) {
+  const nlohmann::json &root = *document;
+  if (!root.is_object()) {
     preloaderLogger.warn("Preloader runtime data JSON is invalid");
     return std::nullopt;
   }
@@ -243,6 +282,7 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
     g_lastRuleSummary = summary;
   }
 
+  g_rulesLoaded.store(true, std::memory_order_release);
   preloaderLogger.info("Loaded Preloader runtime data for Minecraft {} ({} matching rule(s))",
                        minecraftVersion.empty() ? "<unknown>" : minecraftVersion, matchCount);
   return signatures;
@@ -259,14 +299,11 @@ std::size_t ReadConfiguredOptifineSlot(const char *key) {
     minecraftVersion = g_minecraftVersion;
   }
 
-  auto content = ReadTextFile(rulesPath);
-  if (!content) return 0;
+  auto document = LoadRulesDocument(rulesPath);
+  if (!document || !document->is_object()) return 0;
 
-  nlohmann::json root = nlohmann::json::parse(*content, nullptr, false);
-  if (root.is_discarded() || !root.is_object()) return 0;
-
-  auto rulesIt = root.find("rules");
-  if (rulesIt == root.end() || !rulesIt->is_array()) return 0;
+  auto rulesIt = document->find("rules");
+  if (rulesIt == document->end() || !rulesIt->is_array()) return 0;
 
   for (const auto &rule : *rulesIt) {
     if (!rule.is_object() || !RuleMatchesVersion(rule, minecraftVersion)) continue;
@@ -304,6 +341,8 @@ bool GameHookRulesLoadAttempted() {
   return g_rulesLoadAttempted.load(std::memory_order_acquire);
 }
 
+bool GameHookRulesLoaded() { return g_rulesLoaded.load(std::memory_order_acquire); }
+
 std::uint64_t GameHookRulesRevision() {
   return g_lastRulesRevision.load(std::memory_order_relaxed);
 }
@@ -330,17 +369,12 @@ FeatureGate EvaluateConfiguredFeatureGate(HookFeature feature) {
     minecraftVersion = g_minecraftVersion;
   }
 
-  auto content = ReadTextFile(rulesPath);
-  if (!content) {
+  auto document = LoadRulesDocument(rulesPath);
+  if (!document || !document->is_object()) {
     return FeatureGate::NoRuleSlot;
   }
 
-  nlohmann::json root = nlohmann::json::parse(*content, nullptr, false);
-  if (root.is_discarded() || !root.is_object()) {
-    return FeatureGate::NoRuleSlot;
-  }
-
-  auto merged = MergeHookRuleForVersion(root, minecraftVersion);
+  auto merged = MergeHookRuleForVersion(*document, minecraftVersion);
   if (!merged) {
     return FeatureGate::NoRuleSlot;
   }

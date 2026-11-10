@@ -75,6 +75,16 @@ bool GameHookRulesConfigured();
  */
 bool GameHookRulesLoadAttempted();
 
+/**
+ * @brief Diagnostics: whether the rules file was read and parsed into a usable rule set.
+ *
+ * Distinct from {@link GameHookRulesConfigured} (a path was supplied) and
+ * {@link GameHookRulesLoadAttempted} (a read was tried). A path can be supplied and the read tried
+ * while the file is missing or malformed, so "loaded" is the field that says the rules are actually
+ * in effect.
+ */
+bool GameHookRulesLoaded();
+
 /** Diagnostics: the revision the loaded rules file declared (0 when unreadable). */
 std::uint64_t GameHookRulesRevision();
 

@@ -52,11 +52,17 @@ constexpr const char *kGameModule = "libminecraftpe.so";
 // sret-in-x8 ABI for the call. No inline assembly and no register juggling are needed -- the
 // compiler does the right thing once the type is right, which is the only way to stay correct
 // across NDK versions.
+// 48 bytes is the engine loader's own return aggregate size: a 0x30-byte (mce::Image-shaped)
+// structure delivered through the x8 sret pointer. The size is load-bearing, not arbitrary - a
+// return type of 16 bytes or fewer is passed in x0/x1 instead of through x8, which would drop the
+// pointer the callee writes through. It only has to exceed 16 to force the sret ABI; 48 matches the
+// engine so the flag byte at +0x10 is read from the same offset the engine wrote it.
 struct LoaderReturn {
   std::uint8_t storage[48];
 };
 static_assert(sizeof(LoaderReturn) > 16,
               "return aggregate must exceed 16 bytes to force the sret (x8) ABI");
+static_assert(sizeof(LoaderReturn) == 48, "must match the engine loader's 0x30-byte return struct");
 
 // The success payload byte lives at +0x10 of the returned aggregate (verified above). Reading it
 // from the struct the compiler filled is correct precisely because the compiler wrote it through
@@ -184,8 +190,9 @@ std::uint32_t BaseSkinEdge(std::uint32_t format, const std::uint8_t *data, std::
 void CaptureSkin(std::uint32_t format, const std::uint8_t *data, std::size_t size,
                  std::uint32_t edge) {
   if (data == nullptr || size == 0 || edge == 0) return;
-  g_skinCapture.set(std::vector<std::uint8_t>(data, data + size), edge, edge, format,
-                    MonotonicMs());
+  // setIfChanged skips the allocation + copy when the skin was re-uploaded unchanged (a resource
+  // pack reload, a re-join), which is the common case for a bulk texture load at world start.
+  g_skinCapture.setIfChanged(data, size, edge, edge, format, MonotonicMs());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -230,8 +237,7 @@ std::uint32_t CapeEdge(std::uint32_t format, const std::uint8_t *data, std::size
 void CaptureCape(std::uint32_t format, const std::uint8_t *data, std::size_t size,
                  std::uint32_t width, std::uint32_t height) {
   if (data == nullptr || size == 0 || width == 0 || height == 0) return;
-  g_capeCapture.set(std::vector<std::uint8_t>(data, data + size), width, height, format,
-                    MonotonicMs());
+  g_capeCapture.setIfChanged(data, size, width, height, format, MonotonicMs());
 }
 
 
@@ -426,13 +432,16 @@ bool CopyCapturedSkin(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *wi
                       std::size_t *outSize) {
   const CapturedImageSlot::ImagePtr image = g_skinCapture.get();
   if (!image || image->bytes.empty() || image->width == 0 || image->height == 0) return false;
+  // Metadata and size are always reported when a capture is held, so a caller can pass out == null
+  // to size the destination exactly and allocate once instead of guessing a worst-case buffer.
   if (outSize != nullptr) *outSize = image->bytes.size();
-  if (out == nullptr || maxBytes < image->bytes.size()) return false;
-  std::memcpy(out, image->bytes.data(), image->bytes.size());
   if (width != nullptr) *width = image->width;
   if (height != nullptr) *height = image->height;
   if (format != nullptr) *format = image->format;
   if (stampMs != nullptr) *stampMs = image->stampMs;
+  if (out == nullptr) return true;
+  if (maxBytes < image->bytes.size()) return false;
+  std::memcpy(out, image->bytes.data(), image->bytes.size());
   return true;
 }
 
@@ -449,13 +458,15 @@ bool CopyCapturedCape(std::uint8_t *out, std::size_t maxBytes, std::uint32_t *wi
                       std::size_t *outSize) {
   const CapturedImageSlot::ImagePtr image = g_capeCapture.get();
   if (!image || image->bytes.empty() || image->width == 0 || image->height == 0) return false;
+  // See CopyCapturedSkin: out == null is a metadata/size query, so the caller allocates exactly.
   if (outSize != nullptr) *outSize = image->bytes.size();
-  if (out == nullptr || maxBytes < image->bytes.size()) return false;
-  std::memcpy(out, image->bytes.data(), image->bytes.size());
   if (width != nullptr) *width = image->width;
   if (height != nullptr) *height = image->height;
   if (format != nullptr) *format = image->format;
   if (stampMs != nullptr) *stampMs = image->stampMs;
+  if (out == nullptr) return true;
+  if (maxBytes < image->bytes.size()) return false;
+  std::memcpy(out, image->bytes.data(), image->bytes.size());
   return true;
 }
 
@@ -600,7 +611,7 @@ void ReadMceImageHookDiagnostics(std::uint64_t out[4]) {
   out[0] = static_cast<std::uint64_t>(ResolveLoader());
   // The probe is the runtime proof of the sret/x8 ABI; a successful build of the 1x1 PNG means the
   // recovered convention held, so this reports what was actually observed, not a guess.
-  out[1] = g_imagePathVerified.load(std::memory_order_relaxed) ? 1U : 0U;
+  out[1] = g_probeRan.load(std::memory_order_relaxed) ? 1U : 0U;
   out[2] = g_imagePathVerified.load(std::memory_order_relaxed) ? 1U : 0U;
   out[3] = g_hookInstalled.load(std::memory_order_relaxed) ? 1U : 0U;
 }

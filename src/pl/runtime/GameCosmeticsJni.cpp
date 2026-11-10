@@ -343,7 +343,7 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   // additions (indices 9..16) are the rules/install/camera/library-mapping/triangle state the
   // Stage-1/4/5/6 fixes added, index 17 is the classified GPU family and index 18 is the
   // live hook count. -1 means "unknown / not available".
-  constexpr int kFields = 19;
+  constexpr int kFields = 21;
   jint values[kFields];
   for (int i = 0; i < kFields; ++i) values[i] = -1;
 
@@ -388,6 +388,10 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   values[12] = pl::runtime::GameHookRulesMergeConflicts();
   values[13] = pl::runtime::GameHookRulesHaveRenderIndex() ? 1 : 0;
   values[14] = pl::runtime::GameHookRulesLoadAttempted() ? 1 : 0;
+  // Index 19/20 distinguish "a path was supplied" and "the file was parsed" from "a read was
+  // tried": a missing or malformed file reports attempted but not loaded.
+  values[19] = pl::runtime::GameHookRulesConfigured() ? 1 : 0;
+  values[20] = pl::runtime::GameHookRulesLoaded() ? 1 : 0;
 
   // How many times `libpreloader.so` is mapped into this process. A second copy has its own empty
   // registry, so Java would publish to one and the hook would draw from another — the count is the
@@ -543,23 +547,26 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeGpuFamily(JNIEnv *, jcl
 // renders it as the player's skin.
 JNIEXPORT jbyteArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadCapturedSkin(JNIEnv *env, jclass) {
-  // One locked pass: the copy returns the payload size, so no separate (racy) size query is needed
-  // and the read allocates exactly the payload.
+  // Size first, then allocate exactly once: the copy reports the payload size without copying, so a
+  // poll that finds no capture costs nothing and a poll with a capture allocates the payload, not a
+  // worst-case 512x512x4 buffer.
   constexpr std::size_t kMaxPayload = 512U * 512U * 4U;
-  std::vector<std::uint8_t> buffer(kMaxPayload, 0);
   std::uint32_t width = 0;
   std::uint32_t height = 0;
   std::uint32_t format = 0;
   std::int64_t stampMs = 0;
   std::size_t payloadSize = 0;
-  if (!pl::runtime::CopyCapturedSkin(buffer.data(), buffer.size(), &width, &height, &format,
-                                     &stampMs, &payloadSize)
-      || payloadSize == 0 || payloadSize > kMaxPayload) {
+  if (!pl::runtime::CopyCapturedSkin(nullptr, 0, &width, &height, &format, &stampMs, &payloadSize) ||
+      payloadSize == 0 || payloadSize > kMaxPayload) {
     return nullptr;
   }
 
   constexpr std::size_t kHeader = 16;
   std::vector<std::uint8_t> out(kHeader + payloadSize, 0);
+  if (!pl::runtime::CopyCapturedSkin(out.data() + kHeader, payloadSize, nullptr, nullptr, nullptr,
+                                     nullptr, nullptr)) {
+    return nullptr;
+  }
   auto put32 = [&out](std::size_t offset, std::uint32_t value) {
     out[offset] = static_cast<std::uint8_t>(value & 0xFF);
     out[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
@@ -570,7 +577,6 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadCapturedSkin(JNIEnv
   put32(4, height);
   put32(8, format);
   put32(12, static_cast<std::uint32_t>(stampMs & 0xFFFFFFFFu));
-  std::memcpy(out.data() + kHeader, buffer.data(), payloadSize);
 
   jbyteArray result = env->NewByteArray(static_cast<jsize>(out.size()));
   if (result == nullptr) return nullptr;
@@ -594,21 +600,24 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeClearCapturedSkin(JNIEn
 // what makes a cape visible in third person on a Vulkan build (no GL draw is involved).
 JNIEXPORT jbyteArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadCapturedCape(JNIEnv *env, jclass) {
+  // Size first, then allocate exactly once (see nativeReadCapturedSkin).
   constexpr std::size_t kMaxPayload = 1024U * 1024U;
-  std::vector<std::uint8_t> buffer(kMaxPayload, 0);
   std::uint32_t width = 0;
   std::uint32_t height = 0;
   std::uint32_t format = 0;
   std::int64_t stampMs = 0;
   std::size_t payloadSize = 0;
-  if (!pl::runtime::CopyCapturedCape(buffer.data(), buffer.size(), &width, &height, &format,
-                                     &stampMs, &payloadSize)
-      || payloadSize == 0 || payloadSize > kMaxPayload) {
+  if (!pl::runtime::CopyCapturedCape(nullptr, 0, &width, &height, &format, &stampMs, &payloadSize) ||
+      payloadSize == 0 || payloadSize > kMaxPayload) {
     return nullptr;
   }
 
   constexpr std::size_t kHeader = 16;
   std::vector<std::uint8_t> out(kHeader + payloadSize, 0);
+  if (!pl::runtime::CopyCapturedCape(out.data() + kHeader, payloadSize, nullptr, nullptr, nullptr,
+                                     nullptr, nullptr)) {
+    return nullptr;
+  }
   auto put32 = [&out](std::size_t offset, std::uint32_t value) {
     out[offset] = static_cast<std::uint8_t>(value & 0xFF);
     out[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
@@ -619,7 +628,6 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadCapturedCape(JNIEnv
   put32(4, height);
   put32(8, format);
   put32(12, static_cast<std::uint32_t>(stampMs & 0xFFFFFFFFu));
-  std::memcpy(out.data() + kHeader, buffer.data(), payloadSize);
 
   jbyteArray result = env->NewByteArray(static_cast<jsize>(out.size()));
   if (result == nullptr) return nullptr;

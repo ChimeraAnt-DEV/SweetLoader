@@ -76,6 +76,22 @@ int main() {
            "exactly the floor begins a new frame");
   }
 
+  // The outFrameStarted flag mirrors the return value, so a caller can gate once-per-frame work on
+  // it without a second call.
+  {
+    FrameTickClock clock;
+    bool started = false;
+    clock.onRenderCall(0, FrameTickClock::kDefaultMinIntervalUs, &started);
+    expect(started, "the first call reports frame started");
+    clock.onRenderCall(500, FrameTickClock::kDefaultMinIntervalUs, &started);
+    expect(!started, "a same-frame call reports frame not started");
+    clock.onRenderCall(20000, FrameTickClock::kDefaultMinIntervalUs, &started);
+    expect(started, "a later call reports frame started");
+    // A null out pointer must not crash.
+    clock.onRenderCall(40000, FrameTickClock::kDefaultMinIntervalUs, nullptr);
+    expect(true, "a null out pointer is tolerated");
+  }
+
   // A clock that jumps backwards (a reset) starts a new frame rather than merging forever.
   {
     FrameTickClock clock;

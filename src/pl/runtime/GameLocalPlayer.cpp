@@ -6,9 +6,12 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 
 #include "pl/Logger.hpp"
 #include "pl/ipc/PlayerSnapshot.hpp"
+#include "pl/runtime/SnapshotFreshness.hpp"
+#include "pl/runtime/SwapFrameBoundary.h"
 #include "pl/memory/Hook.hpp"
 #include "pl/memory/Vtable.hpp"
 
@@ -30,9 +33,15 @@ constexpr const char *kGameModule = "libminecraftpe.so";
 
 // A snapshot is considered live for this long after the last game call. The hook runs
 // every frame while a world is loaded, so during play the stamp is always fresh; after
-// teardown it goes stale within this window and the readers stop reporting a position
-// instead of handing the caller a stale one.
+// teardown the readers stop reporting a position. The window is the backstop for a build
+// with no present hook; when one is live the present gap catches teardown in a frame or
+// two instead of leaving a stale position for the whole window (see SnapshotFreshness).
 constexpr long long kSnapshotFreshMs = 2000;
+
+// No present for longer than this, with a present hook live, means the game has stopped
+// presenting and the session is over. Generous enough to survive a loading stall or a
+// paused frame, short enough that a teardown is not reported as a live player.
+constexpr long long kPresentGapMs = 1500;
 
 void *(*g_origGetLocalPlayer)(void *) = nullptr;
 std::atomic_bool g_hookInstalled{false};
@@ -49,6 +58,14 @@ std::atomic<std::uintptr_t> g_slotTarget{0};
 // class (pl::ipc::PlayerSnapshot) so the ordering rules are fixed once and host-tested; a torn
 // cross-field read (a new x with an old y) must not be observable.
 pl::ipc::PlayerSnapshot g_snapshot;
+
+// The last transform a read returned consistently. Served when a read is merely *contended* (the
+// writer outran the retry budget) so a fast writer cannot make the UI flicker a position out of
+// existence; the freshness rule still applies, so a genuinely stale last-good is dropped. Guarded
+// by a mutex because the read runs on the UI thread and a recreate can race it.
+std::mutex g_lastGoodMutex;
+pl::ipc::PlayerTransform g_lastGood;
+bool g_hasLastGood = false;
 
 long long MonotonicMs() {
   timespec ts{};
@@ -93,10 +110,33 @@ void PublishSnapshot(const void *localPlayer) {
 // leave the UI thread reading freed memory.
 bool ReadSnapshot(float outPosition[3], float outRotation[2]) {
   pl::ipc::PlayerTransform transform;
-  if (!g_snapshot.read(transform)) {
+  const pl::ipc::ReadResult result = g_snapshot.readWithResult(transform);
+  if (result == pl::ipc::ReadResult::NotPublished) {
     return false;
   }
-  if (transform.stampMs == 0 || MonotonicMs() - transform.stampMs > kSnapshotFreshMs) {
+  if (result == pl::ipc::ReadResult::Contended) {
+    std::lock_guard<std::mutex> lock(g_lastGoodMutex);
+    if (!g_hasLastGood) return false;
+    transform = g_lastGood;
+  } else {
+    std::lock_guard<std::mutex> lock(g_lastGoodMutex);
+    g_lastGood = transform;
+    g_hasLastGood = true;
+  }
+  FreshnessInputs fresh;
+  fresh.nowMs = MonotonicMs();
+  fresh.stampMs = transform.stampMs;
+  fresh.freshWindowMs = kSnapshotFreshMs;
+  fresh.presentGapMs = kPresentGapMs;
+  // The present hook's "last present" is in microseconds; convert once here. `presentTracked` is
+  // false on a Vulkan-only build (no libEGL present call), where the window alone decides.
+  fresh.presentTracked = pl::runtime::IsSwapFrameBoundaryLive();
+  if (fresh.presentTracked) {
+    const long long lastPresentUs =
+        pl_runtime_swap_buffers_last_us.load(std::memory_order_relaxed);
+    fresh.lastPresentMs = lastPresentUs > 0 ? lastPresentUs / 1000LL : 0;
+  }
+  if (!IsSnapshotFresh(fresh)) {
     return false;
   }
   std::memcpy(outPosition, transform.position, sizeof(transform.position));

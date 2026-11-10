@@ -51,6 +51,10 @@ using ReplayAbiVersionFn = std::uint32_t (*)();
 using GetGovernorApiFn = const pl::berry::GovernorApiMirror *(*)();
 using GovernorStructSizeFn = std::uint32_t (*)();
 using GovernorAbiVersionFn = std::uint32_t (*)();
+// The cosmetics surface (BerryAPI cosmetic ABI v1). Optional.
+using GetCosmeticApiFn = const pl::berry::CosmeticApiMirror *(*)();
+using CosmeticStructSizeFn = std::uint32_t (*)();
+using CosmeticAbiVersionFn = std::uint32_t (*)();
 
 std::mutex g_loadMutex;
 std::atomic<bool> g_attempted{false};
@@ -71,6 +75,9 @@ ReplayAbiVersionFn g_replayAbiVersion = nullptr;
 GetGovernorApiFn g_getGovernorApi = nullptr;
 GovernorStructSizeFn g_governorStructSize = nullptr;
 GovernorAbiVersionFn g_governorAbiVersion = nullptr;
+GetCosmeticApiFn g_getCosmeticApi = nullptr;
+CosmeticStructSizeFn g_cosmeticStructSize = nullptr;
+CosmeticAbiVersionFn g_cosmeticAbiVersion = nullptr;
 std::atomic<bool> g_seamBound{false};
 std::string g_loadError;
 
@@ -115,6 +122,10 @@ void LoadOnce() {
   g_getGovernorApi = Resolve<GetGovernorApiFn>(handle, "BERRY_GetGovernorApi");
   g_governorStructSize = Resolve<GovernorStructSizeFn>(handle, "BERRY_GovernorStructSize");
   g_governorAbiVersion = Resolve<GovernorAbiVersionFn>(handle, "BERRY_GovernorAbiVersion");
+  // The cosmetics surface. Optional.
+  g_getCosmeticApi = Resolve<GetCosmeticApiFn>(handle, "BERRY_GetCosmeticApi");
+  g_cosmeticStructSize = Resolve<CosmeticStructSizeFn>(handle, "BERRY_CosmeticStructSize");
+  g_cosmeticAbiVersion = Resolve<CosmeticAbiVersionFn>(handle, "BERRY_CosmeticAbiVersion");
 
   // The version string is the cheapest proof the ABI is the one we expect; without it the library
   // is not BerryAPI as this bridge understands it, so it is treated as absent.
@@ -293,5 +304,25 @@ const pl::berry::GovernorApiMirror *GovernorApi() {
 }
 
 bool GovernorAvailable() { return GovernorApi() != nullptr; }
+
+const pl::berry::CosmeticApiMirror *CosmeticApi() {
+  if (!EnsureLoaded()) return nullptr;
+  if (g_getCosmeticApi == nullptr || g_cosmeticStructSize == nullptr ||
+      g_cosmeticAbiVersion == nullptr) {
+    // The library predates the cosmetic ABI: the surface stays absent.
+    return nullptr;
+  }
+  const pl::berry::CosmeticAbi reported{g_cosmeticStructSize(), g_cosmeticAbiVersion()};
+  if (!pl::berry::CosmeticMirrorMatches(reported, static_cast<std::uint32_t>(
+                                                     sizeof(pl::berry::CosmeticApiMirror)),
+                                        pl::berry::kHostCosmeticAbiVersion)) {
+    return nullptr;
+  }
+  const pl::berry::CosmeticApiMirror *api = g_getCosmeticApi();
+  if (api == nullptr || !pl::berry::CosmeticApiUsable(*api)) return nullptr;
+  return api;
+}
+
+bool CosmeticAvailable() { return CosmeticApi() != nullptr; }
 
 } // namespace pl::berry
