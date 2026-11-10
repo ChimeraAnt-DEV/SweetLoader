@@ -330,6 +330,10 @@ compile_run BerryReplayMirrorTest \
 compile_run BerryGovernorMirrorTest \
   "$here/BerryGovernorMirrorTest.cpp"
 
+# The BerryAPI cosmetic ABI mirror, same shape.
+compile_run BerryCosmeticMirrorTest \
+  "$here/BerryCosmeticMirrorTest.cpp"
+
 compile_run ModuleMapTest \
   "$root/src/pl/runtime/ModuleMap.cpp" \
   "$here/ModuleMapTest.cpp"
