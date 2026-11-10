@@ -13,6 +13,9 @@
 #include "pl/runtime/GameResourcePackReload.h"
 #include "pl/memory/Signature.hpp"
 #include "pl/runtime/InputBridge.h"
+#include "pl/runtime/LogRing.hpp"
+#include "pl/runtime/SafeJni.hpp"
+#include "pl/Logger.hpp"
 #include "pl/runtime/JavaRuntime.h"
 
 namespace {
@@ -285,6 +288,41 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderCallbackStats
     env->SetIntArrayRegion(result, 0, 4, values);
   }
   return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeGetRecentLogs(
+    JNIEnv *env, jclass clazz, jint count) {
+  (void)clazz;
+  const std::size_t wanted = count <= 0 ? 0 : static_cast<std::size_t>(count);
+  const std::vector<std::string> lines = pl::runtime::SharedLogRing().snapshot(wanted);
+  jclass stringClass = env->FindClass("java/lang/String");
+  if (stringClass == nullptr) {
+    env->ExceptionClear();
+    return nullptr;
+  }
+  jobjectArray result = env->NewObjectArray(static_cast<jsize>(lines.size()), stringClass, nullptr);
+  if (result == nullptr) return nullptr;
+  for (jsize i = 0; i < static_cast<jsize>(lines.size()); ++i) {
+    jstring line = pl::jni::NewString(env, lines[static_cast<std::size_t>(i)]);
+    if (line == nullptr) continue;
+    env->SetObjectArrayElement(result, i, line);
+    env->DeleteLocalRef(line);
+  }
+  return result;
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetLogLevel(JNIEnv *env, jclass clazz,
+                                                                     jint level) {
+  (void)env;
+  (void)clazz;
+  // Clamp to the Android log levels, so a caller cannot silence errors or enable a level that does
+  // not exist. WARN (5) is the quietest level that still reports a real problem.
+  int clamped = level;
+  if (clamped < 2) clamped = 2;   // ANDROID_LOG_VERBOSE
+  if (clamped > 6) clamped = 6;   // ANDROID_LOG_ERROR
+  pl::log::Logger::setLevel(clamped);
 }
 
 JNIEXPORT jfloatArray JNICALL

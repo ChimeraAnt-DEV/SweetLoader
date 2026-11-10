@@ -244,6 +244,11 @@ compile_run SignatureCachePolicyTest \
 compile_run VtableMemoTest \
   "$here/VtableMemoTest.cpp"
 
+# The bounded log ring and the level tag (audit item 10.10).
+compile_run LogRingTest \
+  "$root/src/pl/runtime/LogRing.cpp" \
+  "$here/LogRingTest.cpp"
+
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \

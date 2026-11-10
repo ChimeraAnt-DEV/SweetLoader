@@ -89,6 +89,7 @@ set(PRELOADER_SOURCES
         src/pl/runtime/AntEggLoader.cpp
         src/pl/runtime/AntEggJni.cpp
         src/pl/runtime/ProcessMemory.cpp
+        src/pl/runtime/LogRing.cpp
         src/pl/runtime/InputBridge.cpp
         src/pl/runtime/InputJni.cpp
         src/pl/runtime/JavaRuntime.cpp
