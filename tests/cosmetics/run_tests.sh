@@ -240,6 +240,10 @@ compile_run RegionLivenessTest \
 compile_run SignatureCachePolicyTest \
   "$here/SignatureCachePolicyTest.cpp"
 
+# The vtable needle-memo keys and the section-cache rule (audit items 4.12, 4.14).
+compile_run VtableMemoTest \
+  "$here/VtableMemoTest.cpp"
+
 # The frame-boundary clock that replaced the "gap beyond one second" rule, which froze the render tick
 # during play and starved cape/pet physics. Pure header.
 compile_run FrameTickClockTest \

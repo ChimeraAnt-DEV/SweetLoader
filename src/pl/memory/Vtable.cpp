@@ -8,6 +8,7 @@
 
 #include "pl/Gloss.h"
 #include "pl/Logger.hpp"
+#include "pl/memory/VtableMemo.hpp"
 
 namespace pl::memory {
 namespace {
@@ -22,6 +23,19 @@ std::once_flag glossInitOnce;
 // the answer for the next launch. What it saves is the repeated scan inside one session.
 std::unordered_map<std::string, uintptr_t> gVtableSlotMemo;
 std::mutex gVtableSlotMemoMutex;
+
+// A memo for the needle-based slot lookup (audit item 4.12). The scan walks up to ~100 slot bodies,
+// and the call is made twice per install (the render feed and the cosmetics hook); the slot-index
+// memo above cannot serve it because the needle lookup does not know the slot until after the scan.
+std::unordered_map<std::string, uintptr_t> gVtableNeedleMemo;
+
+// A memo for module sections (audit item 4.14). GlossGetLibSection re-parses the module's ELF on
+// every call, and a single resolve asks for .rodata, .data.rel.ro and .text.
+std::unordered_map<std::string, pl::memory::CachedSection> gSectionMemo;
+// Modules whose ELF has been successfully parsed at least once, so a section miss for them is a real
+// "no such section" and can be cached rather than re-parsed every call.
+std::unordered_map<std::string, bool> gModuleFound;
+std::mutex gSectionMemoMutex;
 
 std::string makeVtableSlotKey(std::string_view typeInfoName, size_t slot,
                               std::string_view moduleName) {
@@ -38,6 +52,40 @@ void ensureGlossInitialized() {
   // Android linker's own do_dlopen/do_dlsym via an inline hook; on this build that faults
   // (the "Start hook linker..." -> SIGSEGV sequence) and it is not needed here.
   std::call_once(glossInitOnce, [] { GlossInit(false); });
+}
+
+// GlossGetLibSection re-parses the module's ELF on every call, so the address and size are memoized
+// per (module, section) (audit item 4.14). A hit is always cached; a miss is cached only once the
+// module itself has been found, so a section that genuinely does not exist is not re-parsed and a
+// miss from a module that is not mapped yet can still be retried.
+uintptr_t GetSectionCached(const std::string &module, const char *section, size_t *outSize) {
+  const std::string key = pl::memory::MakeSectionKey(module, section);
+  {
+    std::lock_guard<std::mutex> lock(gSectionMemoMutex);
+    const auto it = gSectionMemo.find(key);
+    if (it != gSectionMemo.end()) {
+      if (outSize) *outSize = it->second.size;
+      return it->second.address;
+    }
+  }
+
+  ensureGlossInitialized();
+  size_t size = 0;
+  const uintptr_t address = GlossGetLibSection(module.c_str(), section, &size);
+  if (address != 0) {
+    std::lock_guard<std::mutex> lock(gSectionMemoMutex);
+    gSectionMemo[key] = pl::memory::CachedSection{address, size, true};
+    gModuleFound[module] = true;
+  } else {
+    std::lock_guard<std::mutex> lock(gSectionMemoMutex);
+    // Cache a miss only when the module has been seen mapped before; otherwise leave it uncached so
+    // a later call (after the module loads) can resolve it.
+    if (gModuleFound.find(module) != gModuleFound.end()) {
+      gSectionMemo[key] = pl::memory::CachedSection{0, 0, true};
+    }
+  }
+  if (outSize) *outSize = size;
+  return address;
 }
 
 std::string_view normalizeTypeInfoName(std::string_view typeInfoName) {
@@ -181,11 +229,8 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
     }
   }
 
-  ensureGlossInitialized();
-
   size_t rodataSize = 0;
-  const uintptr_t rodata =
-      GlossGetLibSection(module.c_str(), ".rodata", &rodataSize);
+  const uintptr_t rodata = GetSectionCached(module, ".rodata", &rodataSize);
   if (!rodata || rodataSize == 0) {
     return 0;
   }
@@ -197,8 +242,7 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
   }
 
   size_t dataRelRoSize = 0;
-  const uintptr_t dataRelRo =
-      GlossGetLibSection(module.c_str(), ".data.rel.ro", &dataRelRoSize);
+  const uintptr_t dataRelRo = GetSectionCached(module, ".data.rel.ro", &dataRelRoSize);
   if (!dataRelRo || dataRelRoSize == 0) {
     return 0;
   }
@@ -291,17 +335,34 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
   const std::string name(normalizedName);
   const std::string module(moduleName);
 
-  ensureGlossInitialized();
+  // The needle lookup is memoized (audit item 4.12): it scans up to ~100 slot bodies and is called
+  // more than once per session. Only a success is memoized, so a transient failure can retry.
+  const std::string needleKey =
+      pl::memory::MakeVtableNeedleKey(moduleName, normalizedName, needle, maxSlots);
+  {
+    std::lock_guard<std::mutex> lock(gVtableSlotMemoMutex);
+    const auto it = gVtableNeedleMemo.find(needleKey);
+    if (it != gVtableNeedleMemo.end()) {
+      // The memo stores the function address; the slot index is recomputed only when the caller
+      // asked for it, which is rare, so a memo hit still returns the address the caller needs.
+      if (outSlot) {
+        const std::string slotKey = needleKey + "::slot";
+        const auto slotIt = gVtableNeedleMemo.find(slotKey);
+        if (slotIt != gVtableNeedleMemo.end()) *outSlot = slotIt->second;
+      }
+      return it->second;
+    }
+  }
 
   size_t rodataSize = 0;
-  const uintptr_t rodata = GlossGetLibSection(module.c_str(), ".rodata", &rodataSize);
+  const uintptr_t rodata = GetSectionCached(module, ".rodata", &rodataSize);
   if (!rodata || rodataSize == 0) return 0;
 
   const uintptr_t typeName = findBytes(rodata, rodataSize, name.c_str(), name.size() + 1);
   if (!typeName) return 0;
 
   size_t dataRelRoSize = 0;
-  const uintptr_t dataRelRo = GlossGetLibSection(module.c_str(), ".data.rel.ro", &dataRelRoSize);
+  const uintptr_t dataRelRo = GetSectionCached(module, ".data.rel.ro", &dataRelRoSize);
   if (!dataRelRo || dataRelRoSize == 0) return 0;
 
   const uintptr_t typeInfo = findTypeInfo(dataRelRo, dataRelRoSize, typeName);
@@ -316,7 +377,7 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
   }
 
   size_t textSize = 0;
-  const uintptr_t text = GlossGetLibSection(module.c_str(), ".text", &textSize);
+  const uintptr_t text = GetSectionCached(module, ".text", &textSize);
   const uintptr_t textEnd = text ? text + textSize : 0;
 
   // Walk the primary vtable. Its start is the typeinfo pointer at `typeInfo`; slot 0 is the first
@@ -338,6 +399,10 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
     if (textEnd && funcEnd > textEnd) funcEnd = textEnd;
     if (FunctionReferencesAddress(fn, funcEnd, needleAddr)) {
       if (outSlot) *outSlot = slot;
+      std::lock_guard<std::mutex> lock(gVtableSlotMemoMutex);
+      gVtableNeedleMemo[needleKey] = fn;
+      // The slot index is stored beside the address so a later memo hit can still fill outSlot.
+      gVtableNeedleMemo[needleKey + "::slot"] = slot;
       preloaderLogger.info("Resolved {} slot {} by string '{}'", name, slot,
                            std::string(needle));
       return fn;
