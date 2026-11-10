@@ -361,6 +361,11 @@ compile_run AntEggZipTest \
   -I"$root/src" \
   "$here/AntEggZipTest.cpp"
 
+# The pointer-based ZIP reading + the mapped-file view (audit item 2.16).
+compile_run AntEggArchiveTest \
+  -I"$root/src" \
+  "$here/AntEggArchiveTest.cpp" "$zlib_link"
+
 # Fuzz-shaped invariants for the three parsers that read untrusted data (item 458): the signature
 # parser, the egg.json reader and the Bedrock geometry parser. Deterministic and seeded, so a
 # failure reproduces from the seed alone.

@@ -10,9 +10,10 @@
 #include <system_error>
 
 #include <nlohmann/json.hpp>
-#include <zlib.h>
 
+#include "pl/runtime/AntEggArchive.hpp"
 #include "pl/runtime/AntEggZip.hpp"
+#include "pl/runtime/MappedFile.hpp"
 
 namespace pl::runtime {
 namespace {
@@ -21,10 +22,9 @@ namespace fs = std::filesystem;
 
 constexpr const char* kManifestName = "egg.json";
 constexpr const char* kExtension = ".antegg";
-constexpr uint64_t kMaxUncompressedBytes = 256ull * 1024ull * 1024ull;
-// The archive itself is capped too. ReadWholeFile resizes its buffer to the file's size before it
-// reads a byte, so without this a multi-gigabyte (or sparse) "package" is an allocation the caller
-// cannot refuse. A real .AntEgg is a script or a small shared object; the ceiling is generous.
+// The archive itself is capped too. MappedFile refuses a file larger than this before it maps a
+// byte, so a multi-gigabyte (or sparse) "package" is not a mapping the caller cannot refuse. A real
+// .AntEgg is a script or a small shared object; the ceiling is generous.
 constexpr uint64_t kMaxArchiveBytes = 512ull * 1024ull * 1024ull;
 constexpr size_t kMaxEntries = 4096;
 // The longest path a package or sandbox root may name. Linux PATH_MAX; a longer one is refused
@@ -81,145 +81,6 @@ bool IsSemanticVersion(const std::string& value) {
   return parts == 3;
 }
 
-uint16_t ReadU16(const std::vector<uint8_t>& data, size_t offset) {
-  return static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8));
-}
-
-uint32_t ReadU32(const std::vector<uint8_t>& data, size_t offset) {
-  return static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
-         (static_cast<uint32_t>(data[offset + 2]) << 16) |
-         (static_cast<uint32_t>(data[offset + 3]) << 24);
-}
-
-bool ReadWholeFile(const std::string& path, std::vector<uint8_t>& out) {
-  std::ifstream file(path, std::ios::binary);
-  if (!file) return false;
-  file.seekg(0, std::ios::end);
-  std::streamoff size = file.tellg();
-  if (size < 0) return false;
-  // Refuse before resizing: the size is attacker-controlled (it is the file's own length), and a
-  // resize to it is the allocation the cap exists to prevent.
-  if (static_cast<uint64_t>(size) > kMaxArchiveBytes) return false;
-  file.seekg(0, std::ios::beg);
-  out.resize(static_cast<size_t>(size));
-  if (size > 0) file.read(reinterpret_cast<char*>(out.data()), size);
-  return file.good() || file.eof();
-}
-
-/// True when `value` is a non-empty, absolute path with no NUL and no `..` segment. Cheap, and it
-/// runs before any filesystem call, so a crafted path is refused rather than resolved.
-bool IsSafeAbsolutePath(const std::string& value) {
-  if (value.empty() || value.size() > kMaxPathLength) return false;
-  if (value.find('\0') != std::string::npos) return false;
-  if (value.front() != '/') return false;
-  // Reject a `..` segment anywhere. A literal `..` in a resolved path is either an escape attempt
-  // or a legitimate directory named "..", and neither belongs in a package or sandbox path.
-  size_t start = 0;
-  while (start <= value.size()) {
-    size_t slash = value.find('/', start);
-    std::string segment =
-        value.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
-    if (segment == "..") return false;
-    if (slash == std::string::npos) break;
-    start = slash + 1;
-  }
-  return true;
-}
-
-struct ZipEntryRecord {
-  std::string name;
-  uint16_t method = 0;
-  uint32_t crc = 0;
-  uint32_t compressed_size = 0;
-  uint32_t uncompressed_size = 0;
-  uint32_t local_offset = 0;
-  bool is_directory = false;
-};
-
-/// Locates the End Of Central Directory and parses the central directory entry table.
-bool ParseCentralDirectory(const std::vector<uint8_t>& data, std::vector<ZipEntryRecord>& out) {
-  if (data.size() < 22) return false;
-  const size_t search_start = data.size() > (0xFFFF + 22) ? data.size() - (0xFFFF + 22) : 0;
-  size_t eocd = std::string::npos;
-  for (size_t i = data.size() - 22 + 1; i-- > search_start;) {
-    if (data[i] == 0x50 && data[i + 1] == 0x4b && data[i + 2] == 0x05 && data[i + 3] == 0x06) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd == std::string::npos) return false;
-
-  // A ZIP64 archive uses 64-bit entry counts and offsets in a record this parser does not read, so
-  // the 32-bit fields below would be misread. Refuse it rather than extract the wrong bytes
-  // (audit item 12.3).
-  if (HasZip64EndOfCentralDirectory(data.data(), data.size())) return false;
-
-  uint16_t entry_count = ReadU16(data, eocd + 10);
-  uint32_t cd_offset = ReadU32(data, eocd + 16);
-  if (cd_offset >= data.size()) return false;
-
-  size_t cursor = cd_offset;
-  for (uint16_t i = 0; i < entry_count; ++i) {
-    if (cursor + 46 > data.size()) return false;
-    if (ReadU32(data, cursor) != 0x02014b50) return false;
-    ZipEntryRecord record;
-    record.method = ReadU16(data, cursor + 10);
-    record.crc = ReadU32(data, cursor + 16);
-    record.compressed_size = ReadU32(data, cursor + 20);
-    record.uncompressed_size = ReadU32(data, cursor + 24);
-    uint16_t name_len = ReadU16(data, cursor + 28);
-    uint16_t extra_len = ReadU16(data, cursor + 30);
-    uint16_t comment_len = ReadU16(data, cursor + 32);
-    record.local_offset = ReadU32(data, cursor + 42);
-    if (cursor + 46 + name_len > data.size()) return false;
-    record.name.assign(reinterpret_cast<const char*>(data.data() + cursor + 46), name_len);
-    std::replace(record.name.begin(), record.name.end(), '\\', '/');
-    record.is_directory = !record.name.empty() && record.name.back() == '/';
-    out.push_back(record);
-    cursor += 46 + name_len + extra_len + comment_len;
-  }
-  return true;
-}
-
-/// Inflates one entry. `method` 0 is stored, 8 is deflate; anything else is unsupported.
-bool ExtractEntryData(const std::vector<uint8_t>& data, const ZipEntryRecord& entry,
-                      std::vector<uint8_t>& out) {
-  if (entry.local_offset + 30 > data.size()) return false;
-  if (ReadU32(data, entry.local_offset) != 0x04034b50) return false;
-  uint16_t name_len = ReadU16(data, entry.local_offset + 26);
-  uint16_t extra_len = ReadU16(data, entry.local_offset + 28);
-  size_t start = entry.local_offset + 30 + name_len + extra_len;
-  if (start + entry.compressed_size > data.size()) return false;
-
-  if (entry.method == 0) {
-    if (entry.compressed_size > kMaxUncompressedBytes) return false;
-    out.assign(data.begin() + start, data.begin() + start + entry.compressed_size);
-    // Verify the stored CRC before the bytes are used: a corrupted entry must not be extracted as
-    // if it were the mod (audit item 12.5).
-    const uLong computed = ::crc32(0L, out.data(), static_cast<uInt>(out.size()));
-    return ZipCrcMatches(entry.crc, static_cast<uint32_t>(computed));
-  }
-  if (entry.method != 8) return false;
-
-  // Bound the allocation by the entry's *declared* size before inflating into it: the declared
-  // size is attacker-controlled and drives the resize, so an unchecked one is a zip bomb.
-  if (entry.uncompressed_size > kMaxUncompressedBytes) return false;
-  out.resize(entry.uncompressed_size);
-  z_stream stream{};
-  stream.next_in = const_cast<Bytef*>(data.data() + start);
-  stream.avail_in = entry.compressed_size;
-  stream.next_out = out.data();
-  stream.avail_out = entry.uncompressed_size;
-  if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) return false;
-  int status = inflate(&stream, Z_FINISH);
-  inflateEnd(&stream);
-  if (status != Z_STREAM_END) return false;
-  out.resize(stream.total_out);
-  // Verify the stored CRC before the bytes are used (audit item 12.5).
-  const uLong computed = ::crc32(0L, out.data(), static_cast<uInt>(out.size()));
-  return ZipCrcMatches(entry.crc, static_cast<uint32_t>(computed));
-}
-
 // A staging or backup directory left behind by a crash is removed after this long. The window is
 // generous: an extraction in progress must never be mistaken for a leak, and a day is far longer
 // than any real extraction takes (audit item 12.6).
@@ -243,6 +104,26 @@ void CleanStaleStagingDirs(const fs::path& root) {
     std::error_code removeEc;
     fs::remove_all(entry.path(), removeEc);
   }
+}
+
+/// True when `value` is a non-empty, absolute path with no NUL and no `..` segment. Cheap, and it
+/// runs before any filesystem call, so a crafted path is refused rather than resolved.
+bool IsSafeAbsolutePath(const std::string& value) {
+  if (value.empty() || value.size() > kMaxPathLength) return false;
+  if (value.find('\0') != std::string::npos) return false;
+  if (value.front() != '/') return false;
+  // Reject a `..` segment anywhere. A literal `..` in a resolved path is either an escape attempt
+  // or a legitimate directory named "..", and neither belongs in a package or sandbox path.
+  size_t start = 0;
+  while (start <= value.size()) {
+    size_t slash = value.find('/', start);
+    std::string segment =
+        value.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+    if (segment == "..") return false;
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return true;
 }
 
 /// True when `candidate` is `root` or lives under it, on canonical paths.
@@ -410,13 +291,16 @@ bool AntEggLoader::ParseManifest(const std::string& json, AntEggManifest& out,
 
 bool AntEggLoader::ReadManifest(const std::string& archive_path, AntEggManifest& out,
                                 std::string& error) {
-  std::vector<uint8_t> data;
-  if (!ReadWholeFile(archive_path, data)) {
+  // A read-only mapping, so the parser walks the file's pages without a full copy (audit item 2.16).
+  MappedFile file = MappedFile::Open(archive_path, kMaxArchiveBytes);
+  if (!file.valid()) {
     error = "could not read package file";
     return false;
   }
+  const uint8_t* data = file.data();
+  const size_t size = file.size();
   std::vector<ZipEntryRecord> entries;
-  if (!ParseCentralDirectory(data, entries)) {
+  if (!ParseCentralDirectory(data, size, entries)) {
     error = "package is not a valid ZIP archive";
     return false;
   }
@@ -438,7 +322,7 @@ bool AntEggLoader::ReadManifest(const std::string& archive_path, AntEggManifest&
     return false;
   }
   std::vector<uint8_t> raw;
-  if (!ExtractEntryData(data, *manifest_entry, raw)) {
+  if (!ExtractEntryData(data, size, *manifest_entry, raw)) {
     error = "could not decompress egg.json";
     return false;
   }
@@ -450,13 +334,16 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
   AntEggManifest manifest;
   if (!ReadManifest(archive_path, manifest, error)) return false;
 
-  std::vector<uint8_t> data;
-  if (!ReadWholeFile(archive_path, data)) {
+  // A read-only mapping, so the parser walks the file's pages without a full copy (audit item 2.16).
+  MappedFile file = MappedFile::Open(archive_path, kMaxArchiveBytes);
+  if (!file.valid()) {
     error = "could not read package file";
     return false;
   }
+  const uint8_t* data = file.data();
+  const size_t size = file.size();
   std::vector<ZipEntryRecord> entries;
-  if (!ParseCentralDirectory(data, entries)) {
+  if (!ParseCentralDirectory(data, size, entries)) {
     error = "package is not a valid ZIP archive";
     return false;
   }
@@ -513,7 +400,7 @@ bool AntEggLoader::Extract(const std::string& archive_path, const std::string& s
     }
     fs::create_directories(destination.parent_path(), ec);
     std::vector<uint8_t> content;
-    if (!ExtractEntryData(data, entry, content)) {
+    if (!ExtractEntryData(data, size, entry, content)) {
       fs::remove_all(stage, ec);
       error = "could not decompress: " + entry.name;
       return false;
