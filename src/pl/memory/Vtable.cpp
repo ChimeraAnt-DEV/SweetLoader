@@ -104,6 +104,23 @@ uintptr_t findTypeInfo(uintptr_t dataRelRo, size_t dataRelRoSize,
   return 0;
 }
 
+// The vtable (`_ZTV`) is a separate object from the typeinfo (`_ZTI`). `findTypeInfo` returns the
+// typeinfo, whose first word is a back-pointer to the vtable's typeinfo-pointer slot; walking from
+// the typeinfo therefore lands in the typeinfo's own fields (slot 0 reads the `.rodata` name VA) and
+// never reaches a virtual slot. This returns the offset of that typeinfo-pointer slot -- the vtable
+// address point minus 8 -- which is what the slot walk must start from. Identification is the
+// Itanium shape: a word equal to the typeinfo, preceded by offset-to-top == 0.
+size_t findPrimaryVtableOffset(uintptr_t dataRelRo, size_t dataRelRoSize,
+                               uintptr_t typeInfo) {
+  for (size_t offset = sizeof(uintptr_t); canReadPointer(dataRelRoSize, offset);
+       offset += sizeof(uintptr_t)) {
+    if (readPointer(dataRelRo, offset) != typeInfo) continue;
+    if (readPointer(dataRelRo, offset - sizeof(uintptr_t)) != 0) continue;
+    return offset;
+  }
+  return 0;
+}
+
 bool checkedSlotOffset(size_t addressPointOffset, size_t slot,
                        size_t sectionSize, size_t &slotOffset) {
   if (slot > std::numeric_limits<size_t>::max() / sizeof(uintptr_t)) {
@@ -319,12 +336,18 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
   const uintptr_t text = GlossGetLibSection(module.c_str(), ".text", &textSize);
   const uintptr_t textEnd = text ? text + textSize : 0;
 
-  // Walk the primary vtable. Its start is the typeinfo pointer at `typeInfo`; slot 0 is the first
-  // entry after it. The scan window is generous; the real bound is the next function prologue
+  // Walk the primary vtable. `findTypeInfo` returns the typeinfo, not the vtable, so the walk must
+  // start from the vtable's typeinfo-pointer slot (found by shape) with slot 0 the entry after it.
+  // The scan window is generous; the real bound is the next function prologue
   // (`FunctionReferencesAddress` stops there), so a large window cannot read into a neighbouring
-  // slot's body. Verified against 1.21.132, 26.52 and 26.60.28: all three resolve slot 17.
+  // slot's body.
   constexpr uintptr_t kScanWindow = 0x4000;
-  const size_t typeInfoPointerOffset = typeInfo - dataRelRo;
+  const size_t typeInfoPointerOffset =
+      findPrimaryVtableOffset(dataRelRo, dataRelRoSize, typeInfo);
+  if (typeInfoPointerOffset == 0) {
+    preloaderLogger.debug("resolveVtableSlotReferencingString: no vtable for {}", name);
+    return 0;
+  }
   for (size_t slot = 0; slot <= maxSlots; ++slot) {
     const size_t offset =
         typeInfoPointerOffset + sizeof(uintptr_t) + slot * sizeof(uintptr_t);
