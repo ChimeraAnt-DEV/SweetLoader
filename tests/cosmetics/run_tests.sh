@@ -82,6 +82,39 @@ else
   done
 fi
 
+# fmt headers for the one test that links a non-header source which includes Logger.hpp. The Gradle
+# build fetches fmt (and nlohmann) through CMake FetchContent into .cxx; the host tests do not run
+# CMake, so the include dir is located in that cache and, when it is absent, the pinned single-header
+# release is fetched into a gitignored cache. The test compiles it header-only, so no library is
+# needed. Only VtableResolveTest uses it, but a missing fmt is reported rather than skipped: a
+# silently skipped resolver test is how the walk-base bug survived.
+fmt_include=""
+if [[ -n "${FMT_INCLUDE:-}" && -f "$FMT_INCLUDE/fmt/format.h" ]]; then
+  fmt_include="$FMT_INCLUDE"
+fi
+if [[ -z "$fmt_include" ]]; then
+  fmt_include="$(find "$root/../../../.cxx" -path '*fmt-src/include' -type d 2>/dev/null | head -1 || true)"
+fi
+if [[ -z "$fmt_include" || ! -f "$fmt_include/fmt/format.h" ]]; then
+  # 11.2.0, the commit CMakeLists.txt pins.
+  fmt_include="$root/../../../../build/host-tools/fmt/include"
+  if [[ ! -f "$fmt_include/fmt/format.h" ]]; then
+    mkdir -p "$fmt_include"
+    echo "Fetching fmt headers..." >&2
+    if ! curl -fsSL -o "$work/fmt.tar.gz" \
+        "https://github.com/fmtlib/fmt/archive/40626af88bd7df9a5fb80be7b25ac85b122d6c21.tar.gz" ||
+       ! tar xzf "$work/fmt.tar.gz" -C "$work"; then
+      echo "fmt headers not found; set FMT_INCLUDE to their include dir" >&2
+      exit 1
+    fi
+    cp -r "$work"/fmt-*/include/fmt "$fmt_include/"
+  fi
+fi
+if [[ -z "$fmt_include" || ! -f "$fmt_include/fmt/format.h" ]]; then
+  echo "fmt headers not found; set FMT_INCLUDE to their include dir" >&2
+  exit 1
+fi
+
 compile_run() {
   local name="$1"; shift
   echo "== $name =="
@@ -115,6 +148,23 @@ compile_run NativeCosmeticDataTest \
 
 compile_run VersionCompareTest \
   "$here/VersionCompareTest.cpp"
+
+# The RTTI vtable-slot resolver: given a type name and a string, find the vtable slot whose function
+# references that string. It is what the player-render seam uses to self-locate without a byte
+# signature, so the fixture pins the walk base -- the vtable (`_ZTV`), not the typeinfo (`_ZTI`).
+#
+# This one is compiled directly rather than through compile_run: Vtable.cpp includes the Android-only
+# pl/Gloss.h (a hard `#error` off-device) and Logger.hpp includes <android/log.h>, so the shims in
+# tests/host-shims must come before -Isrc and -Iinclude. compile_run fixes those first, and the
+# quoted `pl/Gloss.h` would resolve to the real header. The shim path is therefore placed ahead of
+# them here.
+echo "== VtableResolveTest =="
+"$cxx" -std=c++20 -O1 -g -DFMT_HEADER_ONLY \
+  -I"$here/../host-shims" -I"$root/include" -I"$root/src" -I"$fmt_include" \
+  "$root/src/pl/memory/Vtable.cpp" \
+  "$here/VtableResolveTest.cpp" \
+  -o "$work/VtableResolveTest"
+"$work/VtableResolveTest"
 
 # The input bridge's callback snapshot is a pure header, so it needs no source file of its own.
 compile_run CallbackSnapshotTest \
