@@ -1,0 +1,429 @@
+//! `libcaramel_universe.so` — the JNI cdylib the `.universe` loader loads into the game process.
+//!
+//! This crate is a shell. All the decisions (manifest parsing, signature verification, safe
+//! extraction, load ordering, permissions, config) live in `universe-core`, where they are
+//! unit-tested on the build host. What this crate adds is exactly the three things a `cdylib`
+//! inside `libminecraftpe.so` needs and a pure library cannot have:
+//!
+//! * **Logging** routed to the client's logcat tag, so a load failure is visible in the same place
+//!   as the rest of the client.
+//! * **A panic hook**, so a Rust panic in a mod entry point is caught and logged rather than
+//!   unwinding into the game's C++ frames.
+//! * **A cancellation flag**, an `AtomicBool` the loader flips when it wants mods to stop touching
+//!   shared state (world unload, hot reload), which mods poll between frames.
+//!
+//! The JNI functions are thin: they marshal arguments, call a `universe-core` function, and marshal
+//! the result. Every fallible call returns a message string; an empty string is success. That is the
+//! same contract the C++ side already uses for its loaders, so the Java bridge does not need a new
+//! error shape.
+
+use std::ffi::{c_char, c_void, CStr, CString};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use jni::objects::{JClass, JString};
+use jni::sys::{jboolean, jstring};
+use jni::JNIEnv;
+
+/// The BerryAPI entry points this loader talks to.
+///
+/// Only the calls that are *declared* here are called through the pointer; everything else the
+/// loader needs from the game goes through the C++ side's own resolved seams. Keeping the surface
+/// this small means a BerryAPI without a given call still loads — the corresponding feature is
+/// reported unavailable rather than the whole bridge failing.
+pub mod berry;
+
+/// The log tag every message from this library carries.
+pub const LOG_TAG: &str = "SweetLoader";
+
+/// The client version this build of the loader ships with, checked against a package's
+/// `min_client_version`.
+pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Set when the loader wants mods to stop touching shared state; mods poll it between frames.
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// The BerryAPI API table, set once by `nativeInit`. Read-only afterwards.
+static BERRY_API: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+/// True when the loader has asked mods to stop.
+pub fn is_cancelled() -> bool {
+    CANCELLED.load(Ordering::Acquire)
+}
+
+/// Asks mods to stop, or clears the request.
+pub fn set_cancelled(cancelled: bool) {
+    CANCELLED.store(cancelled, Ordering::Release);
+}
+
+/// Installs the panic hook and the Android logger, once.
+fn install_runtime() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        #[cfg(target_os = "android")]
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Debug)
+                .with_tag(LOG_TAG),
+        );
+
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // A panic inside a mod entry point must not unwind into the game's C++ frames. The
+            // entry points are wrapped in catch_unwind; this hook only records the panic so the
+            // user sees why a mod stopped.
+            log_error(&format!("panic: {info}"));
+            previous(info);
+        }));
+    });
+}
+
+/// Logs an informational line under the loader's tag.
+pub fn log_info(message: &str) {
+    #[cfg(target_os = "android")]
+    log::info!("{message}");
+    #[cfg(not(target_os = "android"))]
+    eprintln!("[{LOG_TAG}] {message}");
+}
+
+/// Logs an error line under the loader's tag.
+pub fn log_error(message: &str) {
+    #[cfg(target_os = "android")]
+    log::error!("{message}");
+    #[cfg(not(target_os = "android"))]
+    eprintln!("[{LOG_TAG}] error: {message}");
+}
+
+/// Reads a Java string, returning an empty string for null or unreadable input.
+fn read_string(env: &mut JNIEnv, value: &JString) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    env.get_string(value)
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+/// Builds a Java string from a message; an empty message means success.
+fn new_message(env: &mut JNIEnv, message: &str) -> jstring {
+    match env.new_string(message) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Runs `body`, catching a panic and turning it into an error message.
+fn guard<F>(what: &str, body: F) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            let line = format!("{what} panicked: {message}");
+            log_error(&line);
+            Err(line)
+        }
+    }
+}
+
+/// Wraps a fallible operation so it always returns a message string (empty on success).
+fn run_or_message<F>(env: &mut JNIEnv, what: &str, body: F) -> jstring
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    let message = match guard(what, body) {
+        Ok(()) => String::new(),
+        Err(error) => error,
+    };
+    new_message(env, &message)
+}
+
+/// # Safety
+/// `env` and `_class` are supplied by the JVM. `pointer` is an opaque pointer handed in by the
+/// caller; it is stored, never dereferenced by this function.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeInit(
+    mut env: JNIEnv,
+    _class: JClass,
+    pointer: *mut c_void,
+) -> jstring {
+    install_runtime();
+    run_or_message(&mut env, "nativeInit", || {
+        if !pointer.is_null() {
+            // The pointer is the BerryAPI API table the C++ side already resolved. It is stored
+            // for the mod-facing bridge; a null pointer means BerryAPI is absent, which is not an
+            // error (the loader runs, the BerryAPI-backed features report unavailable).
+            let _ = BERRY_API.set(pointer as usize);
+            log_info("BerryAPI pointer received");
+        }
+        set_cancelled(false);
+        log_info(&format!(
+            "initialized (client version {CLIENT_VERSION}, abi {})",
+            universe_core::SUPPORTED_ABI
+        ));
+        Ok(())
+    })
+}
+
+/// # Safety
+/// JVM-supplied arguments; the strings are read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeValidate(
+    mut env: JNIEnv,
+    _class: JClass,
+    file_path: JString,
+) -> jstring {
+    install_runtime();
+    let path = read_string(&mut env, &file_path);
+    run_or_message(&mut env, "nativeValidate", || {
+        let manifest = universe_core::archive::read_manifest(&path).map_err(|e| e.to_string())?;
+        universe_core::version::check_min_client_version(
+            &manifest.min_client_version,
+            CLIENT_VERSION,
+        )
+        .map_err(|e| e.to_string())?;
+        log_info(&format!(
+            "validated {} v{}",
+            manifest.display_name(),
+            manifest.version
+        ));
+        Ok(())
+    })
+}
+
+/// # Safety
+/// JVM-supplied arguments; the strings are read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeExtract(
+    mut env: JNIEnv,
+    _class: JClass,
+    file_path: JString,
+    sandbox_root: JString,
+    allowed_root: JString,
+) -> jstring {
+    install_runtime();
+    let path = read_string(&mut env, &file_path);
+    let sandbox = read_string(&mut env, &sandbox_root);
+    let allowed = read_string(&mut env, &allowed_root);
+    run_or_message(&mut env, "nativeExtract", || {
+        universe_core::archive::validate_sandbox_root(&sandbox, &allowed)
+            .map_err(|e| e.to_string())?;
+        let directory =
+            universe_core::archive::extract(&path, &sandbox).map_err(|e| e.to_string())?;
+        log_info(&format!("extracted into {}", directory.display()));
+        Ok(())
+    })
+}
+
+/// # Safety
+/// JVM-supplied argument; the string is read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeLooksLikeUniverse(
+    mut env: JNIEnv,
+    _class: JClass,
+    file_name: JString,
+) -> jboolean {
+    let name = read_string(&mut env, &file_name);
+    universe_core::manifest::looks_like_universe(&name) as jboolean
+}
+
+/// # Safety
+/// JVM-supplied argument; the string is read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeSetCancelled(
+    _env: JNIEnv,
+    _class: JClass,
+    cancelled: jboolean,
+) {
+    set_cancelled(cancelled != 0);
+}
+
+/// # Safety
+/// JVM-supplied argument; the string is read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeReadManifest(
+    mut env: JNIEnv,
+    _class: JClass,
+    file_path: JString,
+) -> jstring {
+    install_runtime();
+    let path = read_string(&mut env, &file_path);
+    match universe_core::archive::read_manifest(&path) {
+        Ok(manifest) => new_message(&mut env, &universe_core::manifest::to_json(&manifest)),
+        Err(error) => new_message(&mut env, &error.to_string()),
+    }
+}
+
+/// # Safety
+/// `pointer` must be a valid, NUL-terminated C string or null.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeCheckVersion(
+    mut env: JNIEnv,
+    _class: JClass,
+    min_client_version: JString,
+) -> jstring {
+    let required = read_string(&mut env, &min_client_version);
+    run_or_message(&mut env, "nativeCheckVersion", || {
+        universe_core::version::check_min_client_version(&required, CLIENT_VERSION)
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// # Safety
+/// `env` and `_class` are supplied by the JVM.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeClientVersion(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    new_message(&mut env, CLIENT_VERSION)
+}
+
+/// A C-string helper used by the small C ABI below.
+///
+/// # Safety
+/// `pointer` must be null or a valid NUL-terminated string.
+pub unsafe fn cstr(pointer: *const c_char) -> String {
+    if pointer.is_null() {
+        return String::new();
+    }
+    CStr::from_ptr(pointer).to_string_lossy().into_owned()
+}
+
+/// The C ABI the C++ preloader calls, so it does not need a JVM to reach the loader's logic.
+///
+/// These mirror the JNI functions but take `const char*` and return a heap-allocated message that
+/// the caller frees with [`caramel_universe_free`]. A null return means success.
+///
+/// # Safety
+/// Every `*const c_char` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_init(berry_api: *mut c_void) -> *mut c_char {
+    install_runtime();
+    if !berry_api.is_null() {
+        let _ = BERRY_API.set(berry_api as usize);
+    }
+    set_cancelled(false);
+    log_info(&format!("initialized via C ABI (client version {CLIENT_VERSION})"));
+    std::ptr::null_mut()
+}
+
+/// Validates a package's manifest and version gate. See [`caramel_universe_init`].
+///
+/// # Safety
+/// `archive_path` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_validate(archive_path: *const c_char) -> *mut c_char {
+    let path = cstr(archive_path);
+    match universe_core::archive::read_manifest(&path) {
+        Ok(manifest) => match universe_core::version::check_min_client_version(
+            &manifest.min_client_version,
+            CLIENT_VERSION,
+        ) {
+            Ok(()) => std::ptr::null_mut(),
+            Err(error) => message_to_c(error.to_string()),
+        },
+        Err(error) => message_to_c(error.to_string()),
+    }
+}
+
+/// Extracts a package. See [`caramel_universe_init`].
+///
+/// # Safety
+/// The arguments must be null or valid NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_extract(
+    archive_path: *const c_char,
+    sandbox_root: *const c_char,
+    allowed_root: *const c_char,
+) -> *mut c_char {
+    let path = cstr(archive_path);
+    let sandbox = cstr(sandbox_root);
+    let allowed = cstr(allowed_root);
+    if let Err(error) = universe_core::archive::validate_sandbox_root(&sandbox, &allowed) {
+        return message_to_c(error.to_string());
+    }
+    match universe_core::archive::extract(&path, &sandbox) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(error) => message_to_c(error.to_string()),
+    }
+}
+
+/// Frees a message returned by the C ABI above.
+///
+/// # Safety
+/// `pointer` must be a pointer previously returned by this library, or null.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_free(pointer: *mut c_char) {
+    if pointer.is_null() {
+        return;
+    }
+    drop(CString::from_raw(pointer));
+}
+
+/// True when the loader has been asked to stop.
+#[no_mangle]
+pub extern "C" fn caramel_universe_is_cancelled() -> bool {
+    is_cancelled()
+}
+
+fn message_to_c(message: String) -> *mut c_char {
+    match CString::new(message) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_flag_round_trips() {
+        set_cancelled(false);
+        assert!(!is_cancelled());
+        set_cancelled(true);
+        assert!(is_cancelled());
+        set_cancelled(false);
+        assert!(!is_cancelled());
+    }
+
+    #[test]
+    fn guard_turns_a_panic_into_an_error() {
+        let result = guard("test", || panic!("boom"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("boom"));
+    }
+
+    #[test]
+    fn guard_passes_through_a_clean_result() {
+        assert!(guard("test", || Ok(())).is_ok());
+        assert!(guard("test", || Err("nope".to_string())).is_err());
+    }
+
+    #[test]
+    fn client_version_is_well_formed() {
+        assert!(universe_core::version::is_valid(CLIENT_VERSION));
+    }
+
+    #[test]
+    fn the_c_abi_reports_a_missing_package() {
+        let missing = CString::new("/nonexistent/package.universe").unwrap();
+        let message = unsafe { caramel_universe_validate(missing.as_ptr()) };
+        assert!(!message.is_null());
+        unsafe { caramel_universe_free(message) };
+    }
+
+    #[test]
+    fn cstr_handles_null_and_text() {
+        assert_eq!(unsafe { cstr(std::ptr::null()) }, "");
+        let text = CString::new("hello").unwrap();
+        assert_eq!(unsafe { cstr(text.as_ptr()) }, "hello");
+    }
+}

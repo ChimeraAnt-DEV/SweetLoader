@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "universe-core",
+    "singularity-core",
+    "universe-jni",
+    "singularity-jni",
+    "caramel-cli",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+getrandom = "0.2"
+
+# Optimised for the device: thin LTO and one codegen unit keep the cdylib small and
+# fast to page in at launch. Panics unwind so the JNI boundary can catch them.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"

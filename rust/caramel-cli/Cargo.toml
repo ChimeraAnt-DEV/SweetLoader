@@ -1,0 +1,23 @@
+[package]
+name = "caramel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "caramel-cli"
+path = "src/main.rs"
+
+[lib]
+name = "caramel_cli"
+path = "src/lib.rs"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+singularity-core = { path = "../singularity-core" }
+serde.workspace = true
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+zip.workspace = true
+getrandom.workspace = true
