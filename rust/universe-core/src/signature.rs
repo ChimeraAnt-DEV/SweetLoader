@@ -2,8 +2,8 @@
 //!
 //! A package is signed over the SHA-256 of its bytes, so the signature is detached: the author ships
 //! `package.universe` and a sidecar `package.universe.sig` holding the raw 64-byte Ed25519 signature
-//! and a key id. Verification hashes the archive again and checks the signature against the trusted
-//! key set the client ships or the user has pinned.
+//! in hex. Verification hashes the archive again and checks the signature against the trusted key
+//! set the client ships or the user has pinned.
 //!
 //! The hash-then-sign indirection is what makes the signature independent of how the ZIP is
 //! compressed: the loader verifies exactly the bytes it is about to extract, so a re-compressed
