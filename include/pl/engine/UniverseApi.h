@@ -75,4 +75,42 @@ PL_EXPORT bool UniverseIsCancelled();
 /** Sets the loader's cancellation flag. */
 PL_EXPORT void UniverseSetCancelled(bool cancelled);
 
+/**
+ * @brief Verifies a package's detached Ed25519 signature against the trusted key set.
+ *
+ * @param archivePath     Path to the `.universe` file.
+ * @param signatureHex    The detached signature (lower/upper-case hex).
+ * @param trustedKeysHex  A comma-separated list of trusted public keys (hex).
+ * @param outError        Receives the failure message (empty on success).
+ * @return true when the signature verifies against one trusted key. Fail-closed: an empty trusted
+ *         set, a malformed key or a bad signature all return false rather than accepting the package.
+ */
+PL_EXPORT bool UniverseVerifySignature(const std::string &archivePath,
+                                       const std::string &signatureHex,
+                                       const std::string &trustedKeysHex,
+                                       std::string *outError);
+
+/**
+ * @brief Checks that a mod's declared permissions cover the capabilities it requests.
+ *
+ * @param declaredCsv   The capabilities the manifest declares (comma-separated names).
+ * @param requestedCsv  The capabilities the call site needs (comma-separated names).
+ * @param trusted       Whether the package carried a trusted signature.
+ * @param outError      Receives the first denied capability (empty when all are granted).
+ * @return true when every requested capability is granted.
+ */
+PL_EXPORT bool UniverseCheckPermissions(const std::string &declaredCsv,
+                                        const std::string &requestedCsv,
+                                        bool trusted,
+                                        std::string *outError);
+
+/**
+ * @brief Resolves the deterministic load order for a set of mods.
+ *
+ * @param nodesJson  A JSON array of `{"id": "...", "dependencies": ["..."]}` objects.
+ * @return The loader's JSON report `{"order": [...], "cycle": [...]}` (or `{"error": "..."}` when
+ *         the input is malformed), or an empty string when the loader is unavailable.
+ */
+PL_EXPORT std::string UniverseResolveLoadOrder(const std::string &nodesJson);
+
 } // namespace pl::engine

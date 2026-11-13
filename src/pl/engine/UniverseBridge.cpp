@@ -26,6 +26,9 @@ using FreeFn = void (*)(char *);
 using IsCancelledFn = bool (*)();
 using SetCancelledFn = void (*)(bool);
 using ClientVersionFn = const char *(*)();
+using VerifySignatureFn = char *(*)(const char *, const char *, const char *);
+using CheckPermissionsFn = char *(*)(const char *, const char *, bool);
+using ResolveLoadOrderFn = char *(*)(const char *);
 
 std::once_flag g_once;
 bool g_loaded = false;
@@ -36,6 +39,9 @@ FreeFn g_free = nullptr;
 IsCancelledFn g_isCancelled = nullptr;
 SetCancelledFn g_setCancelled = nullptr;
 ClientVersionFn g_clientVersion = nullptr;
+VerifySignatureFn g_verifySignature = nullptr;
+CheckPermissionsFn g_checkPermissions = nullptr;
+ResolveLoadOrderFn g_resolveLoadOrder = nullptr;
 
 template <typename T>
 T Resolve(void *handle, const char *name) {
@@ -55,6 +61,9 @@ void LoadOnce() {
   g_isCancelled = Resolve<IsCancelledFn>(handle, "caramel_universe_is_cancelled");
   g_setCancelled = Resolve<SetCancelledFn>(handle, "caramel_universe_set_cancelled");
   g_clientVersion = Resolve<ClientVersionFn>(handle, "caramel_universe_client_version");
+  g_verifySignature = Resolve<VerifySignatureFn>(handle, "caramel_universe_verify_signature");
+  g_checkPermissions = Resolve<CheckPermissionsFn>(handle, "caramel_universe_check_permissions");
+  g_resolveLoadOrder = Resolve<ResolveLoadOrderFn>(handle, "caramel_universe_resolve_load_order");
 
   // The cancel/free pair is required for the loader to be usable at all; without it a message this
   // bridge produced could not be freed and the cancellation flag could not be read. Requiring both
@@ -132,6 +141,42 @@ bool UniverseIsCancelled() {
 void UniverseSetCancelled(bool cancelled) {
   if (!EnsureUniverseLoaded() || g_setCancelled == nullptr) return;
   g_setCancelled(cancelled);
+}
+
+bool UniverseVerifySignature(const std::string &archivePath,
+                             const std::string &signatureHex,
+                             const std::string &trustedKeysHex,
+                             std::string *outError) {
+  if (!EnsureUniverseLoaded() || g_verifySignature == nullptr) {
+    if (outError != nullptr) *outError = "the .universe loader is not loaded";
+    return false;
+  }
+  return TakeMessage(
+          g_verifySignature(archivePath.c_str(), signatureHex.c_str(), trustedKeysHex.c_str()),
+          outError);
+}
+
+bool UniverseCheckPermissions(const std::string &declaredCsv,
+                              const std::string &requestedCsv,
+                              bool trusted,
+                              std::string *outError) {
+  if (!EnsureUniverseLoaded() || g_checkPermissions == nullptr) {
+    if (outError != nullptr) *outError = "the .universe loader is not loaded";
+    return false;
+  }
+  return TakeMessage(
+          g_checkPermissions(declaredCsv.c_str(), requestedCsv.c_str(), trusted), outError);
+}
+
+std::string UniverseResolveLoadOrder(const std::string &nodesJson) {
+  if (!EnsureUniverseLoaded() || g_resolveLoadOrder == nullptr) return std::string();
+  // The load-order report is always a non-null JSON object, so it is returned directly rather than
+  // through TakeMessage.
+  char *report = g_resolveLoadOrder(nodesJson.c_str());
+  if (report == nullptr) return std::string();
+  std::string result(report);
+  if (g_free != nullptr) g_free(report);
+  return result;
 }
 
 } // namespace pl::engine

@@ -38,6 +38,17 @@ void everyOperationRefusesRatherThanCrashing() {
   assert(!pl::engine::UniverseIsCancelled());
   pl::engine::UniverseSetCancelled(true);
   assert(!pl::engine::UniverseIsCancelled());
+
+  // The signature, permission and load-order seams must also refuse rather than fault.
+  error.clear();
+  assert(!pl::engine::UniverseVerifySignature("/nonexistent/x.universe", "00", "ab", &error));
+  assert(!error.empty());
+
+  error.clear();
+  assert(!pl::engine::UniverseCheckPermissions("read_memory", "read_memory", false, &error));
+  assert(!error.empty());
+
+  assert(pl::engine::UniverseResolveLoadOrder("[]").empty());
 }
 
 void aNullMessageFreeIsSafe() {

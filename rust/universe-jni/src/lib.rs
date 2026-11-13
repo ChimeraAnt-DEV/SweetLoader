@@ -388,6 +388,129 @@ pub extern "C" fn caramel_universe_client_version() -> *const c_char {
     VERSION.as_ptr() as *const c_char
 }
 
+/// Reads a package's bytes, refusing one over the archive size limit.
+///
+/// The signature is over the whole file, so verification must read it exactly as the packer wrote
+/// it — no re-zipping, no normalisation.
+fn read_package_bytes(path: &str) -> Result<Vec<u8>, String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("could not stat the package: {e}"))?;
+    if metadata.len() > universe_core::archive::MAX_ARCHIVE_BYTES {
+        return Err("the package is larger than the size limit".to_string());
+    }
+    std::fs::read(path).map_err(|e| format!("could not read the package: {e}"))
+}
+
+/// Parses a comma-separated list, trimming blanks.
+fn split_csv(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Verifies a package's detached Ed25519 signature against a set of trusted public keys.
+///
+/// Returns null when the signature verifies against one of `trusted_keys_hex` (a comma-separated
+/// list). A non-null message means the package is refused: a bad signature, a malformed key, or an
+/// *empty* trusted set, which is fail-closed — an unknown key must never be treated as trusted.
+///
+/// # Safety
+/// Every `*const c_char` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_verify_signature(
+    archive_path: *const c_char,
+    signature_hex: *const c_char,
+    trusted_keys_hex: *const c_char,
+) -> *mut c_char {
+    let path = cstr(archive_path);
+    let signature_text = cstr(signature_hex);
+    let keys_text = cstr(trusted_keys_hex);
+    match verify_signature(&path, &signature_text, &keys_text) {
+        Ok(()) => std::ptr::null_mut(),
+        Err(error) => message_to_c(error),
+    }
+}
+
+fn verify_signature(path: &str, signature_text: &str, keys_text: &str) -> Result<(), String> {
+    use universe_core::signature::{PublicKey, RawSignature, TrustedKeys};
+
+    let mut trusted = TrustedKeys::new();
+    for (index, key_hex) in split_csv(keys_text).iter().enumerate() {
+        let key = PublicKey::from_hex(key_hex)
+            .map_err(|e| format!("trusted key {index} is not a valid public key: {e}"))?;
+        trusted.add(format!("key{index}"), key);
+    }
+    if trusted.is_empty() {
+        // Fail-closed: with no trusted key there is nothing that could vouch for the package.
+        return Err("no trusted keys are configured; refusing to accept a signature".to_string());
+    }
+    let signature = RawSignature::from_hex(signature_text)
+        .map_err(|e| format!("the signature is not valid hex: {e}"))?;
+    let body = read_package_bytes(path)?;
+    if trusted.verifies(&body, &signature) {
+        Ok(())
+    } else {
+        Err("the signature does not verify against any trusted key".to_string())
+    }
+}
+
+/// Checks that a mod's declared permissions cover the capabilities it requests.
+///
+/// Returns null when every requested capability is granted. A non-null message names the first
+/// denied capability. `trusted` is whether the package carried a trusted signature; a trust-gated
+/// capability (`write_memory`) is denied without it.
+///
+/// # Safety
+/// Every `*const c_char` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_check_permissions(
+    declared_csv: *const c_char,
+    requested_csv: *const c_char,
+    trusted: bool,
+) -> *mut c_char {
+    match check_permissions(&cstr(declared_csv), &cstr(requested_csv), trusted) {
+        Ok(()) => std::ptr::null_mut(),
+        Err(error) => message_to_c(error),
+    }
+}
+
+fn check_permissions(declared_csv: &str, requested_csv: &str, trusted: bool) -> Result<(), String> {
+    use universe_core::permission::{self, Permission};
+
+    let parse_all = |text: &str| -> Result<Vec<Permission>, String> {
+        split_csv(text)
+            .iter()
+            .map(|name| Permission::parse(name).map_err(|e| e.to_string()))
+            .collect()
+    };
+    let declared = parse_all(declared_csv)?;
+    let requested = parse_all(requested_csv)?;
+    match permission::first_denied(&declared, &requested, trusted) {
+        None => Ok(()),
+        Some(denied) => Err(format!(
+            "permission '{}' is not granted to this package",
+            denied.as_str()
+        )),
+    }
+}
+
+/// Resolves the load order for a set of mods from a JSON array of
+/// `{"id": "...", "dependencies": ["..."]}` objects.
+///
+/// Returns a JSON object `{"order": [...], "cycle": [...]}` — always non-null, so the caller parses
+/// one shape. `order` is the deterministic load sequence; a non-empty `cycle` names the mods that
+/// form a dependency cycle, which the caller refuses. A malformed input returns `{"error": "..."}`.
+///
+/// # Safety
+/// `nodes_json` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_resolve_load_order(nodes_json: *const c_char) -> *mut c_char {
+    let json = cstr(nodes_json);
+    message_to_c(universe_core::report::resolve_load_order_json(&json))
+}
+
 fn message_to_c(message: String) -> *mut c_char {
     match CString::new(message) {
         Ok(value) => value.into_raw(),
@@ -440,5 +563,79 @@ mod tests {
         assert_eq!(unsafe { cstr(std::ptr::null()) }, "");
         let text = CString::new("hello").unwrap();
         assert_eq!(unsafe { cstr(text.as_ptr()) }, "hello");
+    }
+
+    #[test]
+    fn permission_check_is_fail_closed() {
+        let declared = CString::new("read_memory,render_hook").unwrap();
+        let requested = CString::new("read_memory").unwrap();
+        // A declared, untrusted capability is granted.
+        assert!(unsafe { caramel_universe_check_permissions(declared.as_ptr(), requested.as_ptr(), false) }
+            .is_null());
+        // A trust-gated capability is denied without a trusted signature.
+        let write = CString::new("write_memory").unwrap();
+        let denied = unsafe {
+            caramel_universe_check_permissions(declared.as_ptr(), write.as_ptr(), false)
+        };
+        assert!(!denied.is_null());
+        unsafe { caramel_universe_free(denied) };
+        // A capability the mod never declared is denied.
+        let network = CString::new("network").unwrap();
+        let denied = unsafe {
+            caramel_universe_check_permissions(declared.as_ptr(), network.as_ptr(), true)
+        };
+        assert!(!denied.is_null());
+        unsafe { caramel_universe_free(denied) };
+    }
+
+    #[test]
+    fn signature_verification_refuses_without_a_trusted_key() {
+        // An empty trusted set must refuse rather than accept an unknown signer.
+        let package = CString::new("/nonexistent/package.universe").unwrap();
+        let signature = CString::new("00").unwrap();
+        let keys = CString::new("").unwrap();
+        let message = unsafe {
+            caramel_universe_verify_signature(package.as_ptr(), signature.as_ptr(), keys.as_ptr())
+        };
+        assert!(!message.is_null());
+        unsafe { caramel_universe_free(message) };
+    }
+
+    #[test]
+    fn load_order_returns_a_json_object() {
+        let nodes = CString::new(r#"[{"id":"app","dependencies":["lib"]},{"id":"lib"}]"#).unwrap();
+        let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
+        assert!(!message.is_null());
+        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        unsafe { caramel_universe_free(message) };
+        assert!(json.contains("\"order\""));
+        assert!(json.contains("\"cycle\""));
+        let lib = json.find("lib").unwrap();
+        let app = json.find("app").unwrap();
+        assert!(lib < app, "lib must precede app: {json}");
+    }
+
+    #[test]
+    fn load_order_reports_a_cycle() {
+        let nodes = CString::new(r#"[{"id":"a","dependencies":["b"]},{"id":"b","dependencies":["a"]}]"#).unwrap();
+        let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
+        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        unsafe { caramel_universe_free(message) };
+        assert!(json.contains("\"cycle\":[\"a\",\"b\"]") || json.contains("\"cycle\":[\"b\",\"a\"]"), "{json}");
+    }
+
+    #[test]
+    fn load_order_reports_bad_json_as_an_error_object() {
+        let nodes = CString::new("not json").unwrap();
+        let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
+        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        unsafe { caramel_universe_free(message) };
+        assert!(json.contains("\"error\""), "{json}");
+    }
+
+    #[test]
+    fn escape_json_quotes_and_controls() {
+        // Escaping lives in universe-core::report; this pins the delegation stays wired.
+        assert_eq!(universe_core::report::escape_json("a\"b"), "a\\\"b");
     }
 }
