@@ -29,10 +29,6 @@ jobs:
     name: Host tests (C++ suite + sanitisers)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # The suite fetches its nlohmann/json and fmt headers into a cache beside the checkout.
-      # Point it at the runner's temp dir so nothing is written inside the workspace.
-      SWEETLOADER_HOST_CACHE: ${{ runner.temp }}/sweetloader-host-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +53,10 @@ jobs:
         # A skipped TSAN test prints "(skipped: ThreadSanitizer/setarch unavailable)". The runner
         # is set up above so none of the three can skip; if one does, that is a regression in the
         # environment and it must not read as a pass.
+        env:
+          # The suite fetches its nlohmann/json and fmt headers into a cache beside the checkout.
+          # Point it at the runner's temp dir so nothing is written inside the workspace.
+          SWEETLOADER_HOST_CACHE: ${{ runner.temp }}/sweetloader-host-cache
         run: |
           set -euo pipefail
           bash tests/cosmetics/run_tests.sh 2>&1 | tee /tmp/host-tests.log
