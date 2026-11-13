@@ -32,6 +32,7 @@ use jni::JNIEnv;
 /// this small means a BerryAPI without a given call still loads — the corresponding feature is
 /// reported unavailable rather than the whole bridge failing.
 pub mod berry;
+pub mod loader;
 
 /// The log tag every message from this library carries.
 pub const LOG_TAG: &str = "SweetLoader";
@@ -509,6 +510,70 @@ fn check_permissions(declared_csv: &str, requested_csv: &str, trusted: bool) -> 
 pub unsafe extern "C" fn caramel_universe_resolve_load_order(nodes_json: *const c_char) -> *mut c_char {
     let json = cstr(nodes_json);
     message_to_c(universe_core::report::resolve_load_order_json(&json))
+}
+
+/// The loader's live-mod state. One runtime per process; the C++ side drives it from the game
+/// thread, so a plain `Mutex` (not a lock-free structure) is enough.
+static RUNTIME: std::sync::Mutex<Option<loader::ModRuntime>> = std::sync::Mutex::new(None);
+
+/// Runs `body` with the runtime, creating it on first use.
+fn with_runtime<T>(body: impl FnOnce(&mut loader::ModRuntime) -> T) -> T {
+    let mut guard = RUNTIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let runtime = guard.get_or_insert_with(loader::ModRuntime::new);
+    body(runtime)
+}
+
+/// Loads every mod in `specs_json` (a JSON array of `{"id", "lib_path", "dependencies"}`), applying
+/// the load order, the cycle refusal and the fault policy.
+///
+/// `host` is the host table handed to each mod's `universe_init`; pass null when a mod does not need
+/// it. Returns a JSON report `{"load": [...], "disabled": [...], "cycle": [...], "live": [...]}` so
+/// the launcher can show what was refused and why. A malformed input returns `{"error": "..."}`.
+///
+/// # Safety
+/// `specs_json` must be null or a valid NUL-terminated string; `host` is an opaque pointer the mod's
+/// own `universe_init` interprets, never dereferenced by the loader.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_universe_load_mods(
+    specs_json: *const c_char,
+    host: *const c_void,
+) -> *mut c_char {
+    install_runtime();
+    let json = cstr(specs_json);
+    let specs = match universe_core::report::parse_mod_specs(&json) {
+        Ok(specs) => specs,
+        Err(error) => return message_to_c(format!("{{\"error\":\"{}\"}}", universe_core::report::escape_json(&error.to_string()))),
+    };
+    with_runtime(|runtime| {
+        runtime.set_host(host);
+        let plan = runtime.load(&specs);
+        let live = runtime.live_ids();
+        message_to_c(universe_core::report::load_plan_json(&plan, &live))
+    })
+}
+
+/// Ticks every live mod once with the frame's delta time.
+#[no_mangle]
+pub extern "C" fn caramel_universe_tick_mods(dt: f32) {
+    // A NaN dt would poison every mod's integrator; the loader's contract is a finite dt.
+    let dt = if dt.is_finite() { dt } else { 0.0 };
+    with_runtime(|runtime| runtime.tick(dt));
+}
+
+/// Shuts every live mod down and closes it. Safe to call when nothing is loaded, and safe to call
+/// twice.
+#[no_mangle]
+pub extern "C" fn caramel_universe_shutdown_mods() {
+    with_runtime(|runtime| runtime.shutdown_all());
+}
+
+/// The mod ids currently live, as a JSON array.
+#[no_mangle]
+pub extern "C" fn caramel_universe_live_mods() -> *mut c_char {
+    with_runtime(|runtime| {
+        let live = runtime.live_ids();
+        message_to_c(universe_core::report::json_string_array(&live))
+    })
 }
 
 fn message_to_c(message: String) -> *mut c_char {

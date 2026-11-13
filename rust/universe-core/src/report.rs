@@ -46,6 +46,40 @@ pub fn load_order_json(order: &LoadOrder) -> String {
     )
 }
 
+/// Renders a [`LoadPlan`] plus the live-mod list as the loader's load report.
+pub fn load_plan_json(plan: &crate::runtime::LoadPlan, live: &[String]) -> String {
+    format!(
+        "{{\"load\":{},\"disabled\":{},\"cycle\":{},\"live\":{}}}",
+        json_string_array(&plan.load),
+        json_string_array(&plan.disabled),
+        json_string_array(&plan.cycle),
+        json_string_array(live)
+    )
+}
+
+/// Parses a JSON array of `{"id": ..., "lib_path": ..., "dependencies": [...]}` objects.
+pub fn parse_mod_specs(json: &str) -> crate::Result<Vec<crate::runtime::ModSpec>> {
+    #[derive(serde::Deserialize)]
+    struct Spec {
+        id: String,
+        #[serde(default)]
+        lib_path: String,
+        #[serde(default)]
+        dependencies: Vec<String>,
+    }
+
+    let specs: Vec<Spec> = serde_json::from_str(json)
+        .map_err(|error| crate::Error::new(format!("the mod list is not valid JSON: {error}")))?;
+    Ok(specs
+        .into_iter()
+        .map(|spec| crate::runtime::ModSpec {
+            id: spec.id,
+            lib_path: spec.lib_path,
+            dependencies: spec.dependencies,
+        })
+        .collect())
+}
+
 /// Parses a JSON array of `{"id": ..., "dependencies": [...]}` objects into [`ModNode`]s.
 pub fn parse_mod_nodes(json: &str) -> crate::Result<Vec<ModNode>> {
     #[derive(serde::Deserialize)]
@@ -124,5 +158,31 @@ mod tests {
         // The forged fragment must be escaped, not emitted as structure.
         assert!(report.contains("\\\""), "{report}");
         assert!(!report.contains("\"order\":[\"evil\"]"), "{report}");
+    }
+
+    #[test]
+    fn parses_mod_specs() {
+        let specs = parse_mod_specs(r#"[{"id":"a","lib_path":"lib/liba.so","dependencies":["b"]}]"#)
+            .unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].lib_path, "lib/liba.so");
+        assert_eq!(specs[0].dependencies, vec!["b"]);
+        // lib_path and dependencies are optional.
+        let specs = parse_mod_specs(r#"[{"id":"a"}]"#).unwrap();
+        assert!(specs[0].lib_path.is_empty());
+        assert!(specs[0].dependencies.is_empty());
+    }
+
+    #[test]
+    fn renders_a_load_plan_report() {
+        let plan = crate::runtime::LoadPlan {
+            load: vec!["a".to_string()],
+            disabled: vec!["b".to_string()],
+            cycle: vec![],
+        };
+        let report = load_plan_json(&plan, &["a".to_string()]);
+        assert!(report.contains("\"load\":[\"a\"]"), "{report}");
+        assert!(report.contains("\"disabled\":[\"b\"]"), "{report}");
+        assert!(report.contains("\"live\":[\"a\"]"), "{report}");
     }
 }

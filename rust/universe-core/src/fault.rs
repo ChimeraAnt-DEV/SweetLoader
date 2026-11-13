@@ -107,6 +107,18 @@ impl FaultTracker {
     pub fn disabled_count(&self) -> usize {
         self.disabled.values().filter(|disabled| **disabled).count()
     }
+
+    /// The ids of every mod currently disabled, sorted so the report is stable.
+    pub fn disabled_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .disabled
+            .iter()
+            .filter(|(_, disabled)| **disabled)
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
 }
 
 #[cfg(test)]
@@ -172,5 +184,16 @@ mod tests {
         assert_eq!(decide_after_fault(2).action, FaultAction::Retry);
         assert_eq!(decide_after_fault(3).action, FaultAction::Disable);
         assert_eq!(decide_after_fault(99).action, FaultAction::Disable);
+    }
+
+    #[test]
+    fn disabled_ids_are_sorted_and_only_include_disabled() {
+        let mut tracker = FaultTracker::new();
+        for _ in 0..MAX_FAULTS {
+            tracker.record_fault("zeta");
+            tracker.record_fault("alpha");
+        }
+        tracker.record_fault("live");
+        assert_eq!(tracker.disabled_ids(), vec!["alpha", "zeta"]);
     }
 }

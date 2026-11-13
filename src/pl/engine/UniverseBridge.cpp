@@ -29,6 +29,10 @@ using ClientVersionFn = const char *(*)();
 using VerifySignatureFn = char *(*)(const char *, const char *, const char *);
 using CheckPermissionsFn = char *(*)(const char *, const char *, bool);
 using ResolveLoadOrderFn = char *(*)(const char *);
+using LoadModsFn = char *(*)(const char *, const void *);
+using TickModsFn = void (*)(float);
+using ShutdownModsFn = void (*)();
+using LiveModsFn = char *(*)();
 
 std::once_flag g_once;
 bool g_loaded = false;
@@ -42,6 +46,10 @@ ClientVersionFn g_clientVersion = nullptr;
 VerifySignatureFn g_verifySignature = nullptr;
 CheckPermissionsFn g_checkPermissions = nullptr;
 ResolveLoadOrderFn g_resolveLoadOrder = nullptr;
+LoadModsFn g_loadMods = nullptr;
+TickModsFn g_tickMods = nullptr;
+ShutdownModsFn g_shutdownMods = nullptr;
+LiveModsFn g_liveMods = nullptr;
 
 template <typename T>
 T Resolve(void *handle, const char *name) {
@@ -64,6 +72,10 @@ void LoadOnce() {
   g_verifySignature = Resolve<VerifySignatureFn>(handle, "caramel_universe_verify_signature");
   g_checkPermissions = Resolve<CheckPermissionsFn>(handle, "caramel_universe_check_permissions");
   g_resolveLoadOrder = Resolve<ResolveLoadOrderFn>(handle, "caramel_universe_resolve_load_order");
+  g_loadMods = Resolve<LoadModsFn>(handle, "caramel_universe_load_mods");
+  g_tickMods = Resolve<TickModsFn>(handle, "caramel_universe_tick_mods");
+  g_shutdownMods = Resolve<ShutdownModsFn>(handle, "caramel_universe_shutdown_mods");
+  g_liveMods = Resolve<LiveModsFn>(handle, "caramel_universe_live_mods");
 
   // The cancel/free pair is required for the loader to be usable at all; without it a message this
   // bridge produced could not be freed and the cancellation flag could not be read. Requiring both
@@ -173,6 +185,34 @@ std::string UniverseResolveLoadOrder(const std::string &nodesJson) {
   // The load-order report is always a non-null JSON object, so it is returned directly rather than
   // through TakeMessage.
   char *report = g_resolveLoadOrder(nodesJson.c_str());
+  if (report == nullptr) return std::string();
+  std::string result(report);
+  if (g_free != nullptr) g_free(report);
+  return result;
+}
+
+std::string UniverseLoadMods(const std::string &specsJson, const void *hostTable) {
+  if (!EnsureUniverseLoaded() || g_loadMods == nullptr) return std::string();
+  char *report = g_loadMods(specsJson.c_str(), hostTable);
+  if (report == nullptr) return std::string();
+  std::string result(report);
+  if (g_free != nullptr) g_free(report);
+  return result;
+}
+
+void UniverseTickMods(float deltaSeconds) {
+  if (!EnsureUniverseLoaded() || g_tickMods == nullptr) return;
+  g_tickMods(deltaSeconds);
+}
+
+void UniverseShutdownMods() {
+  if (!EnsureUniverseLoaded() || g_shutdownMods == nullptr) return;
+  g_shutdownMods();
+}
+
+std::string UniverseLiveMods() {
+  if (!EnsureUniverseLoaded() || g_liveMods == nullptr) return std::string();
+  char *report = g_liveMods();
   if (report == nullptr) return std::string();
   std::string result(report);
   if (g_free != nullptr) g_free(report);

@@ -49,6 +49,12 @@ void everyOperationRefusesRatherThanCrashing() {
   assert(!error.empty());
 
   assert(pl::engine::UniverseResolveLoadOrder("[]").empty());
+
+  // The load lifecycle must also be a safe no-op when the loader is absent.
+  assert(pl::engine::UniverseLoadMods("[]", nullptr).empty());
+  assert(pl::engine::UniverseLiveMods().empty());
+  pl::engine::UniverseTickMods(0.016f);
+  pl::engine::UniverseShutdownMods();
 }
 
 void aNullMessageFreeIsSafe() {

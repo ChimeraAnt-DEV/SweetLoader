@@ -161,6 +161,22 @@
   The `.universe` C ABI covers validate, extract, verify-signature, check-permissions and
   resolve-load-order, so the signature/permission/order rules the format doc promises are enforced
   at runtime, not only in the core crate.
+- **The loader itself lives in `universe-jni/src/loader.rs`.** It is the only place a mod's code is
+  entered. `ModRuntime::load` applies the plan (`universe-core::runtime::plan`: dependency order,
+  cycle refusal, disabled-mod refusal), then `dlopen`s each library with `RTLD_NOW | RTLD_LOCAL` and
+  resolves `universe_init`/`universe_tick`/`universe_shutdown`. A library missing any of the three
+  is closed and refused — a half-implemented mod is worse than a refused one. Every call into mod
+  code is wrapped in `catch_unwind`: a panicking mod is unloaded immediately and counted, and after
+  `MAX_FAULTS` it is refused at the next load. One mod's panic never stops another's tick.
+- **`catch_unwind` is not a signal handler.** A Rust panic (or a C++ exception unwinding through
+  Rust frames) is caught; a `SIGSEGV`/`SIGABRT` from a mod's own C/C++ code kills the process and no
+  in-process loader can contain it. The defence against that class is fail-closed *loading* (wrong
+  ABI / missing entry point / failed init refused before the mod runs) plus the fault budget. Do not
+  describe the loader as containing a crashing native mod; it does not, and `docs/universe-format.md`
+  says so explicitly.
+- The load lifecycle C ABI is `caramel_universe_load_mods` / `_tick_mods` / `_shutdown_mods` /
+  `_live_mods`, wrapped by `pl::engine::UniverseLoadMods` / `UniverseTickMods` /
+  `UniverseShutdownMods` / `UniverseLiveMods` in `pl/engine/UniverseBridge.cpp`.
 - **`caramel-cli`** packs a directory into a deterministic ZIP, signs it (Ed25519 over the SHA-256),
   verifies, keygens and inspects. `inspect` tries the singularity schema first, then prints raw JSON.
 - The mod-author ABI is `include/pl/universe/universe_api.h` and

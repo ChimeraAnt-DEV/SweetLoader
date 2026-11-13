@@ -94,8 +94,23 @@ installed, and the loader loads what it can.
 6. `universe_tick(frame, dt)` is called once per frame.
 7. `universe_shutdown()` is called, then the libraries are `dlclose`d.
 
-Every call into mod code is wrapped so a panic or a fault is caught, the mod is unloaded, and the
-game thread keeps running. A mod that fails three times in a row is blacklisted for the session.
+Every call into mod code is wrapped in a Rust `catch_unwind` guard: a panic in `universe_init`,
+`universe_tick` or `universe_shutdown` is caught, logged, and the mod is unloaded immediately, so
+one mod's failure never stops another's tick and the game thread keeps running. A mod that faults
+three times in a row is disabled for the session.
+
+A panic is not a segmentation fault. `catch_unwind` catches a Rust panic and a C++ exception that
+unwinds through Rust frames, but a hard fault (a null dereference inside a mod's C/C++ code, a
+`SIGSEGV`/`SIGABRT`) is delivered as a signal to the whole process and is not recoverable by
+`catch_unwind`. The loader's defence against that class is fail-closed loading — a wrong ABI, a
+missing entry point or a failed `universe_init` is refused before the mod ever runs — plus the
+per-mod fault budget that stops a mod which faults on every launch. Do not read this section as
+"a crashing native mod is contained"; it is not, and no in-process loader can contain it.
+
+The loader's C ABI (`caramel_universe_load_mods`, `_tick_mods`, `_shutdown_mods`, `_live_mods`) is
+the surface the C++ runtime drives, with matching wrappers in `pl/engine/UniverseApi.h`. Loading
+applies the dependency order, refuses a dependency cycle rather than loading it partially, and
+refuses a disabled mod before opening anything.
 
 ## Writing the native side
 

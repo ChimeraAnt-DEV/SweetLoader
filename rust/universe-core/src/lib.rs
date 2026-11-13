@@ -16,6 +16,7 @@ pub mod loadorder;
 pub mod manifest;
 pub mod permission;
 pub mod report;
+pub mod runtime;
 pub mod signature;
 pub mod version;
 

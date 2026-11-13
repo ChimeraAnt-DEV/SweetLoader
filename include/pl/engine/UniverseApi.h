@@ -113,4 +113,23 @@ PL_EXPORT bool UniverseCheckPermissions(const std::string &declaredCsv,
  */
 PL_EXPORT std::string UniverseResolveLoadOrder(const std::string &nodesJson);
 
+/**
+ * @brief Plans and loads mods, applying load order, cycle refusal and the fault policy.
+ *
+ * @param specsJson  A JSON array of `{"id": "...", "lib_path": "...", "dependencies": [...]}`.
+ * @param hostTable  The host table handed to each mod's `universe_init` (may be null).
+ * @return The loader's JSON report `{"load": [...], "disabled": [...], "cycle": [...], "live": [...]}`
+ *         (or `{"error": "..."}` when the input is malformed), or an empty string when unavailable.
+ */
+PL_EXPORT std::string UniverseLoadMods(const std::string &specsJson, const void *hostTable);
+
+/** Ticks every live mod once with the frame's delta time. Safe when nothing is loaded. */
+PL_EXPORT void UniverseTickMods(float deltaSeconds);
+
+/** Shuts every live mod down and closes it. Safe when nothing is loaded, and safe to call twice. */
+PL_EXPORT void UniverseShutdownMods();
+
+/** The mod ids currently live, as a JSON array, or an empty string when the loader is unavailable. */
+PL_EXPORT std::string UniverseLiveMods();
+
 } // namespace pl::engine
