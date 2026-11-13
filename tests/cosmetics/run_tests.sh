@@ -37,8 +37,9 @@ cxx="${CXX:-g++}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# zlib headers. AntEggLoader reads egg.json straight out of the ZIP central directory with zlib's
-# raw inflate, so its host test needs the header and the library.
+# zlib headers. The package archive reader (the .universe / .singularity extractor) inflates a
+# package's manifest straight out of the ZIP central directory with zlib's raw inflate, so its host
+# test needs the header and the library.
 #
 # The NDK sysroot's include dir must NOT go on the include path: it carries its own libc headers,
 # and pulling those in ahead of the host's breaks every other header (os_defines.h and friends
@@ -351,19 +352,11 @@ compile_run FeatureAvailabilityTest \
 compile_run HookSelfTestTest \
   "$here/HookSelfTestTest.cpp"
 
-# The native egg.json parser. Needs zlib (the loader reads the manifest straight out of the ZIP
-# central directory); `zlib_link` above resolves it for the host.
-compile_run AntEggManifestTest \
-  -I"$root/src" \
-  "$root/src/pl/runtime/AntEggLoader.cpp" \
-  "$here/AntEggManifestTest.cpp" "$zlib_link"
-
-# Fuzz-shaped invariants for the three parsers that read untrusted data (item 458): the signature
-# parser, the egg.json reader and the Bedrock geometry parser. Deterministic and seeded, so a
-# failure reproduces from the seed alone.
+# Fuzz-shaped invariants for the two parsers that read untrusted data (item 458): the signature
+# parser and the Bedrock geometry parser. Deterministic and seeded, so a failure reproduces from the
+# seed alone. The .universe manifest reader joins them with its own host test.
 compile_run FuzzParseTest \
   -I"$root/src" \
-  "$root/src/pl/runtime/AntEggLoader.cpp" \
   "$root/src/pl/cosmetics/geometry/BedrockModelParser.cpp" \
   "$here/FuzzParseTest.cpp" "$zlib_link"
 

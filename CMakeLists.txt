@@ -86,8 +86,6 @@ set(SWEETLOADER_SOURCES
         src/pl/runtime/optifine/OptifineParticleCulling.cpp
         src/pl/runtime/OptifineJni.cpp
         src/pl/runtime/ExternalModBridgeJni.cpp
-        src/pl/runtime/AntEggLoader.cpp
-        src/pl/runtime/AntEggJni.cpp
         src/pl/runtime/ProcessMemory.cpp
         src/pl/runtime/InputBridge.cpp
         src/pl/runtime/InputJni.cpp
@@ -141,7 +139,6 @@ set_source_files_properties(
 set_source_files_properties(
         src/pl/runtime/ModMenuBridge.cpp
         src/pl/runtime/ExternalModBridgeJni.cpp
-        src/pl/runtime/AntEggLoader.cpp
         PROPERTIES COMPILE_OPTIONS "-Oz")
 target_link_options(sweetloader PRIVATE
         # Dead code and unused data drop out once every function is in its own section.
