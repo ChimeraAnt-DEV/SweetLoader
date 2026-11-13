@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "nethernet-core",
+    "nethernet-jni",
     "universe-core",
     "singularity-core",
     "universe-jni",
@@ -20,6 +22,12 @@ sha2 = "0.10"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 getrandom = "0.2"
+# The NetherNet transport. `tungstenite` is blocking rather than async: the JNI boundary is
+# blocking anyway, so a dedicated Rust thread driving a blocking WebSocket avoids pulling a
+# whole async runtime into the game process. The TLS backend is rustls with the webpki roots,
+# not native-tls: rustls is pure Rust, so it cross-compiles to aarch64-linux-android with no
+# system OpenSSL to link against.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 
 # Optimised for the device: thin LTO and one codegen unit keep the cdylib small and
 # fast to page in at launch. Panics unwind so the JNI boundary can catch them.
