@@ -52,8 +52,8 @@ zlib_link=""
 for candidate in \
     /usr/include \
     "${ZLIB_INCLUDE:-}" \
-    "$(ls -d /opt/android-sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include 2>/dev/null | head -1)" \
-    "$(ls -d /workspace/android-sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include 2>/dev/null | head -1)" \
+    "$(find /opt/android-sdk/ndk /workspace/android-sdk/ndk -type d \
+        -path '*sysroot/usr/include' -print -quit 2>/dev/null)" \
     "$root/../libHttpClient/External/zlib"; do
   if [[ -n "$candidate" && -f "$candidate/zlib.h" ]]; then
     zlib_source="$candidate"
