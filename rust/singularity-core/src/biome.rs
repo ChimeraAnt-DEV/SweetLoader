@@ -61,6 +61,64 @@ pub struct Climate {
     pub continentalness: f32,
 }
 
+/// A biome definition as it appears in a pack's `biomes/*.json`.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct BiomeDefinition {
+    pub id: String,
+    #[serde(default = "full_range")]
+    pub temperature: [f32; 2],
+    #[serde(default = "full_range")]
+    pub humidity: [f32; 2],
+    #[serde(default = "full_range")]
+    pub continentalness: [f32; 2],
+    #[serde(default)]
+    pub weight: i32,
+}
+
+fn full_range() -> [f32; 2] {
+    [0.0, 1.0]
+}
+
+impl BiomeDefinition {
+    /// Converts the definition to a [`Biome`], refusing an unsafe id or a non-finite range so a bad
+    /// `biomes/*.json` is a reported error rather than a biome the engine cannot place.
+    pub fn to_biome(&self) -> universe_core::Result<Biome> {
+        if !universe_core::manifest::is_safe_segment(&self.id) {
+            return Err(universe_core::Error::new(format!(
+                "biome id '{}' is not a safe identifier",
+                self.id
+            )));
+        }
+        for (name, range) in [
+            ("temperature", self.temperature),
+            ("humidity", self.humidity),
+            ("continentalness", self.continentalness),
+        ] {
+            if !range[0].is_finite() || !range[1].is_finite() {
+                return Err(universe_core::Error::new(format!(
+                    "biome '{}' has a non-finite {name} range",
+                    self.id
+                )));
+            }
+        }
+        Ok(Biome {
+            id: self.id.clone(),
+            temperature: Range::new(self.temperature[0], self.temperature[1]),
+            humidity: Range::new(self.humidity[0], self.humidity[1]),
+            continentalness: Range::new(self.continentalness[0], self.continentalness[1]),
+            weight: self.weight,
+        })
+    }
+}
+
+/// Parses one `biomes/*.json` file into a [`Biome`].
+pub fn parse_definition(json: &str) -> universe_core::Result<Biome> {
+    let definition: BiomeDefinition = serde_json::from_str(json).map_err(|error| {
+        universe_core::Error::new(format!("a biome definition is not valid JSON: {error}"))
+    })?;
+    definition.to_biome()
+}
+
 /// The biome registry.
 #[derive(Debug, Clone)]
 pub struct BiomeRegistry {
@@ -277,5 +335,30 @@ mod tests {
         let range = Range::new(0.8, 0.2);
         assert_eq!(range.min, 0.2);
         assert_eq!(range.max, 0.8);
+    }
+
+    #[test]
+    fn parses_a_biome_definition() {
+        let biome = parse_definition(
+            r#"{ "id": "cherry_grove", "temperature": [0.5, 0.9], "humidity": [0.4, 1.0], "weight": 2 }"#,
+        )
+        .unwrap();
+        assert_eq!(biome.id, "cherry_grove");
+        assert_eq!(biome.temperature.min, 0.5);
+        assert_eq!(biome.weight, 2);
+        // An absent axis defaults to the full range.
+        assert_eq!(biome.continentalness.min, 0.0);
+        assert_eq!(biome.continentalness.max, 1.0);
+    }
+
+    #[test]
+    fn refuses_a_biome_definition_with_an_unsafe_id() {
+        assert!(parse_definition(r#"{ "id": "../escape" }"#).is_err());
+        assert!(parse_definition(r#"{ "id": "" }"#).is_err());
+    }
+
+    #[test]
+    fn refuses_a_biome_definition_that_is_not_json() {
+        assert!(parse_definition("not json").is_err());
     }
 }

@@ -139,3 +139,33 @@
 - See `docs/resource-pack-reload.md` for the full finding, the technique
   (strings -> `adrp`/`add` xrefs -> `.eh_frame_hdr` function bounds) and the
   fragility note (a Minecraft update re-verifies from scratch; no list to maintain).
+
+## Mod formats: `.universe` and `.singularity` (the Rust engine)
+- The two CaramelClient mod formats are backed by the Rust workspace in `rust/`. A new pure helper
+  crate goes in `rust/Cargo.toml`'s `members`; the crates are tested with `cargo test` from `rust/`.
+- **`universe-core`** owns everything the formats share: the manifest parsers, the Ed25519
+  signature and trusted-key set, the permission model, the ZIP reader (reads `manifest.json`
+  straight out of the central directory, before extracting a byte) and the sandboxed extractor
+  (zip-slip guarded, staged then renamed), the topological load order and the per-mod fault policy.
+- **`singularity-core`** owns world generation: noise, the climate biome registry, deterministic
+  structure placement, the greedy mesher, the fluid automaton and the physics integrator. Every
+  function is a **pure function of `(seed, coordinates, manifest)`** — no clock, no global RNG.
+  That is the format's load-bearing rule: break it and multiplayer desyncs.
+- **`universe-jni` / `singularity-jni`** are the cdylibs (`libcaramel_universe.so`,
+  `libcaramel_singularity.so`). They export JNI entry points **and** a small C ABI
+  (`caramel_universe_*`). The C++ runtime reaches them through
+  `pl/engine/UniverseBridge.cpp`, which resolves the **already-loaded** library with
+  `dlopen(name, RTLD_NOW | RTLD_NOLOAD)` — never a fresh `dlopen`, so there is one loader instance
+  and one owner of the cancellation flag and the BerryAPI pointer. `UniverseBridgeTest` pins the
+  fail-closed contract: when the cdylib is not loaded, every operation refuses rather than faulting.
+- **`caramel-cli`** packs a directory into a deterministic ZIP, signs it (Ed25519 over the SHA-256),
+  verifies, keygens and inspects. `inspect` tries the singularity schema first, then prints raw JSON.
+- The mod-author ABI is `include/pl/universe/universe_api.h` and
+  `include/pl/singularity/singularity_api.h`. The host table is passed by pointer and checked by
+  `size`/`abi_version` first; **append fields, bump the version, never reorder or remove**. Every
+  function pointer is nullable (a capability the mod did not declare), so a mod must null-check.
+- Cross-compile with `bash rust/build-android.sh` (needs the NDK + an `aarch64-linux-android` Rust
+  target). `rust/target` is gitignored.
+- `examples/` holds worked packs (`example_universe`, `sky_islands`); a `tests/examples.rs` in
+  `singularity-core` parses them through the real code so a stale field fails the build.
+- See `docs/universe-format.md` and `docs/singularity-format.md`.

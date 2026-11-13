@@ -57,10 +57,39 @@ the client would never load.
 
 Dependencies are fetched at configure time and pinned by commit in `CMakeLists.txt` (see `NOTICE`).
 
+## The Rust engine (`rust/`)
+
+The two mod formats are backed by Rust crates under `rust/`, cross-compiled for `arm64-v8a` into
+`libcaramel_universe.so` and `libcaramel_singularity.so`:
+
+| Crate              | Role                                                                     |
+| ------------------ | ------------------------------------------------------------------------ |
+| `universe-core`    | `.universe` manifest, Ed25519 signing, permissions, ZIP reader/extractor, load order |
+| `singularity-core` | `.singularity` world generation: noise, biomes, structures, mesher, fluids, physics |
+| `universe-jni`     | the `.universe` cdylib: JNI entry points + a C ABI the C++ bridge calls   |
+| `singularity-jni`  | the `.singularity` cdylib                                                 |
+| `caramel-cli`      | packs a directory into a package, signs it, verifies it, keygens, inspects |
+
+The C++ runtime reaches the loader through `pl/engine/UniverseBridge.cpp`, which resolves the
+already-loaded cdylib's C ABI with `RTLD_NOLOAD` — it never loads a second copy.
+
+Cross-compile (needs the NDK and an `aarch64-linux-android` Rust target):
+
+```sh
+bash rust/build-android.sh
+```
+
+Run the Rust tests on the host:
+
+```sh
+cd rust && cargo test
+```
+
 ## Host tests
 
 The pure parts — the geometry parser, animation solver, socket protocol, signature pattern parser,
-ELF build-id reader, callback snapshot — carry no Android types and are tested on the build host:
+ELF build-id reader, callback snapshot, the `.universe` bridge's fail-closed contract — carry no
+Android types and are tested on the build host:
 
 ```sh
 bash tests/cosmetics/run_tests.sh
@@ -114,11 +143,16 @@ the wrong function.
 
 ## Docs
 
+- `docs/universe-format.md` — the `.universe` mod format: manifest, signature, permissions, lifecycle.
+- `docs/singularity-format.md` — the `.singularity` world-gen format: manifest, determinism, pipeline.
 - `docs/player-render-hook.md` — the player-render seam the cosmetics renderer uses.
 - `docs/mce-image-pipeline.md` — the engine image-loader seam.
 - `docs/native-cosmetic-render-route.md` — why the engine-geometry route is not reachable.
 - `docs/resource-pack-reload.md` — why an in-place pack reload is not implemented.
 - `docs/sweetloader-item-status.md` — per-item status of the hardening work.
+
+Example packs live under `examples/` (`example_universe`, `sky_islands`), each with the manifest and
+sources to build it.
 
 ## Licence
 

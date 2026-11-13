@@ -1,0 +1,12 @@
+{
+  "id": "example_universe",
+  "name": "Example Universe Mod",
+  "version": "1.0.0",
+  "author": "CaramelClient",
+  "min_client_version": "1.0.0",
+  "abi": "arm64-v8a",
+  "native_libs": ["lib/libexample_universe.so"],
+  "berry_api_dependencies": [],
+  "hooks": [],
+  "permissions": ["read_memory"]
+}

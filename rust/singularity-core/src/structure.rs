@@ -24,6 +24,77 @@ pub struct StructureRule {
     pub separation: i32,
 }
 
+/// A structure rule as it appears in a pack's `structures/*.json`.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct StructureDefinition {
+    pub id: String,
+    #[serde(default = "default_spacing")]
+    pub spacing: i32,
+    #[serde(default = "default_rarity")]
+    pub rarity: f32,
+    #[serde(default = "default_footprint")]
+    pub footprint: [i32; 2],
+    #[serde(default)]
+    pub separation: i32,
+}
+
+fn default_spacing() -> i32 {
+    16
+}
+fn default_rarity() -> f32 {
+    0.5
+}
+fn default_footprint() -> [i32; 2] {
+    [1, 1]
+}
+
+impl StructureDefinition {
+    /// Converts the definition to a [`StructureRule`], refusing an unsafe id or a rule the placer
+    /// cannot act on (non-positive spacing or footprint, a non-finite rarity).
+    pub fn to_rule(&self) -> universe_core::Result<StructureRule> {
+        if !universe_core::manifest::is_safe_segment(&self.id) {
+            return Err(universe_core::Error::new(format!(
+                "structure id '{}' is not a safe identifier",
+                self.id
+            )));
+        }
+        if self.spacing <= 0 {
+            return Err(universe_core::Error::new(format!(
+                "structure '{}' has a non-positive spacing",
+                self.id
+            )));
+        }
+        if self.footprint[0] <= 0 || self.footprint[1] <= 0 {
+            return Err(universe_core::Error::new(format!(
+                "structure '{}' has a non-positive footprint",
+                self.id
+            )));
+        }
+        if !self.rarity.is_finite() {
+            return Err(universe_core::Error::new(format!(
+                "structure '{}' has a non-finite rarity",
+                self.id
+            )));
+        }
+        Ok(StructureRule {
+            id: self.id.clone(),
+            spacing: self.spacing,
+            rarity: self.rarity.clamp(0.0, 1.0),
+            width: self.footprint[0],
+            depth: self.footprint[1],
+            separation: self.separation.max(0),
+        })
+    }
+}
+
+/// Parses one `structures/*.json` file into a [`StructureRule`].
+pub fn parse_definition(json: &str) -> universe_core::Result<StructureRule> {
+    let definition: StructureDefinition = serde_json::from_str(json).map_err(|error| {
+        universe_core::Error::new(format!("a structure definition is not valid JSON: {error}"))
+    })?;
+    definition.to_rule()
+}
+
 /// A placed structure.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placement {
@@ -211,5 +282,29 @@ mod tests {
         assert!(!a.overlaps(&b, 0));
         assert!(a.overlaps(&b, 2));
         assert_eq!(a.overlaps(&b, 1), b.overlaps(&a, 1));
+    }
+
+    #[test]
+    fn parses_a_structure_definition() {
+        let rule = parse_definition(
+            r#"{ "id": "sky_dungeon", "spacing": 24, "rarity": 0.25, "footprint": [3, 4], "separation": 2 }"#,
+        )
+        .unwrap();
+        assert_eq!(rule.id, "sky_dungeon");
+        assert_eq!(rule.spacing, 24);
+        assert_eq!(rule.width, 3);
+        assert_eq!(rule.depth, 4);
+        // Absent fields take their defaults.
+        let defaults = parse_definition(r#"{ "id": "ruin" }"#).unwrap();
+        assert_eq!(defaults.spacing, 16);
+        assert_eq!(defaults.width, 1);
+    }
+
+    #[test]
+    fn refuses_a_structure_definition_the_placer_cannot_use() {
+        assert!(parse_definition(r#"{ "id": "../escape" }"#).is_err());
+        assert!(parse_definition(r#"{ "id": "x", "spacing": 0 }"#).is_err());
+        assert!(parse_definition(r#"{ "id": "x", "footprint": [0, 2] }"#).is_err());
+        assert!(parse_definition("not json").is_err());
     }
 }

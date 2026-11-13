@@ -22,3 +22,17 @@ The following is vendored as a prebuilt static library under lib/ARM64/ and is n
 
 The Android NDK's libc++ is linked dynamically and shipped by the client APK
 (libc++_shared.so); it is covered by the LLVM/University of Illinois licence.
+
+Rust crates
+-----------
+The Rust engine under rust/ is a Cargo workspace. Its crates are fetched from
+crates.io and pinned in rust/Cargo.lock. Their licences (SPDX identifiers):
+
+  serde / serde_json              MIT OR Apache-2.0
+  sha2                            MIT OR Apache-2.0
+  ed25519-dalek                   BSD-3-Clause
+  zip                             MIT
+  getrandom                       MIT OR Apache-2.0
+  jni                             MIT OR Apache-2.0
+  log                             MIT OR Apache-2.0
+  android_logger                  MIT OR Apache-2.0
