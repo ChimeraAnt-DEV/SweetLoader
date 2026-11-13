@@ -8,8 +8,8 @@
  *
  *  - **It could not do what the item advertises.** The definitions were hidden by
  *    `-fvisibility=hidden`, so they never reached the game's allocations and gave no speedup.
- *  - **It hijacked the preloader's own frees.** The load-time constructor turned mimalloc on
- *    before `JNI_OnLoad`, so every `free` in the preloader forwarded to `mi_free`. A block that
+ *  - **It hijacked the sweetloader's own frees.** The load-time constructor turned mimalloc on
+ *    before `JNI_OnLoad`, so every `free` in the sweetloader forwarded to `mi_free`. A block that
  *    came from libc (for example one allocated by `strdup` inside GlossHook's xdl and then freed
  *    by `xdl_close`) faults in mimalloc. An allocator may only free memory it allocated.
  *  - **`thread_local` in `malloc` is itself unsafe on this target.** With minSdk 28 the compiler

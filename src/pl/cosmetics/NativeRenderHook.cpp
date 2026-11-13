@@ -174,7 +174,7 @@ bool InitNativeCosmeticRenderHook(std::size_t vtableIndex) {
       "18LivePlayerRenderer", "variable.player_x_rotation", kGameModule, 200);
   if (!renderCheck) {
     if (!pl::runtime::MatchesConfiguredVersion(kVerifiedMinVersion, kVerifiedMaxVersion)) {
-      preloaderLogger.warn(
+      sweetLoaderLogger.warn(
           "Native cosmetics: build outside the verified range {}-{} and the live probe found no "
           "render slot; not hooking the render seam",
           kVerifiedMinVersion, kVerifiedMaxVersion);
@@ -186,7 +186,7 @@ bool InitNativeCosmeticRenderHook(std::size_t vtableIndex) {
     }
   }
   if (!renderCheck) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Native cosmetics: LivePlayerRenderer render entry unresolved; keeping the pack path");
     return false;
   }
@@ -201,10 +201,10 @@ bool InitNativeCosmeticRenderHook(std::size_t vtableIndex) {
   // thread during init) and the render path uses whatever is published when it is ready, falling
   // back to the live local-player pose (position + rotation) until then.
   pl::render::CameraSource::ResolveAsync();
-  preloaderLogger.info(
+  sweetLoaderLogger.info(
       "Native cosmetics: camera scan started; anchoring via local-player pose until it resolves");
 
-  preloaderLogger.info("Native cosmetics: registered post-render callback");
+  sweetLoaderLogger.info("Native cosmetics: registered post-render callback");
   return true;
 }
 

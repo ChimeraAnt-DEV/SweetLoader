@@ -256,7 +256,7 @@ pl::platform::HttpResponse HttpGetImpl(std::string_view url, int timeoutMs) {
     jstring acceptKey = string("Accept");
     jstring acceptValue = string("application/json");
     jstring agentKey = string("User-Agent");
-    jstring agentValue = string("ChimeraPreloader/1");
+    jstring agentValue = string("ChimeraSweetLoader/1");
     jstring retryKey = string("Retry-After");
     if (!jUrl || !get || !acceptKey || !acceptValue || !agentKey || !agentValue || !retryKey) return false;
 

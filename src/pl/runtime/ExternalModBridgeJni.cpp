@@ -233,7 +233,7 @@ return nullptr;
 const size_t maxArrayLength =
         static_cast<size_t>(std::numeric_limits<jsize>::max());
 if (iconData.size() > maxArrayLength) {
-preloaderLogger.error("Registered button icon is too large to marshal to "
+sweetLoaderLogger.error("Registered button icon is too large to marshal to "
 "Java: {}",
 iconData.size());
 return nullptr;
@@ -344,7 +344,7 @@ const size_t maxArrayLength =
         static_cast<size_t>(std::numeric_limits<jsize>::max());
 if (commandCount > maxArrayLength ||
 commandCount > maxArrayLength / kRectFieldsPerCommand) {
-preloaderLogger.error("Too many draw commands to marshal to Java: {}",
+sweetLoaderLogger.error("Too many draw commands to marshal to Java: {}",
 commandCount);
 return nullptr;
 }
@@ -502,7 +502,7 @@ return nullptr;
 const size_t maxArrayLength =
         static_cast<size_t>(std::numeric_limits<jsize>::max());
 if (fontData.size() > maxArrayLength) {
-preloaderLogger.error(
+sweetLoaderLogger.error(
 "Registered font is too large to marshal to Java: {}", fontData.size());
 return nullptr;
 }
@@ -542,7 +542,7 @@ return nullptr;
 const size_t maxArrayLength =
         static_cast<size_t>(std::numeric_limits<jsize>::max());
 if (imageData.size() > maxArrayLength) {
-preloaderLogger.error("Registered image is too large to marshal to Java: {}",
+sweetLoaderLogger.error("Registered image is too large to marshal to Java: {}",
 imageData.size());
 return nullptr;
 }

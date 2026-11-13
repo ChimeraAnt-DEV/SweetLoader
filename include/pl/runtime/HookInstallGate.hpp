@@ -4,7 +4,7 @@
  * @file HookInstallGate.hpp
  * @brief Decides when the deferred game-hook install may run.
  *
- * <p>The hooks used to install from the preloader's `enableLoadedMods` call, which the game activity
+ * <p>The hooks used to install from the sweetloader's `enableLoadedMods` call, which the game activity
  * makes in `onCreate` <em>before</em> the engine's graphics backend and the `libminecraftpe.so`
  * relocation have finished. Two things go wrong there:
  *
@@ -66,7 +66,7 @@ inline bool RuntimeProbeSatisfied(bool presentProbeLive, std::uint64_t presents)
  * @brief The deferred-install state machine.
  *
  * <p>Pure and allocation-free: it only counts frame ticks against a monotonic clock. {@link #start}
- * arms it at preloader-init time; {@link #tick} is called once per game frame and reports the
+ * arms it at sweetloader-init time; {@link #tick} is called once per game frame and reports the
  * decision. Once it has decided (install or give up) it stays resolved and reports {@code Wait}
  * forever, so the install can never run twice.
  */

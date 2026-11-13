@@ -1,10 +1,11 @@
-# preloader
+# SweetLoader
 
-A native runtime that loads into the Minecraft Bedrock process and exposes hook, signature and
-input primitives to the Glowberry Client launcher and to native mods.
+SweetLoader is the native runtime that maps into the Minecraft Bedrock process and exposes hook,
+signature, memory and input primitives to the Glowberry Client launcher and to native mods. It is
+the engine behind CaramelClient's `.universe` and `.singularity` mod formats.
 
 It is a **shared library**, not an app. The launcher's `MinecraftActivity` calls
-`System.loadLibrary("preloader")`, which maps it into the game's own process — that is the point:
+`System.loadLibrary("sweetloader")`, which maps it into the game's own process — that is the point:
 a mod's hooks must run in the address space of `libminecraftpe.so`.
 
 ## What it does
@@ -38,8 +39,8 @@ docs/           per-area notes
 
 ## Building
 
-The preloader is built as part of the client APK; you normally do not build it on its own. The
-client's `app/build.gradle` adds `app/src/main/cpp/preloader` as a CMake subdirectory, and the
+The sweetloader is built as part of the client APK; you normally do not build it on its own. The
+client's `app/build.gradle` adds `app/src/main/cpp/sweetloader` as a CMake subdirectory, and the
 NDK toolchain compiles it for `arm64-v8a`.
 
 To build it directly:
@@ -71,7 +72,7 @@ into a gitignored cache on first run, or point `NLOHMANN_JSON_INCLUDE` at an exi
 ## Writing a mod against it
 
 A mod is a shared library that the client's mod loader `dlopen`s. It includes the public headers
-under `include/pl/` and links against the preloader, which is already resident in the process:
+under `include/pl/` and links against the sweetloader, which is already resident in the process:
 
 ```cpp
 #include "pl/memory/Signature.hpp"
@@ -105,7 +106,7 @@ Notes that matter:
 ## ABI policy
 
 The public surface is the C++ headers under `include/pl/`, plus the C entry points in
-`src/pl/legacy/`. A mod that links against the preloader is coupled to that surface: an exported
+`src/pl/legacy/`. A mod that links against the sweetloader is coupled to that surface: an exported
 function's signature or a header's layout must not change without a version bump and a note here.
 The `pl::memory::hook` signature is the clearest example — it is a parameter list, not a default
 argument, so that a mod built against a different arity fails to load loudly rather than binding to
@@ -117,7 +118,7 @@ the wrong function.
 - `docs/mce-image-pipeline.md` — the engine image-loader seam.
 - `docs/native-cosmetic-render-route.md` — why the engine-geometry route is not reachable.
 - `docs/resource-pack-reload.md` — why an in-place pack reload is not implemented.
-- `docs/preloader-item-status.md` — per-item status of the hardening work.
+- `docs/sweetloader-item-status.md` — per-item status of the hardening work.
 
 ## Licence
 

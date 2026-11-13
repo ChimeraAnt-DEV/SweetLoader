@@ -203,7 +203,7 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
       if (pl::runtime::HookOverBudget(elapsedUs)) {
         static OnceReport reported;
         if (reported.shouldReport()) {
-          preloaderLogger.warn("{}", pl::runtime::HookBudgetReport("post-render", elapsedUs));
+          sweetLoaderLogger.warn("{}", pl::runtime::HookBudgetReport("post-render", elapsedUs));
         }
       }
     } else {
@@ -259,7 +259,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
       pl::runtime::EvaluateConfiguredFeatureGate(pl::runtime::HookFeature::PlayerRender);
   if (gate == FeatureGate::ProbeUnresolved || gate == FeatureGate::ProbeMissing) {
     refuse(kReasonProbeGate);
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Player-render feed: the matching rule's probe for the render seam did not resolve ({}); "
         "native cosmetics stay on the resource-pack path",
         pl::runtime::FeatureGateLabel(gate));
@@ -287,7 +287,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
     // slot.
     if (!MatchesConfiguredVersion(kVerifiedMinVersion, kVerifiedMaxVersion)) {
       refuse(kReasonVersionGate);
-      preloaderLogger.warn(
+      sweetLoaderLogger.warn(
           "Player-render feed: running build is outside the verified range {}-{} and the live "
           "probe found no render slot; native cosmetics stay on the resource-pack path",
           kVerifiedMinVersion, kVerifiedMaxVersion);
@@ -298,7 +298,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
   }
   if (!renderFn) {
     refuse(kReasonSlotUnresolved);
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Player-render feed: LivePlayerRenderer slot unresolved; native cosmetics "
         "stay on the resource-pack path");
     return;
@@ -308,7 +308,7 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
   // so the widened version gate cannot turn a wrong slot into a render-thread fault.
   if (!pl::memory::isExecutableAddress(renderFn, kGameModule)) {
     refuse(kReasonNotExecutable);
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Player-render feed: LivePlayerRenderer slot {} did not resolve to executable code; "
         "skipping the hook",
         slot);
@@ -321,11 +321,11 @@ void InitPlayerRenderSource(std::size_t vtableIndex) {
                        pl::memory::HookPriority::Normal,
                        "LivePlayerRenderer::render") != 0) {
     refuse(kReasonHookFailed);
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Player-render feed: hook install failed; native cosmetics stay on the "
         "resource-pack path");
   } else {
-    preloaderLogger.info("Player-render feed: LivePlayerRenderer::render hooked (slot {})",
+    sweetLoaderLogger.info("Player-render feed: LivePlayerRenderer::render hooked (slot {})",
                          slot);
     g_renderFailureReason.store(0, std::memory_order_relaxed);
     g_resolvedSlot.store(slot, std::memory_order_relaxed);

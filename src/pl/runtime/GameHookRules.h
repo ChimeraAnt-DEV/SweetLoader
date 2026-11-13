@@ -60,7 +60,7 @@ bool MatchesConfiguredVersion(const std::string &minVersion,
  * @brief Reports whether signature rules have actually been delivered to this process.
  *
  * The launcher configures the rules before the hooks are installed. If that call was lost —
- * the preloader library was not loaded yet, a stale build, or a different process — the rules
+ * the sweetloader library was not loaded yet, a stale build, or a different process — the rules
  * path is empty and there is no verified target to hook. Installing a detour against an
  * unresolved address is what faults on the render thread, so hook installation refuses to run
  * when this returns false and the session launches vanilla instead.

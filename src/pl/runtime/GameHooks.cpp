@@ -32,7 +32,7 @@ std::atomic_bool g_forceGlobalModMenu{false};
 std::once_flag g_gameHooksOnce;
 std::once_flag g_armOnce;
 
-// The deferred-install gate. Armed at preloader init; ticked from the game's frame pump. Guarded by
+// The deferred-install gate. Armed at sweetloader init; ticked from the game's frame pump. Guarded by
 // an atomic flag so the common per-frame path is a single load and returns.
 HookInstallGate g_installGate;
 std::atomic_bool g_installArmed{false};
@@ -107,13 +107,13 @@ bool InstallHook(uintptr_t target, pl::memory::FuncPtr detour,
                  pl::memory::FuncPtr *original,
                  const char *name) {
   if (!target) {
-    preloaderLogger.warn("Preloader hook target is missing: {}", name);
+    sweetLoaderLogger.warn("SweetLoader hook target is missing: {}", name);
     return false;
   }
 
   if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(target), detour,
                        original, pl::memory::HookPriority::Normal, name) != 0) {
-    preloaderLogger.warn("Failed to install Preloader hook: {}", name);
+    sweetLoaderLogger.warn("Failed to install SweetLoader hook: {}", name);
     return false;
   }
   return true;
@@ -134,8 +134,8 @@ bool InstallHookBatch(const std::vector<PendingHook> &batch) {
 
   for (const auto &h : batch) {
     if (!InstallHook(h.target, h.detour, h.original, h.name)) {
-      preloaderLogger.error(
-          "Preloader hook install aborted at '{}'; rolling back {} hook(s) already "
+      sweetLoaderLogger.error(
+          "SweetLoader hook install aborted at '{}'; rolling back {} hook(s) already "
           "installed",
           h.name, installed.size());
       for (const auto *done : installed) {
@@ -165,8 +165,8 @@ void InitGameHooks() {
   // process), install nothing AND do not consume the once. A later PumpGameHookInstall after
   // delivery then gets a clean attempt instead of permanently skipping cosmetics for the session.
   if (!GameHookRulesConfigured()) {
-    preloaderLogger.warn(
-        "Preloader signature rules were not delivered; deferring hook install (will retry "
+    sweetLoaderLogger.warn(
+        "SweetLoader signature rules were not delivered; deferring hook install (will retry "
         "when they arrive)");
     return;
   }
@@ -229,8 +229,8 @@ void InitGameHooks() {
 
     if (!pauseDtor || !pauseOpen || !hudDtor || !hudOpen ||
         !isShowingMenuAddr) {
-      preloaderLogger.warn(
-          "Preloader runtime data is incomplete; game-only overlays remain hidden");
+      sweetLoaderLogger.warn(
+          "SweetLoader runtime data is incomplete; game-only overlays remain hidden");
       return;
     }
 
@@ -265,13 +265,13 @@ void InitGameHooks() {
     });
 
     if (!InstallHookBatch(overlayHooks)) {
-      preloaderLogger.warn(
-          "Preloader runtime hooks are incomplete; game-only overlays remain hidden");
+      sweetLoaderLogger.warn(
+          "SweetLoader runtime hooks are incomplete; game-only overlays remain hidden");
       return;
     }
 
     g_overlayHooksInstalled.store(true, std::memory_order_relaxed);
-    preloaderLogger.info("Preloader runtime hooks installed (5/5)");
+    sweetLoaderLogger.info("SweetLoader runtime hooks installed (5/5)");
   });
 }
 
@@ -279,8 +279,8 @@ void ArmGameHookInstall() {
   std::call_once(g_armOnce, [] {
     g_installGate.start(MonotonicMs());
     g_installArmed.store(true, std::memory_order_release);
-    preloaderLogger.info(
-        "Preloader hook install armed; deferring until the game runtime is up");
+    sweetLoaderLogger.info(
+        "SweetLoader hook install armed; deferring until the game runtime is up");
   });
 }
 
@@ -340,14 +340,14 @@ bool PumpGameHookInstall() {
     // leaving the game vanilla rather than patching something half-mapped.
     if (g_installGiveUps.fetch_add(1, std::memory_order_relaxed) + 1 >= kMaxGiveUps) {
       g_installResolved.store(true, std::memory_order_release);
-      preloaderLogger.warn(
-          "Preloader hook install gave up after {} attempts; the runtime did not come up",
+      sweetLoaderLogger.warn(
+          "SweetLoader hook install gave up after {} attempts; the runtime did not come up",
           g_installGiveUps.load(std::memory_order_relaxed));
       return true;
     }
     g_installGate.start(nowMs + kGiveUpBackoffMs);
-    preloaderLogger.warn(
-        "Preloader hook install wait exceeded the gate budget after {} frame tick(s); retrying in "
+    sweetLoaderLogger.warn(
+        "SweetLoader hook install wait exceeded the gate budget after {} frame tick(s); retrying in "
         "{}ms",
         g_installGate.frameTicks(), kGiveUpBackoffMs);
     return false;
@@ -357,20 +357,20 @@ bool PumpGameHookInstall() {
   // deferral is not a permanent skip, so the gate is re-armed to schedule another attempt. Without
   // the re-arm the gate would already be resolved and every later tick would report Wait, losing the
   // install for the whole session even after the rules arrived.
-  preloaderLogger.info("Preloader hook install running after {} frame tick(s)",
+  sweetLoaderLogger.info("SweetLoader hook install running after {} frame tick(s)",
                        g_installGate.frameTicks());
   InitGameHooks();
   if (GameHookInstallResolved()) return true;
   if (g_installGate.deferredCount() >= HookInstallGate::kMaxDefers) {
     g_installResolved.store(true, std::memory_order_release);
-    preloaderLogger.warn(
-        "Preloader hook install deferred {} times; the signature rules never arrived, leaving the "
+    sweetLoaderLogger.warn(
+        "SweetLoader hook install deferred {} times; the signature rules never arrived, leaving the "
         "game unpatched", g_installGate.deferredCount());
     return true;
   }
   g_installGate.defer(nowMs);
-  preloaderLogger.warn(
-      "Preloader hook install deferred (signature rules not delivered yet); retrying on a later "
+  sweetLoaderLogger.warn(
+      "SweetLoader hook install deferred (signature rules not delivered yet); retrying on a later "
       "frame tick");
   return false;
 }

@@ -10,7 +10,7 @@ namespace pl::runtime {
  *
  * Mirrors the Kotlin model in org.chimeramc.client.core.antegg.AntEggManifest. The two exist
  * because validation happens on whichever side receives the import: the launcher UI loads
- * at-rest packages through Kotlin, while the preloader loads them during a launch. Both must
+ * at-rest packages through Kotlin, while the sweetloader loads them during a launch. Both must
  * apply the same rules or a package could be accepted in one place and rejected in the other.
  */
 struct AntEggManifest {
@@ -39,7 +39,7 @@ struct AntEggManifest {
 /**
  * Reads and extracts .AntEgg packages on the native side.
  *
- * The ZIP reader is built on zlib's raw inflate (the NDK ships zlib), so the preloader gains no
+ * The ZIP reader is built on zlib's raw inflate (the NDK ships zlib), so the sweetloader gains no
  * new third-party dependency for an import format — the alternative, a bundled ZIP library,
  * would be one more artifact to keep built for arm64 only.
  */

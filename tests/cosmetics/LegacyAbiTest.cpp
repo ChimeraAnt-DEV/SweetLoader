@@ -31,15 +31,15 @@ namespace {
 
 using HookType = int (*)(PLFuncPtr, PLFuncPtr, PLFuncPtr *, PLHookPriority);
 using UnhookType = bool (*)(PLFuncPtr, PLFuncPtr);
-using GetInputType = PreloaderInput_Interface *(*)(void);
+using GetInputType = SweetLoaderInput_Interface *(*)(void);
 using PatchBytesType = bool (*)(uintptr_t, const uint8_t *, size_t, const char *);
 using ResolveSignatureType = uintptr_t (*)(const char *, const char *);
 
 static_assert(std::is_same_v<decltype(&pl_hook), HookType>,
               "pl_hook must keep its C hook arity");
 static_assert(std::is_same_v<decltype(&pl_unhook), UnhookType>, "pl_unhook must keep its arity");
-static_assert(std::is_same_v<decltype(&GetPreloaderInput), GetInputType>,
-              "GetPreloaderInput must keep its arity");
+static_assert(std::is_same_v<decltype(&GetSweetLoaderInput), GetInputType>,
+              "GetSweetLoaderInput must keep its arity");
 static_assert(std::is_same_v<decltype(&pl_patch_write_bytes), PatchBytesType>,
               "pl_patch_write_bytes must keep its arity");
 static_assert(std::is_same_v<decltype(&pl_resolve_signature), ResolveSignatureType>,
@@ -68,9 +68,9 @@ int main() {
   static_assert(static_cast<int>(pl::memory::HookPriority::Lowest) == 400, "Lowest matches");
 
   // The input interface's slots are the ABI a mod reads through; it must stay a plain aggregate.
-  static_assert(std::is_standard_layout_v<PreloaderInput_Interface>,
+  static_assert(std::is_standard_layout_v<SweetLoaderInput_Interface>,
                 "the input interface is a standard-layout struct");
-  static_assert(sizeof(PreloaderInput_Interface) == 6 * sizeof(void *),
+  static_assert(sizeof(SweetLoaderInput_Interface) == 6 * sizeof(void *),
                 "the input interface is six function pointers");
 
   // Reaching this line means every assertion above compiled.

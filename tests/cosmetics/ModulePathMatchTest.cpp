@@ -66,10 +66,10 @@ int main() {
          "a directory segment does not match");
   expect(!MapsPathNamesModule("/data/app/x/lib/arm64/libminecraftpe.so", "libc.so"),
          "a different name does not match");
-  expect(MapsPathNamesModule("libpreloader.so", "libpreloader.so"),
+  expect(MapsPathNamesModule("libsweetloader.so", "libsweetloader.so"),
          "a bare basename matches");
-  expect(!MapsPathNamesModule("/x/libpreloader.so", ""), "an empty module name never matches");
-  expect(!MapsPathNamesModule("", "libpreloader.so"), "an empty path never matches");
+  expect(!MapsPathNamesModule("/x/libsweetloader.so", ""), "an empty module name never matches");
+  expect(!MapsPathNamesModule("", "libsweetloader.so"), "an empty path never matches");
 
   // Permission helpers.
   expect(MapsPermsExecutable("r-xp"), "r-xp is executable");
@@ -83,11 +83,11 @@ int main() {
 
   // The tag form of an anonymous mapping keeps its text but never matches a module name.
   MapsLine tagged{};
-  expect(ParseMapsLine("7a00000000-7a00001000 rw-p 00000000 00:00 0 [anon:libpreloader]",
+  expect(ParseMapsLine("7a00000000-7a00001000 rw-p 00000000 00:00 0 [anon:libsweetloader]",
                        tagged),
          "a tagged anon line parses");
-  expect(tagged.path == "[anon:libpreloader]", "the tag is kept verbatim");
-  expect(!MapsPathNamesModule(tagged.path, "libpreloader.so"), "a tag never matches a module");
+  expect(tagged.path == "[anon:libsweetloader]", "the tag is kept verbatim");
+  expect(!MapsPathNamesModule(tagged.path, "libsweetloader.so"), "a tag never matches a module");
 
   std::printf("ModulePathMatchTest: %d checks passed\n", checks);
   return 0;

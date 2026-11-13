@@ -1,7 +1,7 @@
 // Host tests for the native egg.json parser.
 //
 // AntEggLoader had no host test at all, which is how the two parsers - the Kotlin one in the
-// launcher and this one in the preloader - could drift without anything failing. The struct's own
+// launcher and this one in the sweetloader - could drift without anything failing. The struct's own
 // doc-comment says both "must apply the same rules or a package could be accepted in one place and
 // rejected in the other"; these tests are that claim, checked.
 //

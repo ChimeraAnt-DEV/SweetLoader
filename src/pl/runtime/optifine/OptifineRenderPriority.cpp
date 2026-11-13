@@ -50,7 +50,7 @@ bool TryApplyToThread(pid_t tid, OptifineItemState &state) {
     // Refused by the kernel (no CAP_SYS_NICE) or the thread is gone. Report it honestly; the
     // game runs fine on the default scheduler.
     MarkOptifineSkipped(state, "render thread found, real-time scheduling refused");
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Optifine render priority: SCHED_FIFO refused for tid {} (errno {})", tid, errno);
     return false;
   }
@@ -61,7 +61,7 @@ bool TryApplyToThread(pid_t tid, OptifineItemState &state) {
   gApplied.store(true, std::memory_order_relaxed);
   state.needsRestart = false;
   MarkOptifineActive(state, "render thread SCHED_FIFO priority 1");
-  preloaderLogger.info(
+  sweetLoaderLogger.info(
       "Optifine render priority: tid {} {}->{} policy {}->{}", tid, oldPriority,
       newPriority, oldPolicy, newPolicy);
   return true;

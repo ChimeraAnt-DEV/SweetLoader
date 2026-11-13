@@ -121,11 +121,11 @@ HookSelfTestReport RunHookSelfTest(const std::vector<HookSite> &sites) {
   g_lastReport = report;
   g_hasRun = true;
   if (!report.backendOk) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Hook self-test: the hook backend failed its control round-trip; hook installs are not "
         "reliable on this build");
   } else {
-    preloaderLogger.info("Hook self-test: {}", report.summary());
+    sweetLoaderLogger.info("Hook self-test: {}", report.summary());
   }
   return report;
 }

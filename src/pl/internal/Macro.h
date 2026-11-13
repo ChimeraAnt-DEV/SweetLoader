@@ -1,12 +1,12 @@
 #pragma once
 
 #ifdef __cplusplus
-#define PRELOADER_MAYBE_UNUSED [[maybe_unused]]
+#define SWEETLOADER_MAYBE_UNUSED [[maybe_unused]]
 #else
-#define PRELOADER_MAYBE_UNUSED
+#define SWEETLOADER_MAYBE_UNUSED
 #endif
 
-#ifdef PRELOADER_EXPORT
+#ifdef SWEETLOADER_EXPORT
 #define PLAPI [[maybe_unused]] __attribute__((visibility("default")))
 #else
 #define PLAPI [[maybe_unused]]

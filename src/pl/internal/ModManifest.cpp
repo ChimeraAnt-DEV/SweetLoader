@@ -101,7 +101,7 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
   try {
     manifestJson = nlohmann::json::parse(*manifestContent);
   } catch (const std::exception &ex) {
-    preloaderLogger.warn("Failed to parse manifest {}: {}",
+    sweetLoaderLogger.warn("Failed to parse manifest {}: {}",
                          manifestPath.string(), ex.what());
     return std::nullopt;
   }
@@ -124,21 +124,21 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
   std::replace(entryPath.begin(), entryPath.end(), '\\', '/');
   const fs::path relativeEntryPath(entryPath);
   if (!isSafeRelativePath(relativeEntryPath)) {
-    preloaderLogger.warn("Rejected invalid mod entry path {} in {}", entryPath,
+    sweetLoaderLogger.warn("Rejected invalid mod entry path {} in {}", entryPath,
                          manifestPath.string());
     return std::nullopt;
   }
 
   const fs::path entryFilePath = modDirectory / relativeEntryPath;
   if (!fs::exists(entryFilePath) || !fs::is_regular_file(entryFilePath)) {
-    preloaderLogger.warn("Mod entry {} declared in {} does not exist",
+    sweetLoaderLogger.warn("Mod entry {} declared in {} does not exist",
                          entryFilePath.string(), manifestPath.string());
     return std::nullopt;
   }
 
   const auto entryFileName = entryFilePath.filename().string();
   if (!endsWithSo(entryFileName)) {
-    preloaderLogger.warn("Mod entry {} is not a .so file",
+    sweetLoaderLogger.warn("Mod entry {} is not a .so file",
                          entryFilePath.string());
     return std::nullopt;
   }
@@ -150,7 +150,7 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
     if (!isSafeRelativePath(relativeIconPath) ||
         !fs::exists(modDirectory / relativeIconPath) ||
         !fs::is_regular_file(modDirectory / relativeIconPath)) {
-      preloaderLogger.warn("Ignoring invalid mod icon {} in {}", iconPath,
+      sweetLoaderLogger.warn("Ignoring invalid mod icon {} in {}", iconPath,
                            manifestPath.string());
       iconPath.clear();
     }
@@ -173,7 +173,7 @@ parseModDirectory(const std::filesystem::path &modDirectory) {
   declared.entryFileName = entryFileName;
   const ModManifestValidation validation = ValidateModManifest(declared);
   if (!validation.ok) {
-    preloaderLogger.warn("Rejected mod manifest {}: field '{}' {}",
+    sweetLoaderLogger.warn("Rejected mod manifest {}: field '{}' {}",
                          manifestPath.string(), ModManifestFieldName(validation.field),
                          validation.reason);
     return std::nullopt;
@@ -270,14 +270,14 @@ bool createRuntimeModInfo(
                            ? sourceModDirectory
                            : findModRootForLibraryPath(libraryPath);
   if (!modRoot.has_value()) {
-    preloaderLogger.error("Failed to resolve mod root for library {}",
+    sweetLoaderLogger.error("Failed to resolve mod root for library {}",
                           libraryPath.string());
     return false;
   }
 
   const auto parsedMod = parseModDirectory(*modRoot);
   if (!parsedMod.has_value()) {
-    preloaderLogger.error("Failed to parse mod manifest under {}",
+    sweetLoaderLogger.error("Failed to parse mod manifest under {}",
                           modRoot->string());
     return false;
   }
@@ -287,7 +287,7 @@ bool createRuntimeModInfo(
 
   if (!fs::exists(expectedLibraryPath) ||
       !fs::is_regular_file(expectedLibraryPath)) {
-    preloaderLogger.error("Resolved mod library {} does not exist",
+    sweetLoaderLogger.error("Resolved mod library {} does not exist",
                           expectedLibraryPath.string());
     return false;
   }

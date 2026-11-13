@@ -136,7 +136,7 @@ void ConfigureOptifineMode(std::string_view blob) {
   }
   gAppliedBlob = applied;
 
-  preloaderLogger.info("Optifine mode: master={} applied={} item(s)", config.master,
+  sweetLoaderLogger.info("Optifine mode: master={} applied={} item(s)", config.master,
                        appliedCount);
 }
 

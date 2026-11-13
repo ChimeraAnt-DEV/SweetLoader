@@ -4,7 +4,7 @@
  * @file VersionCompare.hpp
  * @brief Pure Minecraft version comparison, host-testable.
  *
- * The preloader's hook rules are gated by version ranges, and the launcher derives the version code
+ * The sweetloader's hook rules are gated by version ranges, and the launcher derives the version code
  * from the APK as `26.52` while the bundled rules are written as `1.26.50.00`. Comparing those
  * literally is wrong (`26 > 1`, so a rule that should match is skipped), so the comparison drops a
  * leading `1.` before comparing component-wise. That rule is subtle enough to be worth a unit test

@@ -21,11 +21,11 @@ constexpr int kOptifineItemCount = 9;
  * @brief Bounds on the launcher's config blob.
  *
  * The blob crosses a JNI boundary from the launcher, so a buggy or hostile build could hand the
- * preloader a multi-megabyte string, a million keys or a single kilobyte key. The parser stores
+ * sweetloader a multi-megabyte string, a million keys or a single kilobyte key. The parser stores
  * every key in a map, so an unbounded blob is unbounded memory. These caps are generous for the
  * real blob (9 items x 3 keys plus the master switch is 28 keys, well under 1 KiB) and a blob past
  * them is parsed up to the limit and then ignored, never rejected outright - the launcher and the
- * preloader must stay compatible if one side adds a key.
+ * sweetloader must stay compatible if one side adds a key.
  */
 constexpr std::size_t kOptifineMaxBlobBytes = 16U * 1024U;
 /** The most keys the parser will store; later keys are ignored. */
@@ -63,7 +63,7 @@ struct OptifineConfig {
  * @brief Parses the launcher's flat {@code key=value} blob.
  *
  * Recognised keys: {@code master}, {@code enabled.<id>}, {@code crash.<id>}. Unknown keys and
- * malformed lines are ignored, so a newer launcher can send a key an older preloader does not
+ * malformed lines are ignored, so a newer launcher can send a key an older sweetloader does not
  * know without breaking the rest.
  */
 OptifineConfig ParseOptifineConfig(std::string_view blob);

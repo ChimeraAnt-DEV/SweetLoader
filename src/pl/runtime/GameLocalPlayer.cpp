@@ -165,7 +165,7 @@ void InitLocalPlayerSource() {
       pl::memory::resolveVtableFunction("14ClientInstance", kGetLocalPlayerSlot,
                                         kGameModule);
   if (!slot) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Local-player feed: ClientInstance local-player slot unresolved; "
         "in-world voice nametag icons stay off");
     return;
@@ -177,7 +177,7 @@ void InitLocalPlayerSource() {
                            &g_origGetLocalPlayer),
                        pl::memory::HookPriority::Normal,
                        "ClientInstance::getLocalPlayer") != 0) {
-    preloaderLogger.warn("Local-player feed: hook install failed; icons stay off");
+    sweetLoaderLogger.warn("Local-player feed: hook install failed; icons stay off");
     return;
   }
   g_slotTarget.store(slot, std::memory_order_relaxed);

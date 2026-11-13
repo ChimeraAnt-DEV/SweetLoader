@@ -75,7 +75,7 @@ std::vector<std::string> getLoadedModKeysSnapshot() {
       if (!members.empty()) members.append(" -> ");
       members.append(id);
     }
-    preloaderLogger.warn("Mod dependency cycle: {}; loading in registration order", members);
+    sweetLoaderLogger.warn("Mod dependency cycle: {}; loading in registration order", members);
     return keys;
   }
   if (resolved.order.size() != keys.size()) return keys;

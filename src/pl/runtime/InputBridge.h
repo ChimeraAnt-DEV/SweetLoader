@@ -9,7 +9,7 @@
 
 namespace pl::runtime {
 
-PreloaderInput_Interface *GetInputInterface();
+SweetLoaderInput_Interface *GetInputInterface();
 bool DispatchTouch(int action, int pointerId, float x, float y);
 bool DispatchKeyEvent(int keyCode, unsigned int unicodeChar, bool isKeyDown);
 bool DispatchTextInput(std::string_view text);

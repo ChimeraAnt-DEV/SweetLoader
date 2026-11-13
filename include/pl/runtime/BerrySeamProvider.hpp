@@ -7,9 +7,9 @@
  * <p>BerryAPI's World/Combat/Render modules read game state through a `LevelSeam` the embedder
  * supplies. BerryAPI now exposes that seam as a C struct of function pointers plus
  * `BERRY_SetWorldSeam` (see BerryAPI's `berry/seam.h`), so a host that `dlopen`s `libBerryAPI.so`
- * and cannot include its C++ headers — this preloader — can still bind one.
+ * and cannot include its C++ headers — this sweetloader — can still bind one.
  *
- * <p><b>What this build can honestly answer.</b> The preloader already reads the local player's
+ * <p><b>What this build can honestly answer.</b> The sweetloader already reads the local player's
  * position and view rotation from the `ClientInstance` vtable slot the game itself returns (see
  * `GameLocalPlayer`). It cannot enumerate other entities, read a block, or read the level time:
  * the game strips its symbols, so there is no anchor for those, and inventing one would be the
@@ -63,7 +63,7 @@ struct LocalPlayerMirror {
 };
 
 /**
- * @brief The seam the preloader binds, matching BerryAPI's `BerrySeamC` field for field.
+ * @brief The seam the sweetloader binds, matching BerryAPI's `BerrySeamC` field for field.
  *
  * <p>Only `get_local_player` is ever set; every other slot stays null so the matching read fails
  * closed. `size` and `abi_version` are stamped from the values BerryAPI reports, so the bind can

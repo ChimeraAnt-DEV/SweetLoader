@@ -222,7 +222,7 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
 
   const uintptr_t typeInfo = findTypeInfo(dataRelRo, dataRelRoSize, typeName);
   if (!typeInfo) {
-    preloaderLogger.debug("resolveVtableFunction({}, slot {}): typeinfo not found in {}",
+    sweetLoaderLogger.debug("resolveVtableFunction({}, slot {}): typeinfo not found in {}",
                           normalizedName, slot, module);
     return 0;
   }
@@ -235,7 +235,7 @@ uintptr_t resolveVtableFunction(std::string_view typeInfoName, size_t slot,
     std::lock_guard<std::mutex> lock(gVtableSlotMemoMutex);
     gVtableSlotMemo[memoKey] = resolved;
   }
-  preloaderLogger.debug("resolveVtableFunction({}, slot {}) -> {:#x} in {}",
+  sweetLoaderLogger.debug("resolveVtableFunction({}, slot {}) -> {:#x} in {}",
                         normalizedName, slot, resolved, module);
   return resolved;
 }
@@ -327,7 +327,7 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
   // The needle is a NUL-terminated diagnostic string; find its address in .rodata.
   const uintptr_t needleAddr = findBytes(rodata, rodataSize, needle.data(), needle.size() + 1);
   if (!needleAddr) {
-    preloaderLogger.debug("resolveVtableSlotReferencingString: needle '{}' not in .rodata",
+    sweetLoaderLogger.debug("resolveVtableSlotReferencingString: needle '{}' not in .rodata",
                           std::string(needle));
     return 0;
   }
@@ -345,7 +345,7 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
   const size_t typeInfoPointerOffset =
       findPrimaryVtableOffset(dataRelRo, dataRelRoSize, typeInfo);
   if (typeInfoPointerOffset == 0) {
-    preloaderLogger.debug("resolveVtableSlotReferencingString: no vtable for {}", name);
+    sweetLoaderLogger.debug("resolveVtableSlotReferencingString: no vtable for {}", name);
     return 0;
   }
   for (size_t slot = 0; slot <= maxSlots; ++slot) {
@@ -361,12 +361,12 @@ uintptr_t resolveVtableSlotReferencingString(std::string_view typeInfoName,
     if (textEnd && funcEnd > textEnd) funcEnd = textEnd;
     if (FunctionReferencesAddress(fn, funcEnd, needleAddr)) {
       if (outSlot) *outSlot = slot;
-      preloaderLogger.info("Resolved {} slot {} by string '{}'", name, slot,
+      sweetLoaderLogger.info("Resolved {} slot {} by string '{}'", name, slot,
                            std::string(needle));
       return fn;
     }
   }
-  preloaderLogger.debug("resolveVtableSlotReferencingString: no slot of {} references '{}'", name,
+  sweetLoaderLogger.debug("resolveVtableSlotReferencingString: no slot of {} references '{}'", name,
                         std::string(needle));
   return 0;
 }

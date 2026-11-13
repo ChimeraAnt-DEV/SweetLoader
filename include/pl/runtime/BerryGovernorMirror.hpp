@@ -2,10 +2,10 @@
 
 /**
  * @file BerryGovernorMirror.hpp
- * @brief The preloader's mirror of BerryAPI's performance-governor C ABI, as a host-testable struct.
+ * @brief The sweetloader's mirror of BerryAPI's performance-governor C ABI, as a host-testable struct.
  *
  * <p>BerryAPI exports its adaptive quality governor as a plain C struct of function pointers
- * (`berry/governor_c.h`, `BERRY_GetGovernorApi`). The preloader `dlopen`s the library and cannot
+ * (`berry/governor_c.h`, `BERRY_GetGovernorApi`). The sweetloader `dlopen`s the library and cannot
  * include its headers, so it mirrors the struct and checks the numbers before calling anything — the
  * same contract `BerryReplayMirror.hpp` and `BerrySeamProvider.hpp` use.
  *

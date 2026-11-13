@@ -1,13 +1,13 @@
 # Automated signature-rule generation
 
-The preloader reaches every game seam by RTTI, because the game strips its
+The sweetloader reaches every game seam by RTTI, because the game strips its
 symbols and its byte patterns drift between builds. Deriving a rule by hand is
 what the earlier rounds of work did, one build at a time. `tools/gen_rules.py`
 does the mechanical part in one step.
 
 ## What it derives
 
-For each seam the preloader resolves by RTTI name, the tool finds the slot's
+For each seam the sweetloader resolves by RTTI name, the tool finds the slot's
 address so a rule can pin the slot index and prove the seam exists:
 
 | Type name | Slot | Rule key |

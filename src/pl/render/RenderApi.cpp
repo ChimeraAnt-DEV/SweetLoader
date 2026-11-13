@@ -216,7 +216,7 @@ void DispatchRenderCallbacks() {
     try {
       callback(context);
     } catch (...) {
-      preloaderLogger.warn("Render callback threw; frame continues");
+      sweetLoaderLogger.warn("Render callback threw; frame continues");
     }
   });
 }

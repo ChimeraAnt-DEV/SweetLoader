@@ -1,10 +1,10 @@
 # AGENTS.md
 
 ## Build
-- Android-only CMake target (`preloader`), C++20, NDK toolchain. `CMakeLists.txt` fails fast
+- Android-only CMake target (`sweetloader`), C++20, NDK toolchain. `CMakeLists.txt` fails fast
   off-Android, and on any ABI other than `arm64-v8a` (the only ABI the client ships, and the only
   one GlossHook is vendored for). GlossHook static lib lives at `lib/ARM64/libGlossHook.a`.
-- Sources are listed explicitly in `PRELOADER_SOURCES`; **a new `.cpp` must be added there** or it
+- Sources are listed explicitly in `SWEETLOADER_SOURCES`; **a new `.cpp` must be added there** or it
   silently will not build into the library. A new *pure* helper should also be added to
   `tests/cosmetics/run_tests.sh`, which is where the host tests live.
 - Fetched dependencies are pinned by commit in `CMakeLists.txt` and listed with their licences in
@@ -14,9 +14,9 @@
 - JNI exports bind to the **`org.chimeramc.client.*`** package
   (`Java_org_chimeramc_client_*`). The launcher's `PreloaderInput` lives at
   `org.chimeramc.client.preloader.PreloaderInput` (its source directory is
-  `.../launcher/preloader/`, but the package is `org.chimeramc.client.preloader`).
+  `.../launcher/sweetloader/`, but the package is `org.chimeramc.client.preloader`).
   Verify a build with
-  `llvm-nm -D --defined-only <built libpreloader.so> | grep Java_org_chimeramc_client`.
+  `llvm-nm -D --defined-only <built libsweetloader.so> | grep Java_org_chimeramc_client`.
 
 ## Pattern scanning / hooks
 - `pl::memory::resolveSignature(s)` scans a module's **executable** `/proc/self/maps` regions for
@@ -24,8 +24,8 @@
   vtable slot through `.rodata`/`.data.rel.ro`; `pl::memory::hook` installs a detour. All are used
   by `GameHooks.cpp` / `GameLocalPlayer.cpp`.
 - **Module regions are matched by the exact basename** of the maps path column
-  (`pl/memory/ModulePathMatch.hpp`), never `strstr` over the whole line, or `libpreloader.so`
-  would also collect `libpreloader_extra.so`.
+  (`pl/memory/ModulePathMatch.hpp`), never `strstr` over the whole line, or `libsweetloader.so`
+  would also collect `libsweetloader_extra.so`.
 - **Region bytes are read with `process_vm_readv`**, in 1 MB windows with an overlap, so a region
   that unmaps mid-scan is skipped rather than faulting. The automaton state is reset per window;
   the overlap is what keeps a match spanning a boundary.
@@ -106,7 +106,7 @@
 - The Tier-1 "allocator" item used to define `malloc`/`free`/... and forward them to a
   statically linked mimalloc (v2.1.7), with the switch flipped by a load-time constructor. It is
   **removed**: `-fvisibility=hidden` meant the definitions never reached the game's allocations,
-  while the preloader's own `free`s *did* go to `mi_free`. A block from libc (e.g. `strdup` inside
+  while the sweetloader's own `free`s *did* go to `mi_free`. A block from libc (e.g. `strdup` inside
   GlossHook's xdl, freed by `xdl_close`) then faults in mimalloc. `thread_local` in `malloc` also
   recurses under minSdk 28's emulated TLS. `OptifineAllocator.cpp` now registers the item as
   "unavailable" so the launcher still gets a status; `mimalloc` is no longer fetched or linked.

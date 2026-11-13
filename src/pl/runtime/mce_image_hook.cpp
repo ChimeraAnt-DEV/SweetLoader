@@ -283,7 +283,7 @@ void RunInitProbe() {
   if (g_probeRan.exchange(true, std::memory_order_relaxed)) return;
   const std::uintptr_t loader = ResolveLoader();
   if (loader == 0) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "mce::Image: loader signature unresolved; native cosmetics stay on the struct-swap path");
     return;
   }
@@ -291,9 +291,9 @@ void RunInitProbe() {
   const bool ok = InvokeLoader(loader, &image, kFormatAutoPng, kProbePng, sizeof(kProbePng));
   g_imagePathVerified.store(ok, std::memory_order_relaxed);
   if (ok) {
-    preloaderLogger.info("mce::Image: engine loader verified (sret/x8 ABI, 1x1 PNG built)");
+    sweetLoaderLogger.info("mce::Image: engine loader verified (sret/x8 ABI, 1x1 PNG built)");
   } else {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "mce::Image: engine loader probe failed; refusing the pipeline hook and keeping the "
         "struct-swap path");
   }
@@ -395,7 +395,7 @@ void EngineFree(void *ptr) noexcept {
     // A double free, or a pointer we did not allocate. Refuse it: the engine's allocator owns its
     // own buffers and this module must never free them, so reaching here is a bug we log, not a
     // crash we cause.
-    preloaderLogger.warn("mce::Image: refused free of an untracked pointer");
+    sweetLoaderLogger.warn("mce::Image: refused free of an untracked pointer");
   }
 }
 
@@ -510,7 +510,7 @@ void InitMceImageHook() {
   if (g_hookAttempted.exchange(true, std::memory_order_relaxed)) return;
 
   if (!GameHookRulesConfigured()) {
-    preloaderLogger.warn("mce::Image hook: signature rules not delivered; not installing");
+    sweetLoaderLogger.warn("mce::Image hook: signature rules not delivered; not installing");
     return;
   }
   RunInitProbe();
@@ -519,7 +519,7 @@ void InitMceImageHook() {
     // Fail-closed, and deliberately so: installing a detour on an address that failed the probe
     // would corrupt the game with no diagnostic. The struct-swap path (already proven) stays in
     // use, which is why the cosmetics feature still works on such a build.
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "mce::Image hook: loader not verified; keeping the SerializedSkinRef struct-swap path");
     return;
   }
@@ -529,11 +529,11 @@ void InitMceImageHook() {
                        reinterpret_cast<pl::memory::FuncPtr *>(&g_originalLoader),
                        pl::memory::HookPriority::Normal,
                        "mce::ImageUtils::loadImageFromMemory") != 0) {
-    preloaderLogger.warn("mce::Image hook: install failed; staying on the struct-swap path");
+    sweetLoaderLogger.warn("mce::Image hook: install failed; staying on the struct-swap path");
     return;
   }
   g_hookInstalled.store(true, std::memory_order_relaxed);
-  preloaderLogger.info("mce::Image hook: loadImageFromMemory detoured (verified ABI)");
+  sweetLoaderLogger.info("mce::Image hook: loadImageFromMemory detoured (verified ABI)");
 }
 
 bool IsMceImageHookLive() { return g_hookCalls.load(std::memory_order_relaxed) != 0; }

@@ -407,7 +407,7 @@ Java_org_chimeramc_client_preloader_BerryApi_nativeGovernorSetCeiling(JNIEnv *, 
 // The launcher's cosmetics screen drives BerryAPI's own cosmetics system through these: the
 // catalog, the local loadout, the wardrobe presets, the remote-render gate and the service
 // counters. A missing library or a missing ABI answers the fail-closed default, so the screen shows
-// "not available" rather than crashing. The player-model hook is installed by the preloader itself
+// "not available" rather than crashing. The player-model hook is installed by the sweetloader itself
 // (see CosmeticHook.cpp) once the game's player-render target is resolved; these JNI entries only
 // expose its state, so Java never has to own a raw game pointer.
 

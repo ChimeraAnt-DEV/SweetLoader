@@ -2,7 +2,7 @@
 
 /**
  * @file Export.hpp
- * @brief Symbol visibility helpers for the preloader SDK.
+ * @brief Symbol visibility helpers for the sweetloader SDK.
  */
 
 #if defined(__GNUC__) || defined(__clang__)
