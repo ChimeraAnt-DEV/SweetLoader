@@ -449,6 +449,11 @@ void scanCompiledPatterns(const std::vector<MemoryRegion> &regions,
 
   std::vector<uintptr_t> found(patterns.size(), 0);
   std::vector<bool> active(patterns.size(), true);
+  // A pattern that matches in more than one place must not be patched at an arbitrary one of them.
+  // Counted rather than flagged so the diagnostic can say how many sites there were, and recorded
+  // here (rather than in `results`) so the decision is visible where the scan happens.
+  std::vector<size_t> matchCounts(patterns.size(), 0);
+  std::vector<bool> ambiguous(patterns.size(), false);
   size_t unresolved = patterns.size();
 
   if (regions.empty()) {
@@ -477,7 +482,17 @@ void scanCompiledPatterns(const std::vector<MemoryRegion> &regions,
       return;
     }
 
-    found[patternIndex] = bufferBase + candidateOffset;
+    ++matchCounts[patternIndex];
+    if (found[patternIndex] == 0) {
+      found[patternIndex] = bufferBase + candidateOffset;
+    } else if (found[patternIndex] != bufferBase + candidateOffset) {
+      // A second, different site, so the signature does not identify one function. The equality
+      // check is what keeps the window overlap from counting one match twice.
+      ambiguous[patternIndex] = true;
+    }
+    // Either one site (usable) or more than one (ambiguous): this pattern is answered for this scan
+    // and must stop being scanned. Leaving it active would make an ambiguous pattern walk the whole
+    // module, which for `.text` is a couple of hundred megabytes.
     active[patternIndex] = false;
     --unresolved;
   };
@@ -533,6 +548,17 @@ void scanCompiledPatterns(const std::vector<MemoryRegion> &regions,
   }
 
   for (size_t i = 0; i < patterns.size(); ++i) {
+    if (ambiguous[i]) {
+      // Fail closed: an ambiguous signature resolves to nothing rather than to a guess. The caller
+      // already treats 0 as "not found" and keeps its fallback path, so the cost of a moved build is
+      // a missing hook, not a patched wrong address.
+      sweetLoaderLogger.warn(
+          "signature {} is ambiguous ({} sites in the first window alone); refusing to "
+          "resolve it - the rules need a longer or more specific pattern for this build",
+          patterns[i].signature, matchCounts[i]);
+      results[patterns[i].signature] = 0;
+      continue;
+    }
     results[patterns[i].signature] = found[i];
   }
 }

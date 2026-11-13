@@ -198,6 +198,43 @@ inline std::vector<std::size_t> FindAllPatternMatches(const std::uint8_t *data,
   return hits;
 }
 
+/**
+ * @brief The first two offsets in `data` where `pattern` matches, in ascending order.
+ *
+ * A scan that takes the first hit is only correct when the pattern identifies one function. A short
+ * signature - and every signature that spans an `adrp`/`add` pair, because those encode a link-time
+ * address and change whenever the layout does - can match many places, and silently patching the
+ * wrong one is the worst failure this code has: the hook installs, the game keeps running, and
+ * something unrelated is corrupted.
+ *
+ * So the ambiguity check needs to answer one question - "is there a second match?" - and it must not
+ * pay for a full enumeration to do it. This returns at most two offsets and stops, which is exactly
+ * the decision the caller makes.
+ *
+ * Overlapping matches count as two: `aa aa` in `aa aa aa` is ambiguous even though the matches
+ * share a byte, because the caller still has to choose an address.
+ */
+inline std::vector<std::size_t> FindFirstTwoPatternMatches(const std::uint8_t *data,
+                                                          std::size_t size,
+                                                          const SignaturePattern &pattern) {
+  std::vector<std::size_t> hits;
+  if (data == nullptr || !pattern.valid() || pattern.bytes.size() > size) return hits;
+  const std::size_t last = size - pattern.bytes.size();
+  for (std::size_t offset = 0; offset <= last; ++offset) {
+    if (PatternMatchesAt(data, size, offset, pattern)) {
+      hits.push_back(offset);
+      if (hits.size() == 2) return hits;
+    }
+  }
+  return hits;
+}
+
+/** True when `pattern` matches `data` in more than one place. */
+inline bool PatternIsAmbiguous(const std::uint8_t *data, std::size_t size,
+                               const SignaturePattern &pattern) {
+  return FindFirstTwoPatternMatches(data, size, pattern).size() > 1;
+}
+
 /** True when the byte must match exactly, with no wildcard bits. */
 inline bool IsExactByte(PatternByte byte) { return byte.mask == 0xFF; }
 

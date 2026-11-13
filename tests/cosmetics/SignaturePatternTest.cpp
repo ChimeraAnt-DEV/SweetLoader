@@ -14,6 +14,8 @@
 #include <string_view>
 
 using pl::memory::FindAllPatternMatches;
+using pl::memory::FindFirstTwoPatternMatches;
+using pl::memory::PatternIsAmbiguous;
 using pl::memory::IsExactByte;
 using pl::memory::PatternMatchesAt;
 using pl::memory::kMaxExactAnchorSize;
@@ -200,6 +202,49 @@ int main() {
     // A valid prefix followed by a bad token must not leave a partial pattern behind.
     const SignaturePattern partial = ParseSignaturePattern("48 8b zz");
     check(!partial.valid(), "a bad token after good ones rejects the whole signature");
+  }
+
+  // --- Ambiguity ------------------------------------------------------------------------------
+  //
+  // A signature that matches in more than one place does not identify a function, and patching an
+  // arbitrary one of the matches is the worst failure this code can have: the hook installs, the
+  // game runs, and something unrelated is corrupted. These pin the predicate the scan uses to
+  // refuse that, and the "stop at two" property that keeps the check from walking a whole module.
+  {
+    const SignaturePattern p = ParseSignaturePattern("aa aa");
+    const std::uint8_t unique[] = {0x00, 0xAA, 0xAA, 0x11};
+    const std::uint8_t twice[] = {0xAA, 0xAA, 0x00, 0xAA, 0xAA};
+    const std::uint8_t thrice[] = {0xAA, 0xAA, 0xAA};
+
+    check(!PatternIsAmbiguous(unique, sizeof(unique), p), "one site is not ambiguous");
+    check(PatternIsAmbiguous(twice, sizeof(twice), p), "two sites are ambiguous");
+    check(PatternIsAmbiguous(thrice, sizeof(thrice), p),
+          "overlapping sites count as ambiguous: aa aa in aa aa aa");
+
+    check(FindFirstTwoPatternMatches(unique, sizeof(unique), p).size() == 1,
+          "a unique pattern reports one offset");
+    const auto firstTwo = FindFirstTwoPatternMatches(thrice, sizeof(thrice), p);
+    check(firstTwo.size() == 2, "the two-offset probe stops at two even with three sites");
+    check(firstTwo.size() == 2 && firstTwo[0] == 0 && firstTwo[1] == 1,
+          "the two offsets are the first two, in ascending order");
+  }
+
+  // A pattern longer than the buffer cannot match, and must not read past it.
+  {
+    const SignaturePattern p = ParseSignaturePattern("aa bb cc dd ee");
+    const std::uint8_t small[] = {0xAA, 0xBB};
+    check(!PatternIsAmbiguous(small, sizeof(small), p),
+          "a pattern longer than the buffer is not a match");
+    check(FindFirstTwoPatternMatches(small, sizeof(small), p).empty(), "and reports no offsets");
+    check(FindFirstTwoPatternMatches(nullptr, 0, p).empty(), "a null buffer reports no offsets");
+  }
+
+  // An invalid pattern is never a match, so it can never be ambiguous.
+  {
+    const SignaturePattern bad = ParseSignaturePattern("zz zz");
+    const std::uint8_t data[] = {0xAA, 0xAA, 0xAA};
+    check(!bad.valid(), "a non-hex pattern is invalid");
+    check(!PatternIsAmbiguous(data, sizeof(data), bad), "an invalid pattern is not ambiguous");
   }
 
   if (g_failures != 0) {
