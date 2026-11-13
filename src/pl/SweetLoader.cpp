@@ -19,13 +19,13 @@ namespace {
 jboolean LoadModFromJava(JNIEnv *env, jstring libPath, jstring modRootPath) {
   JavaVM *vm = pl::runtime::GetJavaVm();
   if (!vm) {
-    preloaderLogger.error("JavaVM is not initialized");
+    sweetLoaderLogger.error("JavaVM is not initialized");
     return JNI_FALSE;
   }
 
   const char *path = env->GetStringUTFChars(libPath, nullptr);
   if (!path) {
-    preloaderLogger.error("Failed to access mod library path");
+    sweetLoaderLogger.error("Failed to access mod library path");
     return JNI_FALSE;
   }
 
@@ -35,7 +35,7 @@ jboolean LoadModFromJava(JNIEnv *env, jstring libPath, jstring modRootPath) {
     sourcePath = env->GetStringUTFChars(modRootPath, nullptr);
     if (!sourcePath) {
       env->ReleaseStringUTFChars(libPath, path);
-      preloaderLogger.error("Failed to access original mod root path");
+      sweetLoaderLogger.error("Failed to access original mod root path");
       return JNI_FALSE;
     }
     sourceModDirectory = std::filesystem::path(sourcePath);
@@ -131,7 +131,7 @@ Java_org_chimeramc_client_core_mods_ModManager_nativeGameHookRulesSummary(JNIEnv
 }
 
 // Per-feature hook availability, as one JSON object the diagnostics page prints verbatim.
-// "The preloader loaded" and "this feature works" are different questions; this answers the second
+// "The sweetloader loaded" and "this feature works" are different questions; this answers the second
 // one so a single missing signature does not read as "nothing works".
 JNIEXPORT jstring JNICALL
 Java_org_chimeramc_client_core_mods_ModManager_nativeFeatureAvailability(
@@ -178,17 +178,17 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadLocalPlayerHealth(
 // These are the entry points a mod or embedder may rely on by name. They are versioned so a
 // mismatch is refused with a clear message rather than a missing symbol or a silent misread.
 
-/// The preloader's C ABI version. Bump when a signature in this file changes meaning.
-#define PL_PRELOADER_ABI_VERSION 1
+/// The sweetloader's C ABI version. Bump when a signature in this file changes meaning.
+#define PL_SWEETLOADER_ABI_VERSION 1
 
-// Returns the ABI version this preloader was built with. A host that loaded a preloader expecting a
+// Returns the ABI version this sweetloader was built with. A host that loaded a sweetloader expecting a
 // newer ABI compares this and refuses to use the surface rather than calling into it blind.
-extern "C" PL_EXPORT int pl_get_abi_version() { return PL_PRELOADER_ABI_VERSION; }
+extern "C" PL_EXPORT int pl_get_abi_version() { return PL_SWEETLOADER_ABI_VERSION; }
 
 // The Java-side read of the same value, so the launcher can compare before it uses the surface.
 JNIEXPORT jint JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeAbiVersion(JNIEnv *, jclass) {
-  return PL_PRELOADER_ABI_VERSION;
+  return PL_SWEETLOADER_ABI_VERSION;
 }
 
 // Bounds the module-handle cache. The launcher calls this from Application.onTrimMemory, so a

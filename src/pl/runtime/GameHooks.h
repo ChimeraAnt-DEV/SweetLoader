@@ -9,7 +9,7 @@ void ConfigureGameHooks(std::string rulesPath, std::string minecraftVersion);
 /**
  * @brief Arms the deferred hook install.
  *
- * <p>Called from the preloader's mod-enable entry, which the game activity reaches in
+ * <p>Called from the sweetloader's mod-enable entry, which the game activity reaches in
  * {@code onCreate} — before the engine's graphics backend and the {@code libminecraftpe.so}
  * relocation have finished. The install itself runs from {@link PumpGameHookInstall} on the game's
  * own frame tick, so the RTTI/vtable resolution sees a fully mapped module and the code patch runs

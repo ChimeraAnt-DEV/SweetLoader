@@ -394,7 +394,7 @@ using TextureFlushFn = void (*)(void *user);
  *
  * The module cannot itself reach RenderDragon's `mce::TextureGroup` / `SkinRepository` cache: those
  * types are not RTTI-resolvable and the game strips the symbols, so a flush is **invoked through a
- * hook the caller has proven** (the preloader's resource-pack reload seam, or a verified
+ * hook the caller has proven** (the sweetloader's resource-pack reload seam, or a verified
  * `onSkinChanged`/`invalidate` vtable entry). Installing a flusher is optional; without one the
  * module still requests a refresh through the weakest safe hint it has and reports the
  * best-effort status rather than claiming the cache was flushed.

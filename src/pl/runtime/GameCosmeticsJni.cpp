@@ -393,10 +393,10 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadRenderDiagnostics(J
   values[19] = pl::runtime::GameHookRulesConfigured() ? 1 : 0;
   values[20] = pl::runtime::GameHookRulesLoaded() ? 1 : 0;
 
-  // How many times `libpreloader.so` is mapped into this process. A second copy has its own empty
+  // How many times `libsweetloader.so` is mapped into this process. A second copy has its own empty
   // registry, so Java would publish to one and the hook would draw from another — the count is the
   // cheapest proof there is only one.
-  values[15] = pl::runtime::CountModuleMappings("libpreloader.so");
+  values[15] = pl::runtime::CountModuleMappings("libsweetloader.so");
 
   // Index 16 used to carry the GLES rasteriser's triangle count; retired with the rasteriser.
   values[16] = -1;

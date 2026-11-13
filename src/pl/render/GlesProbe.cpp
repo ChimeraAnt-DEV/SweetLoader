@@ -71,7 +71,7 @@ GlesFunctions ResolveGles() {
 
   void *handle = LoadGlesLibrary();
   if (!handle) {
-    preloaderLogger.warn("GLES probe: no GLES library loaded (RenderDragon may be Vulkan-only)");
+    sweetLoaderLogger.warn("GLES probe: no GLES library loaded (RenderDragon may be Vulkan-only)");
     return g_gles;
   }
 
@@ -113,9 +113,9 @@ GlesFunctions ResolveGles() {
 #undef LOAD
 
   if (g_gles.usable()) {
-    preloaderLogger.info("GLES probe: surface resolved and usable");
+    sweetLoaderLogger.info("GLES probe: surface resolved and usable");
   } else {
-    preloaderLogger.warn("GLES probe: GLES library loaded but core symbols missing");
+    sweetLoaderLogger.warn("GLES probe: GLES library loaded but core symbols missing");
   }
   return g_gles;
 }
@@ -179,7 +179,7 @@ GpuStrings ReadGpuStrings() {
   g_gpuStringsRead.store(true, std::memory_order_release);
 
   const auto family = static_cast<GpuFamily>(g_gpuFamily.load(std::memory_order_relaxed));
-  preloaderLogger.info("GLES probe: GPU vendor '{}', renderer '{}' -> family {}",
+  sweetLoaderLogger.info("GLES probe: GPU vendor '{}', renderer '{}' -> family {}",
                        g_gpuStrings.vendor, g_gpuStrings.renderer, GpuFamilyName(family));
   return g_gpuStrings;
 }

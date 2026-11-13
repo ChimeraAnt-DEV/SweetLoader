@@ -206,14 +206,14 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
 
   auto document = LoadRulesDocument(rulesPath);
   if (!document) {
-    preloaderLogger.warn("Preloader runtime data is unavailable: {}",
+    sweetLoaderLogger.warn("SweetLoader runtime data is unavailable: {}",
                           rulesPath.empty() ? "<empty>" : rulesPath);
     return std::nullopt;
   }
 
   const nlohmann::json &root = *document;
   if (!root.is_object()) {
-    preloaderLogger.warn("Preloader runtime data JSON is invalid");
+    sweetLoaderLogger.warn("SweetLoader runtime data JSON is invalid");
     return std::nullopt;
   }
 
@@ -225,7 +225,7 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
 
   auto rulesIt = root.find("rules");
   if (rulesIt == root.end() || !rulesIt->is_array()) {
-    preloaderLogger.warn("Preloader runtime data missing rules array");
+    sweetLoaderLogger.warn("SweetLoader runtime data missing rules array");
     return std::nullopt;
   }
 
@@ -242,14 +242,14 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
 
   auto merged = MergeHookRuleForVersion(root, minecraftVersion);
   if (!merged) {
-    preloaderLogger.warn("No valid Preloader runtime data matches Minecraft {}",
+    sweetLoaderLogger.warn("No valid SweetLoader runtime data matches Minecraft {}",
                          minecraftVersion.empty() ? "<unknown>" : minecraftVersion);
     return std::nullopt;
   }
 
   auto signatures = ParseHookSignatures(*merged);
   if (!signatures) {
-    preloaderLogger.warn("Merged Preloader runtime data is incomplete for Minecraft {}",
+    sweetLoaderLogger.warn("Merged SweetLoader runtime data is incomplete for Minecraft {}",
                          minecraftVersion.empty() ? "<unknown>" : minecraftVersion);
     return std::nullopt;
   }
@@ -283,7 +283,7 @@ std::optional<GameHookSignatures> LoadConfiguredGameHookSignatures() {
   }
 
   g_rulesLoaded.store(true, std::memory_order_release);
-  preloaderLogger.info("Loaded Preloader runtime data for Minecraft {} ({} matching rule(s))",
+  sweetLoaderLogger.info("Loaded SweetLoader runtime data for Minecraft {} ({} matching rule(s))",
                        minecraftVersion.empty() ? "<unknown>" : minecraftVersion, matchCount);
   return signatures;
 }

@@ -73,12 +73,12 @@ bool ResolveRenderWorldFromPatterns(const char *moduleName, std::uintptr_t &outA
       const float m11 = base[i + 11];
       if (IsPlausibleProjectionRows(m0, m5, m10, m11)) {
         outAddress = region.start + i * sizeof(float);
-        preloaderLogger.info("Native cosmetics: plausible camera matrix at {:x}", outAddress);
+        sweetLoaderLogger.info("Native cosmetics: plausible camera matrix at {:x}", outAddress);
         return true;
       }
     }
   }
-  preloaderLogger.info("Native cosmetics: no camera matrix pattern found; using player anchor");
+  sweetLoaderLogger.info("Native cosmetics: no camera matrix pattern found; using player anchor");
   return false;
 }
 

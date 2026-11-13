@@ -121,7 +121,7 @@ bool RegionsAreMapped(const ModuleInfo &module) {
 
 // Collects a module's readable regions, and its executable subset, by matching the **basename** of
 // the maps path column exactly. A `strstr` on the whole line also matches a path that merely
-// contains the name (`libpreloader_extra.so` for `libpreloader.so`), which would scan the wrong
+// contains the name (`libsweetloader_extra.so` for `libsweetloader.so`), which would scan the wrong
 // regions and can resolve a pattern into an unrelated library.
 bool getModuleInfo(const std::string &name, ModuleInfo &out) {
   FILE *maps = std::fopen("/proc/self/maps", "r");
@@ -259,7 +259,7 @@ void ApplyDiskCache(const ModuleInfo &module, std::string_view moduleName,
     ++applied;
   }
   if (applied > 0) {
-    preloaderLogger.debug("signature scan cache: {} of {} resolved for {} (build {})", applied,
+    sweetLoaderLogger.debug("signature scan cache: {} of {} resolved for {} (build {})", applied,
                           signatures.size(), moduleName, module.buildId);
   }
 }
@@ -352,7 +352,7 @@ compilePatterns(const std::vector<std::string> &signatures,
   for (const auto &signature : signatures) {
     auto pattern = getCachedPattern(signature);
     if (pattern.bytes.empty()) {
-      preloaderLogger.warn("invalid signature pattern: {}", signature);
+      sweetLoaderLogger.warn("invalid signature pattern: {}", signature);
       results[signature] = 0;
       continue;
     }
@@ -504,7 +504,7 @@ void scanCompiledPatterns(const std::vector<MemoryRegion> &regions,
       const size_t read = ReadRegionSafely(region.start + windowStart, windowSize, buffer.data());
       if (read == 0) {
         // The region unmapped or is unreadable; skip it rather than dereference it.
-        preloaderLogger.debug("signature scan: skipped an unreadable region at {:x}",
+        sweetLoaderLogger.debug("signature scan: skipped an unreadable region at {:x}",
                               static_cast<unsigned long long>(region.start));
         continue;
       }
@@ -623,7 +623,7 @@ resolveSignatures(std::span<const std::string> signatures,
     if (!patterns.empty() && module.execRegions.empty() && module.readOnlyRegions.empty()) {
       // A module with no executable mapping and no read-only mapping has nothing safe to scan.
       // Falling back to its writable regions could resolve a code pattern into a mutable buffer.
-      preloaderLogger.warn("signature scan: {} has no executable or read-only region to scan",
+      sweetLoaderLogger.warn("signature scan: {} has no executable or read-only region to scan",
                            std::string(moduleName));
       for (const auto &signature : patterns) results[signature] = 0;
     } else if (!patterns.empty()) {
@@ -643,7 +643,7 @@ resolveSignatures(std::span<const std::string> signatures,
     for (const auto &signature : pending) {
       const auto it = results.find(signature);
       // Do not memoise a miss. A miss is often transient: resolution can run before the module is
-      // fully mapped (PreLoader.cpp documents the early attempt), so caching the 0 would make the
+      // fully mapped (SweetLoader.cpp documents the early attempt), so caching the 0 would make the
       // later, correct attempt answer 0 for the life of the process (audit item 32). A genuine
       // "pattern absent" is re-derived each launch by design (see UpdateDiskCache).
       if (it != results.end() && it->second != 0) {

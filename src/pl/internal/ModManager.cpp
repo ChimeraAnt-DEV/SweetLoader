@@ -27,7 +27,7 @@ bool ModManager::LoadModLibrary(
   // that faults on every launch costs one launch attempt, not one per launch forever. The user can
   // re-enable it, which clears the budget.
   if (modFaultTracker().isDisabled(modInfoStorage.modId)) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Refusing to load mod {}: it faulted {} times in a row and is disabled until re-enabled",
         modInfoStorage.modId, modFaultTracker().faultsFor(modInfoStorage.modId));
     return false;
@@ -44,7 +44,7 @@ bool ModManager::LoadModLibrary(
   void *handle = acquireModHandle(libraryPathString);
   if (!handle) {
     const char *loadError = dlerror();
-    preloaderLogger.error("Failed to load mod library {}: {}",
+    sweetLoaderLogger.error("Failed to load mod library {}: {}",
                           libraryPathString,
                           loadError ? loadError : "unknown error");
     return false;
@@ -57,7 +57,7 @@ bool ModManager::LoadModLibrary(
     // fault and no other mod's, so it is counted here and the rest of the set keeps loading.
     const ModFaultDecision decision = modFaultTracker().recordFault(modInfoStorage.modId);
     if (decision.action == ModFaultAction::Disable) {
-      preloaderLogger.error(
+      sweetLoaderLogger.error(
           "Disabling mod {} after {} consecutive faults; re-enable it to retry",
           modInfoStorage.modId, decision.faultCount);
     }
@@ -94,7 +94,7 @@ void ModManager::EnableLoadedMods() {
     // every other mod from enabling.
     const ModFaultDecision decision = modFaultTracker().recordFault(entry->modId);
     if (decision.action == ModFaultAction::Disable) {
-      preloaderLogger.error(
+      sweetLoaderLogger.error(
           "Disabling mod {} after {} consecutive enable faults; re-enable it to retry",
           entry->modId, decision.faultCount);
     }

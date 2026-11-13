@@ -5,7 +5,7 @@
 #include <ctime>
 
 #if !defined(__aarch64__)
-#error "RegisterAwareHook is only implemented for AArch64; the preloader builds arm64-v8a only."
+#error "RegisterAwareHook is only implemented for AArch64; the sweetloader builds arm64-v8a only."
 #endif
 
 using pl::runtime::PassthroughContext;

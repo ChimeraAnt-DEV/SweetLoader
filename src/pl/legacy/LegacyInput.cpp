@@ -4,7 +4,7 @@
 
 extern "C" {
 
-PL_LEGACY_EXPORT PreloaderInput_Interface *GetPreloaderInput() {
+PL_LEGACY_EXPORT SweetLoaderInput_Interface *GetSweetLoaderInput() {
   return pl::runtime::GetInputInterface();
 }
 

@@ -22,7 +22,7 @@ namespace pl::mod {
 inline constexpr const char *ModRegistrationSymbol = "PLGetModRegistration";
 
 /**
- * @brief Manifest and filesystem metadata resolved by the preloader.
+ * @brief Manifest and filesystem metadata resolved by the sweetloader.
  */
 struct ModInfo {
   std::string id;
@@ -321,7 +321,7 @@ PL_EXPORT ::pl::mod::ModRegistration *PLGetModRegistration();
 } // extern "C"
 
 /**
- * @brief Registers a mod instance with the preloader.
+ * @brief Registers a mod instance with the sweetloader.
  */
 #define PL_REGISTER_MOD(TYPE, INSTANCE_EXPR)                                   \
   namespace {                                                                  \

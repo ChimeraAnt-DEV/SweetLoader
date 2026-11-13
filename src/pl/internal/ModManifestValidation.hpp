@@ -9,7 +9,7 @@
  * "version '1.0' is not a semantic version" tells the author what to fix. The rules live here, as a
  * pure header, so they are host-tested without a device and shared by the loader.
  *
- * <p>Semantic-version and version-range parsing are deliberately small: the preloader only needs to
+ * <p>Semantic-version and version-range parsing are deliberately small: the sweetloader only needs to
  * decide whether a value is well formed and whether the running game version falls inside the
  * declared range, not to implement the whole semver specification.
  */

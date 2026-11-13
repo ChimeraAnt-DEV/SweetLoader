@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.22)
-project(preloader LANGUAGES CXX)
+project(sweetloader LANGUAGES CXX)
 
 if(NOT ANDROID)
     message(FATAL_ERROR
-            "preloader is an Android runtime target. "
+            "sweetloader is an Android runtime target. "
             "Use it only from an Android toolchain build.")
 endif()
 
@@ -16,16 +16,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # from CI or a local build still wins.
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-    message(STATUS "preloader: CMAKE_BUILD_TYPE defaulted to Release")
+    message(STATUS "sweetloader: CMAKE_BUILD_TYPE defaulted to Release")
 endif()
 
 # Make the build reproducible across machines: the compiler embeds the source path in debug info and
 # in __FILE__, which otherwise differs per checkout (audit item 106).
 add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 
-set(PRELOADER_SOURCES
+set(SWEETLOADER_SOURCES
         src/pl/Mod.cpp
-        src/pl/PreLoader.cpp
+        src/pl/SweetLoader.cpp
         src/pl/internal/LoadedModRegistry.cpp
         src/pl/internal/ModManifest.cpp
         src/pl/internal/ModManager.cpp
@@ -86,8 +86,6 @@ set(PRELOADER_SOURCES
         src/pl/runtime/optifine/OptifineParticleCulling.cpp
         src/pl/runtime/OptifineJni.cpp
         src/pl/runtime/ExternalModBridgeJni.cpp
-        src/pl/runtime/AntEggLoader.cpp
-        src/pl/runtime/AntEggJni.cpp
         src/pl/runtime/ProcessMemory.cpp
         src/pl/runtime/InputBridge.cpp
         src/pl/runtime/InputJni.cpp
@@ -95,19 +93,20 @@ set(PRELOADER_SOURCES
         src/pl/runtime/ModMenuBridge.cpp
         src/pl/runtime/BerryApiBridge.cpp
         src/pl/runtime/BerryApiJni.cpp
+        src/pl/engine/UniverseBridge.cpp
 )
 
-add_library(preloader SHARED ${PRELOADER_SOURCES})
+add_library(sweetloader SHARED ${SWEETLOADER_SOURCES})
 
-target_include_directories(preloader
+target_include_directories(sweetloader
         PUBLIC
         include
         PRIVATE
         src)
-target_compile_definitions(preloader PRIVATE PRELOADER_EXPORT)
+target_compile_definitions(sweetloader PRIVATE SWEETLOADER_EXPORT)
 # Optimisation is set explicitly rather than left to the toolchain default, because the Gradle CMake
 # arguments do not set a build type and a debug-flavoured default would ship an unoptimised library.
-target_compile_options(preloader PRIVATE
+target_compile_options(sweetloader PRIVATE
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:
             -fvisibility=hidden
             -fvisibility-inlines-hidden
@@ -141,16 +140,15 @@ set_source_files_properties(
 set_source_files_properties(
         src/pl/runtime/ModMenuBridge.cpp
         src/pl/runtime/ExternalModBridgeJni.cpp
-        src/pl/runtime/AntEggLoader.cpp
         PROPERTIES COMPILE_OPTIONS "-Oz")
-target_link_options(preloader PRIVATE
+target_link_options(sweetloader PRIVATE
         # Dead code and unused data drop out once every function is in its own section.
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--gc-sections>
         # Fold identical code and data. The four near-identical Optifine detours and the many fmt
         # instantiations fold together, shrinking the mapped image (audit item 84).
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--icf=all>
         # Do not export the static archives' (fmt, lunasvg) symbols into the dynsym. This both shrinks
-        # the dynamic symbol table (faster dlopen) and stops the preloader's copies clashing with the
+        # the dynamic symbol table (faster dlopen) and stops the sweetloader's copies clashing with the
         # game's or a mod's copies of the same libraries (audit item 85).
         $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-Wl,--exclude-libs,ALL>
         # Packed relocation format: smaller relocations and faster dlopen on the API range this
@@ -197,10 +195,10 @@ set(FMT_INSTALL OFF CACHE BOOL "Disable fmt install rules" FORCE)
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "Disable lunasvg examples" FORCE)
 set(LUNASVG_DISABLE_LOAD_SYSTEM_FONTS ON CACHE BOOL "Disable lunasvg system font scan" FORCE)
 
-set(_preloader_build_shared_libs ${BUILD_SHARED_LIBS})
+set(_sweetloader_build_shared_libs ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF)
 FetchContent_MakeAvailable(nlohmann_json boost_pfr magic_enum fmt lunasvg)
-set(BUILD_SHARED_LIBS ${_preloader_build_shared_libs})
+set(BUILD_SHARED_LIBS ${_sweetloader_build_shared_libs})
 
 find_library(log-lib log REQUIRED)
 find_library(android-lib android REQUIRED)
@@ -216,7 +214,7 @@ find_library(dl-lib dl REQUIRED)
 # silently producing a library the client would never load.
 if(NOT CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR
-            "preloader supports arm64-v8a only; got ${CMAKE_ANDROID_ARCH_ABI}")
+            "sweetloader supports arm64-v8a only; got ${CMAKE_ANDROID_ARCH_ABI}")
 endif()
 set(GLOSSHOOK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/ARM64/libGlossHook.a")
 
@@ -226,7 +224,7 @@ if(NOT EXISTS "${GLOSSHOOK_PATH}")
             "${GLOSSHOOK_PATH}")
 endif()
 
-target_link_libraries(preloader
+target_link_libraries(sweetloader
         PUBLIC
         fmt::fmt
         PRIVATE
@@ -243,7 +241,7 @@ target_link_libraries(preloader
         lunasvg::lunasvg
 )
 
-install(TARGETS preloader
+install(TARGETS sweetloader
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin)

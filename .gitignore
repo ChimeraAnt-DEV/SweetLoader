@@ -7,3 +7,6 @@ docs/node_modules
 docs/.vitepress/.temp
 docs/.vitepress/cache
 docs/.vitepress/dist
+
+# Rust build output for the .universe / .singularity engine crates.
+rust/target

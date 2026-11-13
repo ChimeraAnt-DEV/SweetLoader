@@ -163,6 +163,6 @@ private:
 } // namespace pl::log
 
 /**
- * @brief Shared logger used by the preloader runtime itself.
+ * @brief Shared logger used by the sweetloader runtime itself.
  */
-inline auto &preloaderLogger = pl::log::Logger::getOrCreate("Preloader");
+inline auto &sweetLoaderLogger = pl::log::Logger::getOrCreate("SweetLoader");

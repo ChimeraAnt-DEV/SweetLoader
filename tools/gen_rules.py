@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate a preloader signature rule for a Minecraft Bedrock build.
+"""Generate a sweetloader signature rule for a Minecraft Bedrock build.
 
-The game classes export no symbols, so every native seam the preloader uses is
+The game classes export no symbols, so every native seam the sweetloader uses is
 reached by RTTI: find the standalone type-name string in .rodata, locate its
 typeinfo struct in .data.rel.ro (the word before the typeinfo pointer is the
 vtable's offset-to-top, zero for a primary vtable), then read the slot. The
@@ -31,7 +31,7 @@ import sys
 import urllib.request
 import zipfile
 
-# The seams the preloader resolves by RTTI name. (type name, slot, rule key,
+# The seams the sweetloader resolves by RTTI name. (type name, slot, rule key,
 # what a successful resolution proves.) The slot is the *current* verified
 # index; a build that moved it shows up as a mismatch against the live probe.
 SEAMS = [

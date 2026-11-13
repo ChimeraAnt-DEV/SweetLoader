@@ -1,0 +1,7 @@
+{
+  "id": "sky_meadow",
+  "temperature": [0.2, 0.6],
+  "humidity": [0.3, 0.8],
+  "continentalness": [0.5, 1.0],
+  "weight": 1
+}

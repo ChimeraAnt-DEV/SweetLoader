@@ -163,7 +163,7 @@ bool InstallSlotHook(const char *typeName, std::size_t slot,
                      GenericFn *original, std::atomic_bool &flag, const char *label) {
   if (flag.exchange(true, std::memory_order_relaxed)) return true;
   if (slot == 0) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Cosmetics {}: no verified vtable slot for this build; staying on the resource-pack path",
         label);
     return false;
@@ -171,7 +171,7 @@ bool InstallSlotHook(const char *typeName, std::size_t slot,
   const std::uintptr_t target =
       pl::memory::resolveVtableFunction(typeName, slot, kGameModule);
   if (!target) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Cosmetics {}: {} slot {} unresolved; staying on the resource-pack path",
         label, typeName, slot);
     return false;
@@ -179,7 +179,7 @@ bool InstallSlotHook(const char *typeName, std::size_t slot,
   // The RTTI name resolves on every build, but a slot index can move between builds and land on a
   // data pointer; detouring that faults. Refuse anything that is not executable code.
   if (!pl::memory::isExecutableAddress(target, kGameModule)) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Cosmetics {}: {} slot {} is not executable code; skipping the hook",
         label, typeName, slot);
     return false;
@@ -188,7 +188,7 @@ bool InstallSlotHook(const char *typeName, std::size_t slot,
                        reinterpret_cast<pl::memory::FuncPtr>(detour),
                        reinterpret_cast<pl::memory::FuncPtr *>(original),
                        pl::memory::HookPriority::Normal, label) != 0) {
-    preloaderLogger.warn("Cosmetics {}: hook install failed", label);
+    sweetLoaderLogger.warn("Cosmetics {}: hook install failed", label);
     return false;
   }
   // The veneer reads the original trampoline from its own context; publish it so a call made
@@ -196,7 +196,7 @@ bool InstallSlotHook(const char *typeName, std::size_t slot,
   if (context != nullptr) {
     context->original = reinterpret_cast<void (*)(void)>(*original);
   }
-  preloaderLogger.info("Cosmetics {}: hooked {} slot {}", label, typeName, slot);
+  sweetLoaderLogger.info("Cosmetics {}: hooked {} slot {}", label, typeName, slot);
   return true;
 }
 
@@ -232,9 +232,9 @@ std::uintptr_t ResolveImageLoader() {
   std::uintptr_t address = it == results.end() ? 0 : it->second;
   g_imageLoader.store(address, std::memory_order_relaxed);
   if (address) {
-    preloaderLogger.info("Cosmetics image loader: mce::ImageUtils::loadImageFromMemory resolved");
+    sweetLoaderLogger.info("Cosmetics image loader: mce::ImageUtils::loadImageFromMemory resolved");
   } else {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Cosmetics image loader: signature did not match; the pack path stays in use");
   }
   return address;
@@ -491,7 +491,7 @@ void InitCosmeticsHooks(std::size_t skinCapeVtableIndex, std::size_t textureBind
   // take: an unverified vtable index on an unstripped RTTI name resolves to a real but unrelated
   // function, and hooking it detours whatever that slot happens to be.
   if (!GameHookRulesConfigured()) {
-    preloaderLogger.warn(
+    sweetLoaderLogger.warn(
         "Cosmetics hooks: signature rules were not delivered; not installing cosmetics hooks");
     return;
   }

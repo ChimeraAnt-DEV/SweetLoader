@@ -8,7 +8,7 @@
  * @file OptifineMode.h
  * @brief "Bedrock Optifine Mode" host-side optimizations.
  *
- * A suite of host-level performance changes the preloader applies to the process the game
+ * A suite of host-level performance changes the sweetloader applies to the process the game
  * runs in. It is split into two tiers by risk:
  *
  *  - **Tier 1** touches only the process/host (allocator, thread scheduling, CPU affinity,
@@ -77,7 +77,7 @@ struct OptifineState {
  * @param blob Newline-separated {@code key=value} pairs. Recognised keys:
  *             {@code master}, {@code enabled.<itemId>}, {@code crash.<itemId>} (the
  *             consecutive-crash counter for that item). Unknown keys are ignored, so a newer
- *             launcher can send a key an older preloader does not know.
+ *             launcher can send a key an older sweetloader does not know.
  *
  * Safe to call repeatedly; a later call replaces the previous configuration. Items that were
  * turned off are torn down (e.g. the allocator is not un-installed, but its state is reported

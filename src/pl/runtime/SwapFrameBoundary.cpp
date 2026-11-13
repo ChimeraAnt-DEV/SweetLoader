@@ -62,7 +62,7 @@ bool InstallSwapFrameBoundary() {
   if (target == nullptr) {
     // Vulkan-only RenderDragon builds have no libEGL present call. That is a normal outcome, not an
     // error: the caller keeps the inferred frame clock.
-    preloaderLogger.info(
+    sweetLoaderLogger.info(
         "Swap frame boundary: no libEGL eglSwapBuffers to hook; keeping the inferred frame clock");
     return false;
   }
@@ -75,14 +75,14 @@ bool InstallSwapFrameBoundary() {
                            pl_runtime_passthrough_swapBuffers_addr),
                        reinterpret_cast<pl::memory::FuncPtr *>(&original),
                        pl::memory::HookPriority::Normal, "eglSwapBuffers") != 0) {
-    preloaderLogger.warn("Swap frame boundary: hook install failed for {}", name);
+    sweetLoaderLogger.warn("Swap frame boundary: hook install failed for {}", name);
     return false;
   }
   pl_runtime_passthrough_ctx_swapBuffers.original = original;
   pl_runtime_passthrough_ctx_swapBuffers.label = "eglSwapBuffers";
   g_symbol.store(name, std::memory_order_relaxed);
   g_live.store(true, std::memory_order_relaxed);
-  preloaderLogger.info("Swap frame boundary: hooked {}", name);
+  sweetLoaderLogger.info("Swap frame boundary: hooked {}", name);
   return true;
 }
 

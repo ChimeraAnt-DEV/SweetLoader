@@ -6,13 +6,13 @@
  *
  * Resolving a signature starts by collecting the module's memory regions from `/proc/self/maps`. The
  * obvious way to decide whether a line belongs to a module is `strstr(line, moduleName)`, and it is
- * wrong: it matches a path that merely *contains* the name, so asking for `libpreloader.so` also
- * picks up `libpreloader_extra.so`, and asking for `libc.so` matches `libc.so.6`'s directory or any
+ * wrong: it matches a path that merely *contains* the name, so asking for `libsweetloader.so` also
+ * picks up `libsweetloader_extra.so`, and asking for `libc.so` matches `libc.so.6`'s directory or any
  * path with `libc.so` in a parent segment. Scanning the wrong regions costs time and can resolve a
  * pattern to an address in an unrelated library.
  *
  * The match here is on the **basename** of the path column, compared exactly, so
- * `/data/app/.../lib/arm64/libpreloader.so` matches `libpreloader.so` and `libpreloader_extra.so`
+ * `/data/app/.../lib/arm64/libsweetloader.so` matches `libsweetloader.so` and `libsweetloader_extra.so`
  * does not.
  *
  * The parse is a pure function over one line, so it is host-testable with synthetic maps text; only

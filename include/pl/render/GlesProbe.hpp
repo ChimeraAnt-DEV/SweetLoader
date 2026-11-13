@@ -26,7 +26,7 @@ namespace pl::render {
 /**
  * @brief Minimal GL scalar types.
  *
- * Deliberately self-contained: the preloader does not include a GLES header (the host test runner
+ * Deliberately self-contained: the sweetloader does not include a GLES header (the host test runner
  * has none), and the probe only needs the scalar/enum integers to marshal the runtime-resolved
  * GLES function pointers.
  */
@@ -43,7 +43,7 @@ using GLfloat = float;
  *
  * Resolved once from the game's active GLES library; a null entry point makes that primitive a
  * no-op, so a build with a partial context still fails closed. Using function pointers keeps the
- * preloader from hard-linking to a GLES version that may not exist on the device's renderer.
+ * sweetloader from hard-linking to a GLES version that may not exist on the device's renderer.
  */
 struct GlesFunctions {
   void *GetError = nullptr;

@@ -17,7 +17,7 @@
  *
  * <p><b>Fail-closed.</b> If libEGL cannot be loaded, or neither `eglSwapBuffers` nor
  * `eglSwapBuffersWithDamageKHR` resolves, {@link InstallSwapFrameBoundary} returns false and the
- * preloader keeps using the inferred clock. Nothing here guesses an address.
+ * sweetloader keeps using the inferred clock. Nothing here guesses an address.
  *
  * <p>The hook itself is the return-transparent veneer in `RegisterAwareHook.cpp`, so the present
  * call's `EGLBoolean` result and any FP/SIMD argument survive the detour.

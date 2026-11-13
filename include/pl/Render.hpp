@@ -8,12 +8,12 @@
  * a mod could draw in world space, and this header is both:
  *
  *  1. **A per-frame callback that runs on the render thread with the GL context current.** The
- *     preloader already detours the game's per-player render pass (it is how the native cosmetics
+ *     sweetloader already detours the game's per-player render pass (it is how the native cosmetics
  *     are drawn); this exposes that same seam to mods. The callback runs inside the GL context, so
  *     a mod may issue GL calls directly.
  *  2. **Reliable camera matrices.** A mod needs `view`, `projection` and the camera position to
  *     place geometry in the world. {@link RenderContext} carries the strongest matrices the
- *     preloader could resolve this frame, and {@link ComputeViewProjection} is the fallback a mod
+ *     sweetloader could resolve this frame, and {@link ComputeViewProjection} is the fallback a mod
  *     can call itself when the real camera is unavailable.
  *
  * <b>Fail-closed.</b> Every field is optional and carries a `has*` flag. A callback that receives a
@@ -147,7 +147,7 @@ PL_EXPORT bool MakeView(const Vec3 &eye, const Vec3 &forward, const Vec3 &up, Ma
  *
  * The same feed the in-world voice nametag icons use. A mod that wants to anchor geometry at the
  * player (a schematic placement, a marker) needs this and it was previously internal to the
- * preloader. Returns false when no live player has been seen, so a caller never places anything at
+ * sweetloader. Returns false when no live player has been seen, so a caller never places anything at
  * a guessed position.
  */
 PL_EXPORT bool ReadLocalPlayerPosition(float out[3]);

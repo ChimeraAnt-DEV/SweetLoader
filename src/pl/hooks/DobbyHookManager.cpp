@@ -118,7 +118,7 @@ DobbyHookManager &DobbyHookManager::instance() {
 uintptr_t DobbyHookManager::resolve(std::string_view module, std::string_view symbol) {
   GHandle handle = openModule(module);
   if (handle == nullptr) {
-    preloaderLogger.warn("DobbyHookManager: module '{}' not loaded; cannot resolve '{}'",
+    sweetLoaderLogger.warn("DobbyHookManager: module '{}' not loaded; cannot resolve '{}'",
                          std::string(module), std::string(symbol));
     return 0;
   }
@@ -130,13 +130,13 @@ uintptr_t DobbyHookManager::resolve(std::string_view module, std::string_view sy
 uintptr_t DobbyHookManager::resolveOffset(std::string_view module, uintptr_t offset) {
   GHandle handle = openModule(module);
   if (handle == nullptr) {
-    preloaderLogger.warn("DobbyHookManager: module '{}' not loaded; cannot resolve offset 0x{:x}",
+    sweetLoaderLogger.warn("DobbyHookManager: module '{}' not loaded; cannot resolve offset 0x{:x}",
                          std::string(module), offset);
     return 0;
   }
   const uintptr_t bias = GlossGetLibBiasEx(handle);
   if (bias == 0) {
-    preloaderLogger.warn("DobbyHookManager: module '{}' load bias unavailable", std::string(module));
+    sweetLoaderLogger.warn("DobbyHookManager: module '{}' load bias unavailable", std::string(module));
     return 0;
   }
   return bias + offset;
@@ -157,7 +157,7 @@ HookStatus DobbyHookManager::hook(void *target, void *detour, void **original,
   }
   const auto address = reinterpret_cast<uintptr_t>(target);
   if (!isAddressSane(address)) {
-    preloaderLogger.warn("DobbyHookManager: refusing mis-aligned target for '{}'", std::string(name));
+    sweetLoaderLogger.warn("DobbyHookManager: refusing mis-aligned target for '{}'", std::string(name));
     return HookStatus::Failed;
   }
 
@@ -167,11 +167,11 @@ HookStatus DobbyHookManager::hook(void *target, void *detour, void **original,
                        reinterpret_cast<pl::memory::FuncPtr *>(original),
                        pl::memory::HookPriority::Normal, name);
   if (result != 0) {
-    preloaderLogger.warn("DobbyHookManager: install failed for '{}' at 0x{:x} ({})",
+    sweetLoaderLogger.warn("DobbyHookManager: install failed for '{}' at 0x{:x} ({})",
                          std::string(name), address, describeTarget(address));
     return HookStatus::Failed;
   }
-  preloaderLogger.info("DobbyHookManager: hooked '{}' at 0x{:x}", std::string(name), address);
+  sweetLoaderLogger.info("DobbyHookManager: hooked '{}' at 0x{:x}", std::string(name), address);
   return HookStatus::Installed;
 }
 

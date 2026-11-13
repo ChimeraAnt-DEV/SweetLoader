@@ -99,7 +99,7 @@ std::mutex mtx;
 int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
          HookPriority priority, std::string_view name) {
   if (!target || !detour || !original) {
-    preloaderLogger.error("hook({}): refused, null target/detour/original", name);
+    sweetLoaderLogger.error("hook({}): refused, null target/detour/original", name);
     return -1;
   }
 
@@ -107,13 +107,13 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
   // mis-aligned address corrupts the instruction stream and faults the thread that
   // later executes it, so refuse it here rather than half-installing.
   if (!isHookAddressSane(reinterpret_cast<uintptr_t>(target))) {
-    preloaderLogger.error("hook({}): refused, target {} is null or mis-aligned",
+    sweetLoaderLogger.error("hook({}): refused, target {} is null or mis-aligned",
                           name, target);
     return -1;
   }
   const auto region = queryMemoryRegion(reinterpret_cast<uintptr_t>(target));
   if (!region.readable() || !region.executable()) {
-    preloaderLogger.error(
+    sweetLoaderLogger.error(
         "hook({}): refused, target {} is not readable+executable ({})", name,
         target, region.describe());
     return -1;
@@ -126,13 +126,13 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
   const volatile std::uint32_t *boundaryWord =
       reinterpret_cast<const volatile std::uint32_t *>(target);
   if (!IsPlausibleInstructionBoundary(*boundaryWord)) {
-    preloaderLogger.error(
+    sweetLoaderLogger.error(
         "hook({}): refused, target {} does not look like an instruction boundary ({})", name,
         target, region.describe());
     return -1;
   }
 
-  preloaderLogger.info("hook({}): target {} -> {}", name, target,
+  sweetLoaderLogger.info("hook({}): target {} -> {}", name, target,
                        region.describe());
 
   // GlossInit(false) allocates the trampoline pool and hook bookkeeping. It must NOT be
@@ -181,7 +181,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
     h->rebuildChain();
     // Warn with both names, because "two mods hook the same address" is a real conflict
     // the user needs to be able to attribute.
-    preloaderLogger.warn("hook({}): target {} already hooked by [{}]; chaining (original {})",
+    sweetLoaderLogger.warn("hook({}): target {} already hooked by [{}]; chaining (original {})",
                          name, target, existing.empty() ? "<unnamed>" : existing, h->origin);
     return 0;
   }
@@ -194,7 +194,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
                              reinterpret_cast<void *>(detour),
                              reinterpret_cast<void **>(&h->origin));
   if (!h->glossHandle) {
-    preloaderLogger.error("hook({}): GlossHook install failed at {}", name, target);
+    sweetLoaderLogger.error("hook({}): GlossHook install failed at {}", name, target);
     return -1;
   }
 
@@ -205,7 +205,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
   // (the game would call a trampoline whose prologue was never rewritten) and the caller must see a
   // failure so it fails closed.
   if (!VerifyPatchedPrologue(target, name)) {
-    preloaderLogger.error(
+    sweetLoaderLogger.error(
         "hook({}): patched-prologue verification FAILED at {}; backing the install out", name,
         target);
     GlossHookDelete(h->glossHandle);
@@ -213,7 +213,7 @@ int hook(FuncPtr target, FuncPtr detour, FuncPtr *original,
     return -1;
   }
 
-  preloaderLogger.info(
+  sweetLoaderLogger.info(
       "hook({}): installed, target {} original {} detour {} (region {})", name,
       target, h->origin, detour, queryMemoryRegion(reinterpret_cast<uintptr_t>(target)).describe());
 

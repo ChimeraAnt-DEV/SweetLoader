@@ -35,7 +35,7 @@ bool InstallTier2CountingHook(const char *typeInfoName, std::size_t slot,
     // case: report it and leave the game untouched rather than guessing a slot.
     MarkOptifineSkipped(state,
                         std::string(label) + ": no verified hook slot for this version");
-    preloaderLogger.warn("Optifine {}: no verified vtable slot for this build", label);
+    sweetLoaderLogger.warn("Optifine {}: no verified vtable slot for this build", label);
     return false;
   }
 
@@ -43,19 +43,19 @@ bool InstallTier2CountingHook(const char *typeInfoName, std::size_t slot,
   if (address == 0) {
     MarkOptifineSkipped(state,
                         std::string(label) + ": vtable slot unresolved in this build");
-    preloaderLogger.warn("Optifine {}: vtable slot {} unresolved for {}", label,
+    sweetLoaderLogger.warn("Optifine {}: vtable slot {} unresolved for {}", label,
                          effectiveSlot, typeInfoName);
     return false;
   }
 
   if (!InstallOptifineHook(address, detour, original, label)) {
     MarkOptifineFailed(state, std::string(label) + ": hook install failed");
-    preloaderLogger.warn("Optifine {}: detour install failed at 0x{:x}", label, address);
+    sweetLoaderLogger.warn("Optifine {}: detour install failed at 0x{:x}", label, address);
     return false;
   }
 
   MarkOptifineActive(state, std::string(label) + ": hook installed");
-  preloaderLogger.info("Optifine {}: hook installed at 0x{:x} (slot {})", label, address,
+  sweetLoaderLogger.info("Optifine {}: hook installed at 0x{:x} (slot {})", label, address,
                        effectiveSlot);
   return true;
 }

@@ -128,18 +128,18 @@ namespace pl::runtime {
             out.clear();
             if (!value) {
                 if (required)
-                    preloaderLogger.error("Mod Menu registration missing {}", fieldName);
+                    sweetLoaderLogger.error("Mod Menu registration missing {}", fieldName);
                 return !required;
             }
 
             const size_t length = strnlen(value, maxLength + 1);
             if (length == 0) {
                 if (required)
-                    preloaderLogger.error("Mod Menu registration has empty {}", fieldName);
+                    sweetLoaderLogger.error("Mod Menu registration has empty {}", fieldName);
                 return !required;
             }
             if (length > maxLength) {
-                preloaderLogger.error("Mod Menu registration {} is too long", fieldName);
+                sweetLoaderLogger.error("Mod Menu registration {} is too long", fieldName);
                 return false;
             }
 
@@ -162,11 +162,11 @@ namespace pl::runtime {
             out.clear();
             if (value.empty()) {
                 if (required)
-                    preloaderLogger.error("Mod Menu registration has empty {}", fieldName);
+                    sweetLoaderLogger.error("Mod Menu registration has empty {}", fieldName);
                 return !required;
             }
             if (value.size() > maxLength) {
-                preloaderLogger.error("Mod Menu registration {} is too long", fieldName);
+                sweetLoaderLogger.error("Mod Menu registration {} is too long", fieldName);
                 return false;
             }
 
@@ -186,21 +186,21 @@ namespace pl::runtime {
 
         bool ValidateConfigSchemaJson(std::string_view moduleId, std::string_view schemaJson) {
             if (schemaJson.empty() || schemaJson.size() > kMaxConfigSchemaBytes) {
-                preloaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid size {}", moduleId, schemaJson.size());
+                sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid size {}", moduleId, schemaJson.size());
                 return false;
             }
             try {
                 const auto root = nlohmann::json::parse(schemaJson);
                 if (!root.is_object() || root.value("version", 0) != 2 ||
                     !root.contains("categories") || !root.contains("nodes")) {
-                    preloaderLogger.error("Rejected Mod Menu V2 schema for {}: unsupported or incomplete schema", moduleId);
+                    sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: unsupported or incomplete schema", moduleId);
                     return false;
                 }
                 const auto &categories = root.at("categories");
                 const auto &nodes = root.at("nodes");
                 if (!categories.is_array() || !nodes.is_array() ||
                     categories.size() > kMaxConfigSchemaCategories || nodes.size() > kMaxConfigSchemaNodes) {
-                    preloaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid category/node count", moduleId);
+                    sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid category/node count", moduleId);
                     return false;
                 }
 
@@ -253,7 +253,7 @@ namespace pl::runtime {
                     }
                     if (!category.empty() && !categoryIds.contains(category)) return false;
                     if (type != "section" && type != "info" && type != "toggle_group" && key.empty()) {
-                        preloaderLogger.error("Rejected Mod Menu V2 schema for {}: node {} ({}) requires a key",
+                        sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: node {} ({}) requires a key",
                                               moduleId, id, type);
                         return false;
                     }
@@ -298,7 +298,7 @@ namespace pl::runtime {
                 }
                 return true;
             } catch (...) {
-                preloaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid JSON", moduleId);
+                sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: invalid JSON", moduleId);
                 return false;
             }
         }
@@ -428,7 +428,7 @@ namespace pl::runtime {
             auto document = lunasvg::Document::loadFromData(
                     reinterpret_cast<const char *>(svgData.data()), svgData.size());
             if (!document) {
-                preloaderLogger.error("Failed to parse registered SVG button icon");
+                sweetLoaderLogger.error("Failed to parse registered SVG button icon");
                 return false;
             }
 
@@ -436,13 +436,13 @@ namespace pl::runtime {
                     NormalizeRenderedIconSize(width), NormalizeRenderedIconSize(height),
                     0x00000000);
             if (bitmap.isNull()) {
-                preloaderLogger.error("Failed to render registered SVG button icon");
+                sweetLoaderLogger.error("Failed to render registered SVG button icon");
                 return false;
             }
 
             out.clear();
             if (!bitmap.writeToPng(AppendPngBytes, &out)) {
-                preloaderLogger.error("Failed to encode registered SVG button icon");
+                sweetLoaderLogger.error("Failed to encode registered SVG button icon");
                 return false;
             }
             return !out.empty();
@@ -458,20 +458,20 @@ namespace pl::runtime {
         bool ValidateDrawCommands(std::string_view moduleId,
                                   std::span<const pl::modmenu::DrawCommand> commands) {
             if (commands.size() > kMaxDrawCommandCount) {
-                preloaderLogger.error("Rejected draw commands for {}: invalid count {}",
+                sweetLoaderLogger.error("Rejected draw commands for {}: invalid count {}",
                                       moduleId, commands.size());
                 return false;
             }
 
             for (size_t i = 0; i < commands.size(); ++i) {
                 if (!HasFiniteDrawGeometry(commands[i])) {
-                    preloaderLogger.error("Rejected draw command {} for {}: non-finite "
+                    sweetLoaderLogger.error("Rejected draw command {} for {}: non-finite "
                                           "geometry or size",
                                           i, moduleId);
                     return false;
                 }
                 if (!IsValidDrawCommandType(commands[i].type)) {
-                    preloaderLogger.error("Rejected draw command {} for {}: invalid type {}",
+                    sweetLoaderLogger.error("Rejected draw command {} for {}: invalid type {}",
                                           i, moduleId, static_cast<int>(commands[i].type));
                     return false;
                 }
@@ -483,7 +483,7 @@ namespace pl::runtime {
                                         "draw command font_id", unused) ||
                     !ReadOptionalString(commands[i].imageId, kMaxModuleIdLength,
                                         "draw command image_id", unused)) {
-                    preloaderLogger.error("Rejected draw command {} for {}", i, moduleId);
+                    sweetLoaderLogger.error("Rejected draw command {} for {}", i, moduleId);
                     return false;
                 }
             }
@@ -494,7 +494,7 @@ namespace pl::runtime {
                 std::string_view moduleId,
                 std::span<const pl::modmenu::HudEditorElement> elements) {
             if (elements.size() > kMaxHudEditorElementCount) {
-                preloaderLogger.error("Rejected HUD editor elements for {}: invalid count {}",
+                sweetLoaderLogger.error("Rejected HUD editor elements for {}: invalid count {}",
                                       moduleId, elements.size());
                 return false;
             }
@@ -511,7 +511,7 @@ namespace pl::runtime {
                     element.height < 0.0f || element.gridSize < 0.0f ||
                     element.snapThreshold < 0.0f || element.gridGap < 0.0f ||
                     (element.snapFlags & ~allowedFlags) != 0) {
-                    preloaderLogger.error("Rejected HUD editor element {} for {}", i,
+                    sweetLoaderLogger.error("Rejected HUD editor element {} for {}", i,
                                           moduleId);
                     return false;
                 }
@@ -530,7 +530,7 @@ namespace pl::runtime {
                 }
                 for (size_t j = 0; j < i; ++j) {
                     if (elements[j].elementId == element.elementId) {
-                        preloaderLogger.error("Rejected duplicate HUD editor element {} for {}",
+                        sweetLoaderLogger.error("Rejected duplicate HUD editor element {} for {}",
                                               element.elementId, moduleId);
                         return false;
                     }
@@ -559,7 +559,7 @@ namespace pl::runtime {
                 if (modId.empty()) {
                     modId = ownerModId;
                 } else if (modId != ownerModId) {
-                    preloaderLogger.error(
+                    sweetLoaderLogger.error(
                             "Rejected Mod Menu module {}: declared mod_id {} does not match "
                             "owning lifecycle mod {}",
                             moduleId, modId, ownerModId);
@@ -568,7 +568,7 @@ namespace pl::runtime {
             }
 
             if (info.configs.size() > kMaxConfigCount) {
-                preloaderLogger.error("Rejected Mod Menu module {}: invalid config_count "
+                sweetLoaderLogger.error("Rejected Mod Menu module {}: invalid config_count "
                                       "{}",
                                       moduleId, info.configs.size());
                 return false;
@@ -589,7 +589,7 @@ namespace pl::runtime {
             for (size_t i = 0; i < info.configs.size(); ++i) {
                 const auto &src = info.configs[i];
                 if (!IsValidConfigType(src.type)) {
-                    preloaderLogger.error("Rejected Mod Menu module {}: config {} has "
+                    sweetLoaderLogger.error("Rejected Mod Menu module {}: config {} has "
                                           "invalid type {}",
                                           entry.module_id, i, static_cast<int>(src.type));
                     return false;
@@ -608,7 +608,7 @@ namespace pl::runtime {
                                         "config max_value", cfg.max_value) ||
                     !ReadOptionalString(src.dependsOn, kMaxConfigStringLength,
                                         "config depends_on", cfg.depends_on)) {
-                    preloaderLogger.error("Rejected Mod Menu module {}: invalid config {}",
+                    sweetLoaderLogger.error("Rejected Mod Menu module {}: invalid config {}",
                                           entry.module_id, i);
                     return false;
                 }
@@ -624,7 +624,7 @@ namespace pl::runtime {
             std::lock_guard<std::mutex> lock(g_modMenuMutex);
             for (const auto &mod : g_registeredModules) {
                 if (mod.module_id == registeredModuleId) {
-                    preloaderLogger.error("Rejected duplicate Mod Menu module {}",
+                    sweetLoaderLogger.error("Rejected duplicate Mod Menu module {}",
                                           registeredModuleId);
                     return false;
                 }
@@ -788,19 +788,19 @@ namespace pl::runtime {
         bool RegisterCppButton(const pl::modmenu::ButtonInfo &info) {
             pl::modmenu::ButtonStylePreset stylePreset = info.stylePreset;
             if (!IsValidButtonStylePreset(stylePreset)) {
-                preloaderLogger.error("Rejected Mod Menu button: invalid style preset {}",
+                sweetLoaderLogger.error("Rejected Mod Menu button: invalid style preset {}",
                                       static_cast<int>(stylePreset));
                 return false;
             }
 
             if (!IsValidButtonIconFormat(info.iconFormat)) {
-                preloaderLogger.error("Rejected Mod Menu button: invalid icon format {}",
+                sweetLoaderLogger.error("Rejected Mod Menu button: invalid icon format {}",
                                       static_cast<int>(info.iconFormat));
                 return false;
             }
 
             if (info.iconData.size() > kMaxButtonIconBytes) {
-                preloaderLogger.error("Rejected Mod Menu button: invalid icon size {}",
+                sweetLoaderLogger.error("Rejected Mod Menu button: invalid icon size {}",
                                       info.iconData.size());
                 return false;
             }
@@ -831,7 +831,7 @@ namespace pl::runtime {
             }
 
             if (!IsValidButtonBehavior(info.behavior)) {
-                preloaderLogger.error("Rejected Mod Menu button {}: invalid behavior {}",
+                sweetLoaderLogger.error("Rejected Mod Menu button {}: invalid behavior {}",
                                       buttonId, static_cast<int>(info.behavior));
                 return false;
             }
@@ -841,7 +841,7 @@ namespace pl::runtime {
                 if (modId.empty()) {
                     modId = ownerModId;
                 } else if (modId != ownerModId) {
-                    preloaderLogger.error(
+                    sweetLoaderLogger.error(
                             "Rejected Mod Menu button {}: declared mod_id {} does not match "
                             "owning lifecycle mod {}",
                             buttonId, modId, ownerModId);
@@ -852,7 +852,7 @@ namespace pl::runtime {
             std::lock_guard<std::mutex> lock(g_modMenuMutex);
             for (const auto &button : g_registeredButtons) {
                 if (button.button_id == buttonId) {
-                    preloaderLogger.error("Rejected duplicate Mod Menu button {}",
+                    sweetLoaderLogger.error("Rejected duplicate Mod Menu button {}",
                                           buttonId);
                     return false;
                 }
@@ -865,7 +865,7 @@ namespace pl::runtime {
                     if (modId.empty()) {
                         modId = mod.mod_id;
                     } else if (!mod.mod_id.empty() && modId != mod.mod_id) {
-                        preloaderLogger.error(
+                        sweetLoaderLogger.error(
                                 "Rejected Mod Menu button {}: mod_id {} does not match module {} "
                                 "owner {}",
                                 buttonId, modId, moduleId, mod.mod_id);
@@ -1011,7 +1011,7 @@ namespace pl::runtime {
 
     bool SetRegisteredModuleConfigSchema(std::string_view moduleId, std::string_view schemaJson) {
         if (!ValidateConfigSchemaJson(moduleId, schemaJson)) {
-            preloaderLogger.error("Rejected Mod Menu V2 schema for {}: validation failed; retaining existing configuration",
+            sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: validation failed; retaining existing configuration",
                                   moduleId);
             return false;
         }
@@ -1024,12 +1024,12 @@ namespace pl::runtime {
             ++mod.config_schema_revision;
             if (mod.config_schema_revision == 0) mod.config_schema_revision = 1;
             if (firstSchema) {
-                preloaderLogger.info("Registered Mod Menu V2 schema for {}: revision {}",
+                sweetLoaderLogger.info("Registered Mod Menu V2 schema for {}: revision {}",
                                      moduleId, mod.config_schema_revision);
             }
             return true;
         }
-        preloaderLogger.error("Rejected Mod Menu V2 schema for {}: module is not registered", moduleId);
+        sweetLoaderLogger.error("Rejected Mod Menu V2 schema for {}: module is not registered", moduleId);
         return false;
     }
 
@@ -1216,7 +1216,7 @@ namespace pl::runtime {
         std::string fontId;
         if (!ReadRequiredString(font_id, kMaxModuleIdLength, "font_id", fontId) ||
             !ttf_data || ttf_size <= 0 || ttf_size > kMaxFontBytes) {
-            preloaderLogger.error("Rejected registered font: invalid input or size "
+            sweetLoaderLogger.error("Rejected registered font: invalid input or size "
                                   "{}",
                                   ttf_size);
             return false;

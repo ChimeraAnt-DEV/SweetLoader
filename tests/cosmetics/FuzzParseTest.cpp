@@ -1,9 +1,9 @@
-// Fuzz-shaped host tests for the three parsers that read untrusted data (item 458).
+// Fuzz-shaped host tests for the parsers that read untrusted data (item 458).
 //
-// The signature parser reads the shipped rule file, the manifest reader reads a package's own
-// `egg.json`, and the geometry parser reads a model downloaded with a cosmetic. All three are
-// reachable with data this project does not control, so a crash in one is a crash the launcher did
-// not earn.
+// The signature parser reads the shipped rule file and the geometry parser reads a model downloaded
+// with a cosmetic. Both are reachable with data this project does not control, so a crash in one is
+// a crash the launcher did not earn. The .universe manifest reader is covered by its own test,
+// UniversePackageTest, against the same invariants.
 //
 // This is not libFuzzer: it is a deterministic, seeded generator over the *shapes* those parsers
 // accept, run to a fixed iteration count so it can live in CI next to the other host tests. The
@@ -18,7 +18,6 @@
 
 #include "pl/cosmetics/geometry/BedrockGeometry.hpp"
 #include "pl/memory/SignaturePattern.hpp"
-#include "pl/runtime/AntEggLoader.h"
 
 namespace {
 
@@ -87,38 +86,6 @@ void TheSignatureParserHoldsItsInvariantsOnAnyInput() {
   }
 }
 
-void TheManifestParserHoldsItsInvariantsOnAnyInput() {
-  Rng rng(0xE6612345ull);
-  for (int i = 0; i < 8000; ++i) {
-    const std::string text = RandomText(rng, 120);
-    pl::runtime::AntEggManifest manifest;
-    std::string error;
-    const bool ok = pl::runtime::AntEggLoader::ParseManifest(text, manifest, error);
-    if (!ok) {
-      Check(!error.empty(), "a refused manifest explains why: '" + text + "'");
-    }
-  }
-
-  // The generator above is almost all punctuation; seed a few inputs that are *shaped* like a
-  // manifest so the value paths (semver, entry point, permissions) are exercised too.
-  static const char *kSeeds[] = {
-      "{}",
-      "{\"name\":\"\",\"version\":\"\",\"author\":\"\",\"type\":\"\",\"entry_point\":\"\"}",
-      "{\"name\":\"n\",\"version\":\"1\",\"author\":\"a\",\"type\":\"native\",\"entry_point\":\"a\"}",
-      "{\"name\":\"n\",\"version\":\"1.0.0.0.0.0\",\"author\":\"a\",\"type\":\"native\","
-      "\"entry_point\":\"a.so\",\"permissions\":[null,1,true]}",
-      "{\"name\":\"n\",\"version\":\"1.0.0\",\"author\":\"a\",\"type\":\"native\","
-      "\"entry_point\":\"a.so\",\"dependencies\":[{\"id\":\"\"},{\"version\":\"x\"}]}",
-  };
-  for (const char *seed : kSeeds) {
-    pl::runtime::AntEggManifest manifest;
-    std::string error;
-    // Only the invariant matters here: it returns, and a refusal carries a reason.
-    const bool ok = pl::runtime::AntEggLoader::ParseManifest(seed, manifest, error);
-    Check(ok || !error.empty(), std::string("a shaped input is accepted or explained: ") + seed);
-  }
-}
-
 void TheGeometryParserHoldsItsInvariantsOnAnyInput() {
   Rng rng(0xB0D1E5ull);
   for (int i = 0; i < 8000; ++i) {
@@ -160,7 +127,6 @@ void TheGeometryParserHoldsItsInvariantsOnAnyInput() {
 
 int main() {
   TheSignatureParserHoldsItsInvariantsOnAnyInput();
-  TheManifestParserHoldsItsInvariantsOnAnyInput();
   TheGeometryParserHoldsItsInvariantsOnAnyInput();
 
   if (g_failures != 0) {

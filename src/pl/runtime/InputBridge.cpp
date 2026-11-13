@@ -20,10 +20,10 @@ namespace {
 // The four dispatchers run inside the game's own input path, so their callback lists are published
 // as immutable snapshots read with one atomic load and iterated by const reference. Registration is
 // rare, so the copy-and-swap it costs does not matter.
-CallbackSnapshot<PreloaderInput_OnTouch_Fn> g_touchCallbacks;
-CallbackSnapshot<PreloaderInput_OnKeyEvent_Fn> g_keyEventCallbacks;
-CallbackSnapshot<PreloaderInput_OnTextInput_Fn> g_textInputCallbacks;
-CallbackSnapshot<PreloaderInput_OnMouse_Fn> g_mouseCallbacks;
+CallbackSnapshot<SweetLoaderInput_OnTouch_Fn> g_touchCallbacks;
+CallbackSnapshot<SweetLoaderInput_OnKeyEvent_Fn> g_keyEventCallbacks;
+CallbackSnapshot<SweetLoaderInput_OnTextInput_Fn> g_textInputCallbacks;
+CallbackSnapshot<SweetLoaderInput_OnMouse_Fn> g_mouseCallbacks;
 CallbackSnapshot<pl::input::TouchCallback> g_cppTouchCallbacks;
 CallbackSnapshot<pl::input::KeyCallback> g_cppKeyCallbacks;
 CallbackSnapshot<pl::input::TextInputCallback> g_cppTextInputCallbacks;
@@ -34,19 +34,19 @@ CallbackSnapshot<pl::input::MouseCallback> g_cppMouseCallbacks;
 pl::input::DocumentCallback g_documentCallback;
 std::mutex g_callbackMutex;
 
-void RegisterLegacyTouchCallback(PreloaderInput_OnTouch_Fn callback) {
+void RegisterLegacyTouchCallback(SweetLoaderInput_OnTouch_Fn callback) {
   g_touchCallbacks.add(callback);
 }
 
-void RegisterLegacyKeyEventCallback(PreloaderInput_OnKeyEvent_Fn callback) {
+void RegisterLegacyKeyEventCallback(SweetLoaderInput_OnKeyEvent_Fn callback) {
   g_keyEventCallbacks.add(callback);
 }
 
-void RegisterLegacyTextInputCallback(PreloaderInput_OnTextInput_Fn callback) {
+void RegisterLegacyTextInputCallback(SweetLoaderInput_OnTextInput_Fn callback) {
   g_textInputCallbacks.add(callback);
 }
 
-void RegisterLegacyMouseCallback(PreloaderInput_OnMouse_Fn callback) {
+void RegisterLegacyMouseCallback(SweetLoaderInput_OnMouse_Fn callback) {
   g_mouseCallbacks.add(callback);
 }
 
@@ -70,7 +70,7 @@ bool InvokeSafely(Fn &&fn, const char *site) {
   } catch (...) {
     static OnceReport reported;
     if (reported.shouldReport()) {
-      preloaderLogger.warn(
+      sweetLoaderLogger.warn(
           "an input callback threw at {}; treating it as not consumed and continuing (logged "
           "once per dispatch site)", site);
     }
@@ -78,7 +78,7 @@ bool InvokeSafely(Fn &&fn, const char *site) {
   }
 }
 
-PreloaderInput_Interface g_inputInterface = {
+SweetLoaderInput_Interface g_inputInterface = {
     .RegisterTouchCallback = RegisterLegacyTouchCallback,
     .RegisterKeyEventCallback = RegisterLegacyKeyEventCallback,
     .ShowKeyboard = ShowKeyboardImpl,
@@ -89,11 +89,11 @@ PreloaderInput_Interface g_inputInterface = {
 
 } // namespace
 
-PreloaderInput_Interface *GetInputInterface() { return &g_inputInterface; }
+SweetLoaderInput_Interface *GetInputInterface() { return &g_inputInterface; }
 
 bool DispatchTouch(int action, int pointerId, float x, float y) {
   bool consumed = false;
-  g_touchCallbacks.forEach([&](const PreloaderInput_OnTouch_Fn &callback) {
+  g_touchCallbacks.forEach([&](const SweetLoaderInput_OnTouch_Fn &callback) {
     if (callback) {
       consumed |= InvokeSafely([&] { return callback(action, pointerId, x, y); }, "touch");
     }
@@ -114,7 +114,7 @@ bool DispatchTouch(int action, int pointerId, float x, float y) {
 
 bool DispatchKeyEvent(int keyCode, unsigned int unicodeChar, bool isKeyDown) {
   bool consumed = false;
-  g_keyEventCallbacks.forEach([&](const PreloaderInput_OnKeyEvent_Fn &callback) {
+  g_keyEventCallbacks.forEach([&](const SweetLoaderInput_OnKeyEvent_Fn &callback) {
     if (callback) {
       consumed |= InvokeSafely([&] { return callback(keyCode, unicodeChar, isKeyDown); }, "key");
     }
@@ -134,7 +134,7 @@ bool DispatchKeyEvent(int keyCode, unsigned int unicodeChar, bool isKeyDown) {
 
 bool DispatchTextInput(std::string_view text) {
   bool consumed = false;
-  g_textInputCallbacks.forEach([&](const PreloaderInput_OnTextInput_Fn &callback) {
+  g_textInputCallbacks.forEach([&](const SweetLoaderInput_OnTextInput_Fn &callback) {
     if (callback) {
       consumed |= InvokeSafely([&] { return callback(text.data(), text.size()); }, "text");
     }
@@ -152,7 +152,7 @@ bool DispatchTextInput(std::string_view text) {
 
 bool DispatchMouse(int button, bool isDown) {
   bool consumed = false;
-  g_mouseCallbacks.forEach([&](const PreloaderInput_OnMouse_Fn &callback) {
+  g_mouseCallbacks.forEach([&](const SweetLoaderInput_OnMouse_Fn &callback) {
     if (callback) {
       consumed |= InvokeSafely([&] { return callback(button, isDown); }, "mouse");
     }
@@ -181,7 +181,7 @@ bool RequestDocument(std::string mimeType,
   if (mimeType.empty()) {
     mimeType = "*/*";
   }
-  if (CallActivityStringMethod("openPreloaderDocumentPicker", mimeType)) {
+  if (CallActivityStringMethod("openSweetLoaderDocumentPicker", mimeType)) {
     return true;
   }
   std::lock_guard<std::mutex> lock(g_callbackMutex);

@@ -49,7 +49,7 @@ bool ReloadResourcePacks() {
 
   const std::uintptr_t refreshFn = g_refreshFn.load(std::memory_order_relaxed);
   if (refreshFn == 0) {
-    preloaderLogger.info(
+    sweetLoaderLogger.info(
         "Resource-pack live reload: no verified in-place refresh hook for this "
         "build; the launcher should relaunch the instance");
     return false;
@@ -62,7 +62,7 @@ bool ReloadResourcePacks() {
   //
   // The shipped builds resolve to no hook, so this branch is intentionally
   // unreachable today; see the header for the reverse-engineering finding.
-  preloaderLogger.warn(
+  sweetLoaderLogger.warn(
       "Resource-pack live reload: a refresh hook resolved but no verified "
       "engine confirmation is implemented; reporting failure");
   return false;

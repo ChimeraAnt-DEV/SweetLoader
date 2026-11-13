@@ -69,7 +69,7 @@ void ApplyCpuAffinity(bool enabled, OptifineItemState &state) {
   }
   if (!SetThreadAffinity(self, mask)) {
     MarkOptifineSkipped(state, "sched_setaffinity refused");
-    preloaderLogger.warn("Optifine affinity: sched_setaffinity failed (errno {})", errno);
+    sweetLoaderLogger.warn("Optifine affinity: sched_setaffinity failed (errno {})", errno);
     return;
   }
 
@@ -77,7 +77,7 @@ void ApplyCpuAffinity(bool enabled, OptifineItemState &state) {
   gAppliedMask.store(mask, std::memory_order_relaxed);
   MarkOptifineActive(state,
                      std::to_string(performanceCount) + " performance cores pinned");
-  preloaderLogger.info("Optifine affinity: main thread pinned, mask 0x{:x}", mask);
+  sweetLoaderLogger.info("Optifine affinity: main thread pinned, mask 0x{:x}", mask);
 }
 
 struct Registrar {

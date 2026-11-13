@@ -4,13 +4,13 @@
  * @file FeatureAvailability.hpp
  * @brief Per-feature hook availability, reported to the client as one JSON blob.
  *
- * <p>The preloader installs a set of independent seams — the pause-menu overlay hooks, the local
+ * <p>The sweetloader installs a set of independent seams — the pause-menu overlay hooks, the local
  * player feed, the player-render feed, the native cosmetics interception, the skin/cape seams, the
  * texture binder and the join-packet seam. Each resolves separately and each is fail-closed: a
  * build where one signature is missing leaves *that* feature unavailable and everything else
  * working.
  *
- * <p>The problem this solves is that "the preloader loaded" and "this feature works" are different
+ * <p>The problem this solves is that "the sweetloader loaded" and "this feature works" are different
  * questions. Without a per-feature report the launcher can only say the hooks are on or off, so a
  * single missing signature reads as "nothing works" and a feature that quietly did nothing looks
  * like a launcher bug. Here each feature carries its own state and reason, the whole set is
@@ -20,7 +20,7 @@
  * vocabulary, the reason passthrough and the JSON escaping are all decided here so a wiring mistake
  * cannot change the shape of the report.
  *
- * <p><b>Thread-safety.</b> The preloader records availability from the frame tick (one writer) and
+ * <p><b>Thread-safety.</b> The sweetloader records availability from the frame tick (one writer) and
  * the client reads it from the JNI thread. Each entry is a small fixed-size record and the write is
  * an ordinary store; the report is a snapshot, so a torn read would at worst report one feature's
  * previous state for one poll. That is acceptable for a diagnostic, and it avoids a lock on the
@@ -70,7 +70,7 @@ inline const char *FeatureStateName(FeatureState state) noexcept {
 }
 
 /**
- * @brief The features the preloader reports on.
+ * @brief The features the sweetloader reports on.
  *
  * <p>The order is the report order, so the client can rely on a stable sequence. Adding a feature is
  * one enumerator here plus its `FeatureName`; the test asserts every enumerator has a name and that

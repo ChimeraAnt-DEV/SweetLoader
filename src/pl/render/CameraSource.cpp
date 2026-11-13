@@ -75,7 +75,7 @@ void CameraSource::ResolveOnce() {
     std::vector<Region> regions;
     ReadableRegionsFor(kGameModule, regions);
     if (regions.empty()) {
-      preloaderLogger.info("Camera source: no writable game regions to scan");
+      sweetLoaderLogger.info("Camera source: no writable game regions to scan");
       return;
     }
 
@@ -90,10 +90,10 @@ void CameraSource::ResolveOnce() {
       const std::uintptr_t projAddr = viewAddr + 16 * sizeof(float);
       g_viewAddress.store(viewAddr, std::memory_order_release);
       g_projectionAddress.store(projAddr, std::memory_order_release);
-      preloaderLogger.info("Camera source: resolved view {:x} projection {:x}", viewAddr, projAddr);
+      sweetLoaderLogger.info("Camera source: resolved view {:x} projection {:x}", viewAddr, projAddr);
       return;
     }
-    preloaderLogger.info(
+    sweetLoaderLogger.info(
         "Camera source: no view/projection pair found; callers fall back to ComputeViewProjection");
   });
 }
@@ -106,7 +106,7 @@ void CameraSource::ResolveAsync() {
   static std::once_flag s_requested;
   std::call_once(s_requested, [] {
     std::thread([] {
-      preloaderLogger.info("Camera source: background scan started");
+      sweetLoaderLogger.info("Camera source: background scan started");
       ResolveOnce();
     }).detach();
   });

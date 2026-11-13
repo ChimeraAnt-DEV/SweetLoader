@@ -25,7 +25,7 @@ bool CosmeticSocketClient::open(const std::string &group, std::uint16_t port) {
 
   const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
   if (fd < 0) {
-    preloaderLogger.warn("CosmeticSync: socket() failed: {}", std::strerror(errno));
+    sweetLoaderLogger.warn("CosmeticSync: socket() failed: {}", std::strerror(errno));
     return false;
   }
 
@@ -37,7 +37,7 @@ bool CosmeticSocketClient::open(const std::string &group, std::uint16_t port) {
   local.sin_addr.s_addr = htonl(INADDR_ANY);
   local.sin_port = htons(port);
   if (::bind(fd, reinterpret_cast<sockaddr *>(&local), sizeof(local)) < 0) {
-    preloaderLogger.warn("CosmeticSync: bind() failed: {}", std::strerror(errno));
+    sweetLoaderLogger.warn("CosmeticSync: bind() failed: {}", std::strerror(errno));
     ::close(fd);
     return false;
   }
@@ -46,13 +46,13 @@ bool CosmeticSocketClient::open(const std::string &group, std::uint16_t port) {
   membership.imr_multiaddr.s_addr = ::inet_addr(group.c_str());
   membership.imr_interface.s_addr = htonl(INADDR_ANY);
   if (::setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) < 0) {
-    preloaderLogger.warn("CosmeticSync: IP_ADD_MEMBERSHIP failed: {}", std::strerror(errno));
+    sweetLoaderLogger.warn("CosmeticSync: IP_ADD_MEMBERSHIP failed: {}", std::strerror(errno));
     ::close(fd);
     return false;
   }
 
   mFd = fd;
-  preloaderLogger.info("CosmeticSync: multicast socket open on {}:{}", group, port);
+  sweetLoaderLogger.info("CosmeticSync: multicast socket open on {}:{}", group, port);
   return true;
 }
 

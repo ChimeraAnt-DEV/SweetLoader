@@ -2,10 +2,10 @@
 
 /**
  * @file BerryCosmeticMirror.hpp
- * @brief The preloader's mirror of BerryAPI's cosmetic C ABI, as a host-testable struct.
+ * @brief The sweetloader's mirror of BerryAPI's cosmetic C ABI, as a host-testable struct.
  *
  * <p>BerryAPI exports the cosmetics system as a plain C struct of function pointers
- * (`berry/cosmetic_c.h`, `BERRY_GetCosmeticApi`). The preloader `dlopen`s the library and cannot
+ * (`berry/cosmetic_c.h`, `BERRY_GetCosmeticApi`). The sweetloader `dlopen`s the library and cannot
  * include its headers, so it mirrors the struct and checks the numbers before calling anything —
  * the same contract `BerryReplayMirror.hpp` uses for the replay and `BerrySeamProvider.hpp` for the
  * world seam.

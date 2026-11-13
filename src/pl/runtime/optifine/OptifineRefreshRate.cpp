@@ -7,11 +7,11 @@
 
 /**
  * @file OptifineRefreshRate.cpp
- * @brief Tier-1 refresh-rate unlock (launcher-applied, preloader-reported).
+ * @brief Tier-1 refresh-rate unlock (launcher-applied, sweetloader-reported).
  *
  * Only the launcher holds the {@code Window}/{@code Surface} needed to call
  * {@code Surface.setFrameRate}, so the request itself is made on the launcher side. The
- * preloader owns the *rule* (which rate to ask for) and the reported outcome, so the Settings
+ * sweetloader owns the *rule* (which rate to ask for) and the reported outcome, so the Settings
  * screen reads one state, not two.
  *
  * The launcher computes the target with {@code OptifineRefreshRateRule} (a Java port of
@@ -50,7 +50,7 @@ Registrar gRegistrar;
  * @brief Records the refresh rate the launcher requested.
  *
  * Called from the launcher before it launches the game, once it has resolved the target from
- * the display's supported modes. Kept in the preloader so the item's reported state comes from
+ * the display's supported modes. Kept in the sweetloader so the item's reported state comes from
  * the same place as every other item's.
  */
 void SetOptifineRefreshRateTarget(int hz) { gRequestedHz.store(hz, std::memory_order_relaxed); }

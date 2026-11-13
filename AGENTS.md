@@ -1,10 +1,10 @@
 # AGENTS.md
 
 ## Build
-- Android-only CMake target (`preloader`), C++20, NDK toolchain. `CMakeLists.txt` fails fast
+- Android-only CMake target (`sweetloader`), C++20, NDK toolchain. `CMakeLists.txt` fails fast
   off-Android, and on any ABI other than `arm64-v8a` (the only ABI the client ships, and the only
   one GlossHook is vendored for). GlossHook static lib lives at `lib/ARM64/libGlossHook.a`.
-- Sources are listed explicitly in `PRELOADER_SOURCES`; **a new `.cpp` must be added there** or it
+- Sources are listed explicitly in `SWEETLOADER_SOURCES`; **a new `.cpp` must be added there** or it
   silently will not build into the library. A new *pure* helper should also be added to
   `tests/cosmetics/run_tests.sh`, which is where the host tests live.
 - Fetched dependencies are pinned by commit in `CMakeLists.txt` and listed with their licences in
@@ -14,9 +14,9 @@
 - JNI exports bind to the **`org.chimeramc.client.*`** package
   (`Java_org_chimeramc_client_*`). The launcher's `PreloaderInput` lives at
   `org.chimeramc.client.preloader.PreloaderInput` (its source directory is
-  `.../launcher/preloader/`, but the package is `org.chimeramc.client.preloader`).
+  `.../launcher/sweetloader/`, but the package is `org.chimeramc.client.preloader`).
   Verify a build with
-  `llvm-nm -D --defined-only <built libpreloader.so> | grep Java_org_chimeramc_client`.
+  `llvm-nm -D --defined-only <built libsweetloader.so> | grep Java_org_chimeramc_client`.
 
 ## Pattern scanning / hooks
 - `pl::memory::resolveSignature(s)` scans a module's **executable** `/proc/self/maps` regions for
@@ -24,8 +24,8 @@
   vtable slot through `.rodata`/`.data.rel.ro`; `pl::memory::hook` installs a detour. All are used
   by `GameHooks.cpp` / `GameLocalPlayer.cpp`.
 - **Module regions are matched by the exact basename** of the maps path column
-  (`pl/memory/ModulePathMatch.hpp`), never `strstr` over the whole line, or `libpreloader.so`
-  would also collect `libpreloader_extra.so`.
+  (`pl/memory/ModulePathMatch.hpp`), never `strstr` over the whole line, or `libsweetloader.so`
+  would also collect `libsweetloader_extra.so`.
 - **Region bytes are read with `process_vm_readv`**, in 1 MB windows with an overlap, so a region
   that unmaps mid-scan is skipped rather than faulting. The automaton state is reset per window;
   the overlap is what keeps a match spanning a boundary.
@@ -106,7 +106,7 @@
 - The Tier-1 "allocator" item used to define `malloc`/`free`/... and forward them to a
   statically linked mimalloc (v2.1.7), with the switch flipped by a load-time constructor. It is
   **removed**: `-fvisibility=hidden` meant the definitions never reached the game's allocations,
-  while the preloader's own `free`s *did* go to `mi_free`. A block from libc (e.g. `strdup` inside
+  while the sweetloader's own `free`s *did* go to `mi_free`. A block from libc (e.g. `strdup` inside
   GlossHook's xdl, freed by `xdl_close`) then faults in mimalloc. `thread_local` in `malloc` also
   recurses under minSdk 28's emulated TLS. `OptifineAllocator.cpp` now registers the item as
   "unavailable" so the launcher still gets a status; `mimalloc` is no longer fetched or linked.
@@ -139,3 +139,52 @@
 - See `docs/resource-pack-reload.md` for the full finding, the technique
   (strings -> `adrp`/`add` xrefs -> `.eh_frame_hdr` function bounds) and the
   fragility note (a Minecraft update re-verifies from scratch; no list to maintain).
+
+## Mod formats: `.universe` and `.singularity` (the Rust engine)
+- The two CaramelClient mod formats are backed by the Rust workspace in `rust/`. A new pure helper
+  crate goes in `rust/Cargo.toml`'s `members`; the crates are tested with `cargo test` from `rust/`.
+- **`universe-core`** owns everything the formats share: the manifest parsers, the Ed25519
+  signature and trusted-key set, the permission model, the ZIP reader (reads `manifest.json`
+  straight out of the central directory, before extracting a byte) and the sandboxed extractor
+  (zip-slip guarded, staged then renamed), the topological load order and the per-mod fault policy.
+- **`singularity-core`** owns world generation: noise, the climate biome registry, deterministic
+  structure placement, the greedy mesher, the fluid automaton and the physics integrator. Every
+  function is a **pure function of `(seed, coordinates, manifest)`** — no clock, no global RNG.
+  That is the format's load-bearing rule: break it and multiplayer desyncs.
+- **`universe-jni` / `singularity-jni`** are the cdylibs (`libcaramel_universe.so`,
+  `libcaramel_singularity.so`). They export JNI entry points **and** a small C ABI
+  (`caramel_universe_*` / `caramel_singularity_*`). The C++ runtime reaches the `.universe` loader
+  through `pl/engine/UniverseBridge.cpp`, which resolves the **already-loaded** library with
+  `dlopen(name, RTLD_NOW | RTLD_NOLOAD)` — never a fresh `dlopen`, so there is one loader instance
+  and one owner of the cancellation flag and the BerryAPI pointer. `UniverseBridgeTest` pins the
+  fail-closed contract: when the cdylib is not loaded, every operation refuses rather than faulting.
+  The `.universe` C ABI covers validate, extract, verify-signature, check-permissions and
+  resolve-load-order, so the signature/permission/order rules the format doc promises are enforced
+  at runtime, not only in the core crate.
+- **The loader itself lives in `universe-jni/src/loader.rs`.** It is the only place a mod's code is
+  entered. `ModRuntime::load` applies the plan (`universe-core::runtime::plan`: dependency order,
+  cycle refusal, disabled-mod refusal), then `dlopen`s each library with `RTLD_NOW | RTLD_LOCAL` and
+  resolves `universe_init`/`universe_tick`/`universe_shutdown`. A library missing any of the three
+  is closed and refused — a half-implemented mod is worse than a refused one. Every call into mod
+  code is wrapped in `catch_unwind`: a panicking mod is unloaded immediately and counted, and after
+  `MAX_FAULTS` it is refused at the next load. One mod's panic never stops another's tick.
+- **`catch_unwind` is not a signal handler.** A Rust panic (or a C++ exception unwinding through
+  Rust frames) is caught; a `SIGSEGV`/`SIGABRT` from a mod's own C/C++ code kills the process and no
+  in-process loader can contain it. The defence against that class is fail-closed *loading* (wrong
+  ABI / missing entry point / failed init refused before the mod runs) plus the fault budget. Do not
+  describe the loader as containing a crashing native mod; it does not, and `docs/universe-format.md`
+  says so explicitly.
+- The load lifecycle C ABI is `caramel_universe_load_mods` / `_tick_mods` / `_shutdown_mods` /
+  `_live_mods`, wrapped by `pl::engine::UniverseLoadMods` / `UniverseTickMods` /
+  `UniverseShutdownMods` / `UniverseLiveMods` in `pl/engine/UniverseBridge.cpp`.
+- **`caramel-cli`** packs a directory into a deterministic ZIP, signs it (Ed25519 over the SHA-256),
+  verifies, keygens and inspects. `inspect` tries the singularity schema first, then prints raw JSON.
+- The mod-author ABI is `include/pl/universe/universe_api.h` and
+  `include/pl/singularity/singularity_api.h`. The host table is passed by pointer and checked by
+  `size`/`abi_version` first; **append fields, bump the version, never reorder or remove**. Every
+  function pointer is nullable (a capability the mod did not declare), so a mod must null-check.
+- Cross-compile with `bash rust/build-android.sh` (needs the NDK + an `aarch64-linux-android` Rust
+  target). `rust/target` is gitignored.
+- `examples/` holds worked packs (`example_universe`, `sky_islands`); a `tests/examples.rs` in
+  `singularity-core` parses them through the real code so a stale field fails the build.
+- See `docs/universe-format.md` and `docs/singularity-format.md`.

@@ -1,6 +1,6 @@
-# Preloader item status (the 22-item list)
+# SweetLoader item status (the 22-item list)
 
-This is the honest state of each item in the 22-item preloader list. An item is **done** only when
+This is the honest state of each item in the 22-item sweetloader list. An item is **done** only when
 the mechanism exists and is testable without a device; **partial** means the safe half is real and
 the rest needs a per-build recovery that has not been done; **blocked** means the build exposes
 nothing to read and the code says so rather than guessing.
@@ -31,7 +31,7 @@ verified passthrough or a fail-closed refusal, never a fabricated reading.
 | 18 | Per-gate failure reasons | done | `GamePlayerRender.cpp`, `CosmeticsDiagnosticsReport.java` | The exact refused link (version, slot, executable, hook, probe) is reported in the JNI status, and the report names the process ABI next to the device so a native-load failure is distinguishable from a hook failure. |
 | 19 | Crash quarantine | done | `OptifineConfig.cpp` | The existing `crash.<itemId>` counter auto-disables an item after repeated crashes and says why. |
 | 20 | Config size limits | done | `ModMenuBridge.cpp` | The launcher-to-native config blob is bounded in size, key count and string length before parsing. |
-| 21 | Host tests in CI | done | `.github/workflows/android.yml` | The preloader host tests and the Python tooling tests run on every commit; the tooling tests install numpy and the analyzer also works without it. |
+| 21 | Host tests in CI | done | `.github/workflows/android.yml` | The sweetloader host tests and the Python tooling tests run on every commit; the tooling tests install numpy and the analyzer also works without it. |
 | 22 | Honest diagnostics export | done | `CosmeticsDiagnosticsReport.java`, `GameCosmeticsJni.cpp` | One copyable report: probe results, hook install states, GPU backend, and "unknown" for anything the build cannot read. |
 
 ## The four that matter for the skin bug

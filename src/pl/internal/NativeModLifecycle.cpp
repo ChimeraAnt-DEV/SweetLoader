@@ -57,10 +57,10 @@ bool runCppLifecycle(pl::mod::NativeMod &nativeMod,
     pl::mod::detail::ScopedCurrentMod current(&nativeMod);
     return lifecycle(registration.instance, context);
   } catch (const std::exception &ex) {
-    preloaderLogger.error("Unhandled exception while {} mod {}: {}", phase,
+    sweetLoaderLogger.error("Unhandled exception while {} mod {}: {}", phase,
                           context.name(), ex.what());
   } catch (...) {
-    preloaderLogger.error("Unhandled unknown exception while {} mod {}", phase,
+    sweetLoaderLogger.error("Unhandled unknown exception while {} mod {}", phase,
                           context.name());
   }
   return false;
@@ -71,7 +71,7 @@ bool hasCppRuntimeState(const LoadedModEntry &entry) {
     return true;
   }
 
-  preloaderLogger.error("C++ lifecycle mod {} is missing registration state",
+  sweetLoaderLogger.error("C++ lifecycle mod {} is missing registration state",
                         entry.modId);
   return false;
 }
@@ -120,7 +120,7 @@ createLoadedModEntry(void *handle, JavaVM *vm, const RuntimeModInfo &modInfo,
                                "loading");
     }
     if (!loaded) {
-      preloaderLogger.error("Failed to run C++ mod registration for {}",
+      sweetLoaderLogger.error("Failed to run C++ mod registration for {}",
                             modInfo.modId);
       return std::nullopt;
     }
@@ -140,7 +140,7 @@ createLoadedModEntry(void *handle, JavaVM *vm, const RuntimeModInfo &modInfo,
       loaded = load(vm, &modInfo.legacyInfo);
     }
     if (!loaded) {
-      preloaderLogger.error("Failed to run PLMod_Load for {}", modInfo.modId);
+      sweetLoaderLogger.error("Failed to run PLMod_Load for {}", modInfo.modId);
       return std::nullopt;
     }
     return entry;
@@ -152,7 +152,7 @@ createLoadedModEntry(void *handle, JavaVM *vm, const RuntimeModInfo &modInfo,
     return entry;
   }
 
-  preloaderLogger.warn("Mod library {} does not export a lifecycle entry",
+  sweetLoaderLogger.warn("Mod library {} does not export a lifecycle entry",
                        entry.libraryPath);
   return entry;
 }
@@ -171,7 +171,7 @@ bool enableLoadedModEntry(const LoadedModEntry &entry) {
                                 entry.cppRegistration->enable, "enabling");
     }
     if (!enabled) {
-      preloaderLogger.error("Failed to enable C++ lifecycle mod {}",
+      sweetLoaderLogger.error("Failed to enable C++ lifecycle mod {}",
                             entry.modId);
       return false;
     }
@@ -185,7 +185,7 @@ bool enableLoadedModEntry(const LoadedModEntry &entry) {
   }
 
   if (!entry.enable) {
-    preloaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
+    sweetLoaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
                          kLifecycleEnableSymbol);
     return false;
   }
@@ -196,7 +196,7 @@ bool enableLoadedModEntry(const LoadedModEntry &entry) {
     enabled = entry.enable();
   }
   if (!enabled) {
-    preloaderLogger.error("Failed to enable lifecycle mod {}", entry.modId);
+    sweetLoaderLogger.error("Failed to enable lifecycle mod {}", entry.modId);
     return false;
   }
 
@@ -218,10 +218,10 @@ bool disableLoadedModEntry(const LoadedModEntry &entry) {
     pl::runtime::ScopedModMenuOwner owner(entry.modId);
     disabled = entry.disable();
     if (!disabled) {
-      preloaderLogger.error("Failed to disable lifecycle mod {}", entry.modId);
+      sweetLoaderLogger.error("Failed to disable lifecycle mod {}", entry.modId);
     }
   } else if (entry.kind == LoadedModKind::Lifecycle) {
-    preloaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
+    sweetLoaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
                          kLifecycleDisableSymbol);
   } else {
     return false;
@@ -245,17 +245,17 @@ bool unloadLoadedModEntry(const LoadedModEntry &entry) {
                                *entry.cppContext,
                                entry.cppRegistration->unload, "unloading");
     if (!unloaded) {
-      preloaderLogger.error("Failed to unload C++ lifecycle mod {}",
+      sweetLoaderLogger.error("Failed to unload C++ lifecycle mod {}",
                             entry.modId);
     }
   } else if (entry.kind == LoadedModKind::Lifecycle && entry.unload) {
     pl::runtime::ScopedModMenuOwner owner(entry.modId);
     unloaded = entry.unload();
     if (!unloaded) {
-      preloaderLogger.error("Failed to unload lifecycle mod {}", entry.modId);
+      sweetLoaderLogger.error("Failed to unload lifecycle mod {}", entry.modId);
     }
   } else if (entry.kind == LoadedModKind::Lifecycle) {
-    preloaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
+    sweetLoaderLogger.warn("Lifecycle mod {} does not export {}", entry.modId,
                          kLifecycleUnloadSymbol);
   } else {
     return false;

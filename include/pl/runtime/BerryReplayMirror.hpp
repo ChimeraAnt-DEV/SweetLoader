@@ -2,10 +2,10 @@
 
 /**
  * @file BerryReplayMirror.hpp
- * @brief The preloader's mirror of BerryAPI's replay C ABI, as a host-testable struct.
+ * @brief The sweetloader's mirror of BerryAPI's replay C ABI, as a host-testable struct.
  *
  * <p>BerryAPI exports a replay surface as a plain C struct of function pointers
- * (`berry/replay_c.h`, `BERRY_GetReplayApi`). The preloader `dlopen`s the library and cannot include
+ * (`berry/replay_c.h`, `BERRY_GetReplayApi`). The sweetloader `dlopen`s the library and cannot include
  * its headers, so it mirrors the struct and checks the numbers before calling anything — the same
  * contract `BerrySeamProvider.hpp` uses for the world seam.
  *
