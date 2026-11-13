@@ -69,7 +69,9 @@ pub fn is_safe_absolute_path(path: &str) -> bool {
 /// where the filesystem can answer, the canonical one (which catches a symlinked parent).
 pub fn resolve_within(root: &Path, entry: &str) -> Result<PathBuf> {
     if !is_safe_relative_path(entry) {
-        return Err(Error::new(format!("archive entry escapes the sandbox: {entry}")));
+        return Err(Error::new(format!(
+            "archive entry escapes the sandbox: {entry}"
+        )));
     }
     let normalised = entry.replace('\\', "/");
     let mut destination = root.to_path_buf();
@@ -118,7 +120,8 @@ pub fn validate_sandbox_root(sandbox_root: &str, allowed_root: &str) -> Result<(
     // Where both exist, also require the canonical containment, so a symlink cannot point the
     // sandbox out of the allowed tree.
     if allowed.exists() && sandbox.exists() {
-        if let (Ok(real_allowed), Ok(real_sandbox)) = (allowed.canonicalize(), sandbox.canonicalize())
+        if let (Ok(real_allowed), Ok(real_sandbox)) =
+            (allowed.canonicalize(), sandbox.canonicalize())
         {
             if !real_sandbox.starts_with(&real_allowed) {
                 return Err(Error::new(
@@ -242,7 +245,8 @@ pub fn extract_with(
     let mut archive = open_archive(archive_path)?;
 
     let root = PathBuf::from(sandbox_root);
-    fs::create_dir_all(&root).map_err(|e| Error::new(format!("could not create the sandbox: {e}")))?;
+    fs::create_dir_all(&root)
+        .map_err(|e| Error::new(format!("could not create the sandbox: {e}")))?;
     let stage = root.join(format!(".{id}.extracting"));
     let target = root.join(id);
     let _ = fs::remove_dir_all(&stage);
@@ -342,7 +346,9 @@ mod tests {
 
     #[test]
     fn absolute_paths_are_checked() {
-        assert!(is_safe_absolute_path("/data/user/0/org.chimeramc.client/files/universe"));
+        assert!(is_safe_absolute_path(
+            "/data/user/0/org.chimeramc.client/files/universe"
+        ));
         assert!(!is_safe_absolute_path("relative/path"));
         assert!(!is_safe_absolute_path("/data/../etc"));
         assert!(!is_safe_absolute_path(""));
@@ -351,9 +357,14 @@ mod tests {
     #[test]
     fn sandbox_root_must_live_under_the_allowed_root() {
         let allowed = "/data/user/0/org.chimeramc.client/files";
-        assert!(validate_sandbox_root("/data/user/0/org.chimeramc.client/files/universe", allowed).is_ok());
+        assert!(
+            validate_sandbox_root("/data/user/0/org.chimeramc.client/files/universe", allowed)
+                .is_ok()
+        );
         assert!(validate_sandbox_root("/sdcard/universe", allowed).is_err());
-        assert!(validate_sandbox_root("/data/user/0/org.chimeramc.client/files2/x", allowed).is_err());
+        assert!(
+            validate_sandbox_root("/data/user/0/org.chimeramc.client/files2/x", allowed).is_err()
+        );
         assert!(validate_sandbox_root("relative", allowed).is_err());
     }
 

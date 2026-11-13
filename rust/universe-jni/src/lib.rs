@@ -100,9 +100,7 @@ fn read_string(env: &mut JNIEnv, value: &JString) -> String {
     if value.is_null() {
         return String::new();
     }
-    env.get_string(value)
-        .map(String::from)
-        .unwrap_or_default()
+    env.get_string(value).map(String::from).unwrap_or_default()
 }
 
 /// Builds a Java string from a message; an empty message means success.
@@ -311,7 +309,9 @@ pub unsafe extern "C" fn caramel_universe_init(berry_api: *mut c_void) -> *mut c
         let _ = BERRY_API.set(berry_api as usize);
     }
     set_cancelled(false);
-    log_info(&format!("initialized via C ABI (client version {CLIENT_VERSION})"));
+    log_info(&format!(
+        "initialized via C ABI (client version {CLIENT_VERSION})"
+    ));
     std::ptr::null_mut()
 }
 
@@ -394,8 +394,8 @@ pub extern "C" fn caramel_universe_client_version() -> *const c_char {
 /// The signature is over the whole file, so verification must read it exactly as the packer wrote
 /// it — no re-zipping, no normalisation.
 fn read_package_bytes(path: &str) -> Result<Vec<u8>, String> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| format!("could not stat the package: {e}"))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("could not stat the package: {e}"))?;
     if metadata.len() > universe_core::archive::MAX_ARCHIVE_BYTES {
         return Err("the package is larger than the size limit".to_string());
     }
@@ -507,7 +507,9 @@ fn check_permissions(declared_csv: &str, requested_csv: &str, trusted: bool) -> 
 /// # Safety
 /// `nodes_json` must be null or a valid NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn caramel_universe_resolve_load_order(nodes_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn caramel_universe_resolve_load_order(
+    nodes_json: *const c_char,
+) -> *mut c_char {
     let json = cstr(nodes_json);
     message_to_c(universe_core::report::resolve_load_order_json(&json))
 }
@@ -554,7 +556,12 @@ pub unsafe extern "C" fn caramel_universe_load_mods(
     let json = cstr(specs_json);
     let specs = match universe_core::report::parse_mod_specs(&json) {
         Ok(specs) => specs,
-        Err(error) => return message_to_c(format!("{{\"error\":\"{}\"}}", universe_core::report::escape_json(&error.to_string()))),
+        Err(error) => {
+            return message_to_c(format!(
+                "{{\"error\":\"{}\"}}",
+                universe_core::report::escape_json(&error.to_string())
+            ))
+        }
     };
     with_runtime(|runtime| {
         runtime.set_host(host);
@@ -649,13 +656,14 @@ mod tests {
         let declared = CString::new("read_memory,render_hook").unwrap();
         let requested = CString::new("read_memory").unwrap();
         // A declared, untrusted capability is granted.
-        assert!(unsafe { caramel_universe_check_permissions(declared.as_ptr(), requested.as_ptr(), false) }
-            .is_null());
+        assert!(unsafe {
+            caramel_universe_check_permissions(declared.as_ptr(), requested.as_ptr(), false)
+        }
+        .is_null());
         // A trust-gated capability is denied without a trusted signature.
         let write = CString::new("write_memory").unwrap();
-        let denied = unsafe {
-            caramel_universe_check_permissions(declared.as_ptr(), write.as_ptr(), false)
-        };
+        let denied =
+            unsafe { caramel_universe_check_permissions(declared.as_ptr(), write.as_ptr(), false) };
         assert!(!denied.is_null());
         unsafe { caramel_universe_free(denied) };
         // A capability the mod never declared is denied.
@@ -685,7 +693,10 @@ mod tests {
         let nodes = CString::new(r#"[{"id":"app","dependencies":["lib"]},{"id":"lib"}]"#).unwrap();
         let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
         assert!(!message.is_null());
-        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        let json = unsafe { CStr::from_ptr(message) }
+            .to_str()
+            .unwrap()
+            .to_string();
         unsafe { caramel_universe_free(message) };
         assert!(json.contains("\"order\""));
         assert!(json.contains("\"cycle\""));
@@ -696,18 +707,29 @@ mod tests {
 
     #[test]
     fn load_order_reports_a_cycle() {
-        let nodes = CString::new(r#"[{"id":"a","dependencies":["b"]},{"id":"b","dependencies":["a"]}]"#).unwrap();
+        let nodes =
+            CString::new(r#"[{"id":"a","dependencies":["b"]},{"id":"b","dependencies":["a"]}]"#)
+                .unwrap();
         let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
-        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        let json = unsafe { CStr::from_ptr(message) }
+            .to_str()
+            .unwrap()
+            .to_string();
         unsafe { caramel_universe_free(message) };
-        assert!(json.contains("\"cycle\":[\"a\",\"b\"]") || json.contains("\"cycle\":[\"b\",\"a\"]"), "{json}");
+        assert!(
+            json.contains("\"cycle\":[\"a\",\"b\"]") || json.contains("\"cycle\":[\"b\",\"a\"]"),
+            "{json}"
+        );
     }
 
     #[test]
     fn load_order_reports_bad_json_as_an_error_object() {
         let nodes = CString::new("not json").unwrap();
         let message = unsafe { caramel_universe_resolve_load_order(nodes.as_ptr()) };
-        let json = unsafe { CStr::from_ptr(message) }.to_str().unwrap().to_string();
+        let json = unsafe { CStr::from_ptr(message) }
+            .to_str()
+            .unwrap()
+            .to_string();
         unsafe { caramel_universe_free(message) };
         assert!(json.contains("\"error\""), "{json}");
     }

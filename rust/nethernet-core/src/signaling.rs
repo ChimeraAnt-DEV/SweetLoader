@@ -44,9 +44,7 @@ pub enum ClientSignal {
         payload: String,
     },
     /// Tear down a session.
-    Disconnect {
-        session: String,
-    },
+    Disconnect { session: String },
 }
 
 /// What the service sends to the client.
@@ -65,10 +63,7 @@ pub enum ServerSignal {
         peer_network_id: String,
     },
     /// A negotiated ICE payload for a session.
-    Candidate {
-        session: String,
-        payload: String,
-    },
+    Candidate { session: String, payload: String },
     /// The peer or the service ended the session.
     Disconnect {
         session: String,
@@ -87,12 +82,27 @@ pub enum ServerSignal {
 /// A parsed server message, or the reason it could not be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Signal {
-    Welcome { protocol: u32, session: String },
-    Connect { session: String, peer_network_id: String },
-    Candidate { session: String, payload: String },
-    Disconnect { session: String, reason: String },
+    Welcome {
+        protocol: u32,
+        session: String,
+    },
+    Connect {
+        session: String,
+        peer_network_id: String,
+    },
+    Candidate {
+        session: String,
+        payload: String,
+    },
+    Disconnect {
+        session: String,
+        reason: String,
+    },
     /// The service reported an error. Distinct from a parse failure: this one is a real answer.
-    ServiceError { code: String, message: String },
+    ServiceError {
+        code: String,
+        message: String,
+    },
 }
 
 /// Why a server message could not be used.
@@ -118,7 +128,10 @@ impl std::fmt::Display for SignalError {
             Self::MissingField(field) => write!(f, "signaling message is missing {field}"),
             Self::TooLarge(n) => write!(f, "signaling frame of {n} bytes exceeds the cap"),
             Self::ProtocolMismatch { client, server } => {
-                write!(f, "signaling protocol mismatch: client {client}, server {server}")
+                write!(
+                    f,
+                    "signaling protocol mismatch: client {client}, server {server}"
+                )
             }
         }
     }
@@ -134,8 +147,7 @@ pub fn parse_server_signal(frame: &[u8]) -> Result<Signal, SignalError> {
     if frame.len() > MAX_SIGNAL_FRAME_BYTES {
         return Err(SignalError::TooLarge(frame.len()));
     }
-    let text = std::str::from_utf8(frame)
-        .map_err(|e| SignalError::MalformedJson(e.to_string()))?;
+    let text = std::str::from_utf8(frame).map_err(|e| SignalError::MalformedJson(e.to_string()))?;
     // The message type is read before the full deserialise so an unknown type reports as
     // `Unsupported` with its name, which is what makes a protocol drift diagnosable from a log.
     let probe: serde_json::Value =
@@ -146,8 +158,8 @@ pub fn parse_server_signal(frame: &[u8]) -> Result<Signal, SignalError> {
         .ok_or(SignalError::MissingField("type"))?
         .to_string();
 
-    let message: ServerSignal = serde_json::from_value(probe)
-        .map_err(|_| SignalError::Unsupported(kind.clone()))?;
+    let message: ServerSignal =
+        serde_json::from_value(probe).map_err(|_| SignalError::Unsupported(kind.clone()))?;
 
     let signal = match message {
         ServerSignal::Welcome { protocol, session } => {
@@ -155,18 +167,27 @@ pub fn parse_server_signal(frame: &[u8]) -> Result<Signal, SignalError> {
                 return Err(SignalError::MissingField("session"));
             }
             if protocol != PROTOCOL_VERSION {
-                return Err(SignalError::ProtocolMismatch { client: PROTOCOL_VERSION, server: protocol });
+                return Err(SignalError::ProtocolMismatch {
+                    client: PROTOCOL_VERSION,
+                    server: protocol,
+                });
             }
             Signal::Welcome { protocol, session }
         }
-        ServerSignal::Connect { session, peer_network_id } => {
+        ServerSignal::Connect {
+            session,
+            peer_network_id,
+        } => {
             if session.is_empty() {
                 return Err(SignalError::MissingField("session"));
             }
             if peer_network_id.is_empty() {
                 return Err(SignalError::MissingField("peer_network_id"));
             }
-            Signal::Connect { session, peer_network_id }
+            Signal::Connect {
+                session,
+                peer_network_id,
+            }
         }
         ServerSignal::Candidate { session, payload } => {
             if session.is_empty() {
@@ -200,22 +221,32 @@ pub fn encode_client_signal(signal: &ClientSignal) -> String {
 
 /// The hello this client sends first.
 pub fn hello(network_id: &str) -> ClientSignal {
-    ClientSignal::Hello { protocol: PROTOCOL_VERSION, network_id: network_id.to_string() }
+    ClientSignal::Hello {
+        protocol: PROTOCOL_VERSION,
+        network_id: network_id.to_string(),
+    }
 }
 
 /// Builds a connect request.
 pub fn connect(peer_network_id: &str) -> ClientSignal {
-    ClientSignal::Connect { peer_network_id: peer_network_id.to_string() }
+    ClientSignal::Connect {
+        peer_network_id: peer_network_id.to_string(),
+    }
 }
 
 /// Builds a candidate relay message.
 pub fn candidate(session: &str, payload: &str) -> ClientSignal {
-    ClientSignal::Candidate { session: session.to_string(), payload: payload.to_string() }
+    ClientSignal::Candidate {
+        session: session.to_string(),
+        payload: payload.to_string(),
+    }
 }
 
 /// Builds a disconnect.
 pub fn disconnect(session: &str) -> ClientSignal {
-    ClientSignal::Disconnect { session: session.to_string() }
+    ClientSignal::Disconnect {
+        session: session.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -232,14 +263,28 @@ mod tests {
 
     #[test]
     fn a_welcome_with_the_matching_protocol_parses() {
-        let signal = parse_server_signal(br#"{"type":"welcome","protocol":1,"session":"s-1"}"#).unwrap();
-        assert_eq!(signal, Signal::Welcome { protocol: 1, session: "s-1".into() });
+        let signal =
+            parse_server_signal(br#"{"type":"welcome","protocol":1,"session":"s-1"}"#).unwrap();
+        assert_eq!(
+            signal,
+            Signal::Welcome {
+                protocol: 1,
+                session: "s-1".into()
+            }
+        );
     }
 
     #[test]
     fn a_welcome_with_a_future_protocol_is_a_mismatch_not_a_hang() {
-        let err = parse_server_signal(br#"{"type":"welcome","protocol":2,"session":"s"}"#).unwrap_err();
-        assert_eq!(err, SignalError::ProtocolMismatch { client: 1, server: 2 });
+        let err =
+            parse_server_signal(br#"{"type":"welcome","protocol":2,"session":"s"}"#).unwrap_err();
+        assert_eq!(
+            err,
+            SignalError::ProtocolMismatch {
+                client: 1,
+                server: 2
+            }
+        );
     }
 
     #[test]
@@ -309,7 +354,8 @@ mod tests {
     #[test]
     fn an_empty_peer_id_is_rejected() {
         assert_eq!(
-            parse_server_signal(br#"{"type":"connect","session":"s","peer_network_id":""}"#).unwrap_err(),
+            parse_server_signal(br#"{"type":"connect","session":"s","peer_network_id":""}"#)
+                .unwrap_err(),
             SignalError::MissingField("peer_network_id")
         );
     }
@@ -333,23 +379,34 @@ mod tests {
     #[test]
     fn a_disconnect_reason_is_optional_and_defaults_to_empty() {
         let signal = parse_server_signal(br#"{"type":"disconnect","session":"s"}"#).unwrap();
-        assert_eq!(signal, Signal::Disconnect { session: "s".into(), reason: String::new() });
+        assert_eq!(
+            signal,
+            Signal::Disconnect {
+                session: "s".into(),
+                reason: String::new()
+            }
+        );
     }
 
     #[test]
     fn a_service_error_is_a_real_answer_not_a_parse_failure() {
         let signal =
-            parse_server_signal(br#"{"type":"error","code":"busy","message":"try later"}"#).unwrap();
+            parse_server_signal(br#"{"type":"error","code":"busy","message":"try later"}"#)
+                .unwrap();
         assert_eq!(
             signal,
-            Signal::ServiceError { code: "busy".into(), message: "try later".into() }
+            Signal::ServiceError {
+                code: "busy".into(),
+                message: "try later".into()
+            }
         );
     }
 
     #[test]
     fn a_wrongly_typed_field_is_unsupported_not_a_panic() {
         // `session` is a number where the protocol says string.
-        let err = parse_server_signal(br#"{"type":"welcome","protocol":1,"session":7}"#).unwrap_err();
+        let err =
+            parse_server_signal(br#"{"type":"welcome","protocol":1,"session":7}"#).unwrap_err();
         assert_eq!(err, SignalError::Unsupported("welcome".into()));
     }
 
@@ -374,7 +431,10 @@ mod tests {
             SignalError::Unsupported("t".into()),
             SignalError::MissingField("session"),
             SignalError::TooLarge(10),
-            SignalError::ProtocolMismatch { client: 1, server: 2 },
+            SignalError::ProtocolMismatch {
+                client: 1,
+                server: 2,
+            },
         ];
         for case in cases {
             let text = case.to_string();

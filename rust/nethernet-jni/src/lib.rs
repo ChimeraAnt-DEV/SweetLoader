@@ -163,7 +163,10 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
 ) -> jstring {
     guarded("nativeErrorTag", || {
         let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        let tag = slot.as_ref().and_then(|h| h.snapshot().1).map(|e| e.tag().to_string());
+        let tag = slot
+            .as_ref()
+            .and_then(|h| h.snapshot().1)
+            .map(|e| e.tag().to_string());
         match tag {
             Some(tag) => to_jstring(&mut env, &tag),
             None => std::ptr::null_mut(),
@@ -179,7 +182,10 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
 ) -> jstring {
     guarded("nativeErrorMessage", || {
         let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        let message = slot.as_ref().and_then(|h| h.snapshot().1).map(|e| e.user_message());
+        let message = slot
+            .as_ref()
+            .and_then(|h| h.snapshot().1)
+            .map(|e| e.user_message());
         match message {
             Some(message) => to_jstring(&mut env, &message),
             None => std::ptr::null_mut(),
@@ -272,7 +278,13 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
-    guarded("nativeIsCancelled", || if CANCELLED.load(Ordering::Acquire) { 1 } else { 0 })
+    guarded("nativeIsCancelled", || {
+        if CANCELLED.load(Ordering::Acquire) {
+            1
+        } else {
+            0
+        }
+    })
 }
 
 /// The state-machine budget for a state code, in milliseconds. 0 when the state has none.
@@ -310,7 +322,9 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    guarded("nativeProtocolVersion", || nethernet_core::signaling::PROTOCOL_VERSION as jint)
+    guarded("nativeProtocolVersion", || {
+        nethernet_core::signaling::PROTOCOL_VERSION as jint
+    })
 }
 
 /// A self-test the launcher can call at startup to confirm the bridge is live.

@@ -142,7 +142,11 @@ mod tests {
     fn reports_a_cycle() {
         let json = r#"[{"id":"a","dependencies":["b"]},{"id":"b","dependencies":["a"]}]"#;
         let report = resolve_load_order_json(json);
-        assert!(report.contains("\"cycle\":[\"a\",\"b\"]") || report.contains("\"cycle\":[\"b\",\"a\"]"), "{report}");
+        assert!(
+            report.contains("\"cycle\":[\"a\",\"b\"]")
+                || report.contains("\"cycle\":[\"b\",\"a\"]"),
+            "{report}"
+        );
     }
 
     #[test]
@@ -162,8 +166,9 @@ mod tests {
 
     #[test]
     fn parses_mod_specs() {
-        let specs = parse_mod_specs(r#"[{"id":"a","lib_path":"lib/liba.so","dependencies":["b"]}]"#)
-            .unwrap();
+        let specs =
+            parse_mod_specs(r#"[{"id":"a","lib_path":"lib/liba.so","dependencies":["b"]}]"#)
+                .unwrap();
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].lib_path, "lib/liba.so");
         assert_eq!(specs[0].dependencies, vec!["b"]);

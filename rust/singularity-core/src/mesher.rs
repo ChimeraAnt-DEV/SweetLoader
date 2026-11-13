@@ -135,7 +135,8 @@ where
                     let mut height = 1;
                     'outer: while v + height < size_v {
                         for du in 0..width {
-                            if mask[(u + du + size_u * (v + height)) as usize] != Some((block, sign, 1.0))
+                            if mask[(u + du + size_u * (v + height)) as usize]
+                                != Some((block, sign, 1.0))
                             {
                                 break 'outer;
                             }
@@ -211,22 +212,11 @@ fn emit_quad<F>(
 
     let corner_uv = [(0, 0), (width, 0), (width, height), (0, height)];
     // Winding: flip for the negative faces so both sides face outward.
-    let order: [usize; 4] = if sign > 0 {
-        [0, 1, 2, 3]
-    } else {
-        [3, 2, 1, 0]
-    };
+    let order: [usize; 4] = if sign > 0 { [0, 1, 2, 3] } else { [3, 2, 1, 0] };
 
     for corner in 0..4 {
         let (cu, cv) = corner_uv[order[corner]];
-        let (x, y, z) = place(
-            axis,
-            u_axis,
-            v_axis,
-            plane,
-            u + cu,
-            v + cv,
-        );
+        let (x, y, z) = place(axis, u_axis, v_axis, plane, u + cu, v + cv);
         // Ambient occlusion from the three neighbours around this corner in the face plane.
         let mut ao = 1.0f32;
         if width > 0 && height > 0 {
@@ -238,7 +228,13 @@ fn emit_quad<F>(
             side_v[v_axis] = sv;
             let mut sample = |offset: [i32; 3]| -> bool {
                 let (sx, sy, sz) = (x + offset[0], y + offset[1], z + offset[2]);
-                if sx >= 0 && sx < CHUNK_SIZE && sy >= 0 && sy < chunk.height && sz >= 0 && sz < CHUNK_SIZE {
+                if sx >= 0
+                    && sx < CHUNK_SIZE
+                    && sy >= 0
+                    && sy < chunk.height
+                    && sz >= 0
+                    && sz < CHUNK_SIZE
+                {
                     chunk.is_solid(sx, sy, sz)
                 } else {
                     neighbour_solid(sx, sy, sz)
@@ -284,7 +280,11 @@ mod tests {
             warp: 0.0,
             default_biome: "plains".to_string(),
         };
-        generate_chunk(&config, &crate::biome::BiomeRegistry::new("plains"), ChunkPos { x: 0, z: 0 })
+        generate_chunk(
+            &config,
+            &crate::biome::BiomeRegistry::new("plains"),
+            ChunkPos { x: 0, z: 0 },
+        )
     }
 
     #[test]
@@ -294,7 +294,10 @@ mod tests {
         assert!(!mesh.is_empty());
         // The top of a flat chunk is one merged quad per face direction set, not 256 quads.
         let top_vertices = 4;
-        assert!(mesh.vertex_count() < 256 * 4, "greedy merging should cut the vertex count");
+        assert!(
+            mesh.vertex_count() < 256 * 4,
+            "greedy merging should cut the vertex count"
+        );
         assert!(mesh.vertex_count() >= top_vertices);
     }
 
@@ -340,7 +343,11 @@ mod tests {
             warp: 0.0,
             default_biome: "plains".to_string(),
         };
-        let chunk = generate_chunk(&config, &crate::biome::BiomeRegistry::new("plains"), ChunkPos { x: 0, z: 0 });
+        let chunk = generate_chunk(
+            &config,
+            &crate::biome::BiomeRegistry::new("plains"),
+            ChunkPos { x: 0, z: 0 },
+        );
         // Bedrock at y=0 still meshes, but only a handful of quads.
         let mesh = mesh(&chunk, |_, _, _| true);
         assert!(mesh.vertex_count() <= 6 * 4);

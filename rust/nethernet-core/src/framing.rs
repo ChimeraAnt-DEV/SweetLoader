@@ -92,22 +92,42 @@ pub struct Frame {
 impl Frame {
     /// A reliable data frame.
     pub fn data(sequence: u32, payload: Vec<u8>) -> Self {
-        Self { kind: FrameKind::Data, sequence, reliable: true, payload }
+        Self {
+            kind: FrameKind::Data,
+            sequence,
+            reliable: true,
+            payload,
+        }
     }
 
     /// An acknowledgement. `sequence` is the number being acknowledged.
     pub fn ack(sequence: u32) -> Self {
-        Self { kind: FrameKind::Ack, sequence, reliable: false, payload: Vec::new() }
+        Self {
+            kind: FrameKind::Ack,
+            sequence,
+            reliable: false,
+            payload: Vec::new(),
+        }
     }
 
     /// A negative acknowledgement: "resend from here".
     pub fn nack(sequence: u32) -> Self {
-        Self { kind: FrameKind::Nack, sequence, reliable: false, payload: Vec::new() }
+        Self {
+            kind: FrameKind::Nack,
+            sequence,
+            reliable: false,
+            payload: Vec::new(),
+        }
     }
 
     /// A keepalive.
     pub fn keepalive(sequence: u32) -> Self {
-        Self { kind: FrameKind::Keepalive, sequence, reliable: false, payload: Vec::new() }
+        Self {
+            kind: FrameKind::Keepalive,
+            sequence,
+            reliable: false,
+            payload: Vec::new(),
+        }
     }
 
     /// Encodes this frame to bytes. Fails only if the payload exceeds [`MAX_FRAME_BYTES`].
@@ -144,8 +164,14 @@ pub enum FrameError {
 impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::FrameTooLarge(n) => write!(f, "frame of {n} bytes exceeds the {MAX_FRAME_BYTES}-byte cap"),
-            Self::LengthTooSmall(n) => write!(f, "frame length {n} is below the {HEADER_BYTES}-byte header"),
+            Self::FrameTooLarge(n) => write!(
+                f,
+                "frame of {n} bytes exceeds the {MAX_FRAME_BYTES}-byte cap"
+            ),
+            Self::LengthTooSmall(n) => write!(
+                f,
+                "frame length {n} is below the {HEADER_BYTES}-byte header"
+            ),
             Self::UnknownKind(k) => write!(f, "unknown frame kind {k}"),
             Self::ControlWithPayload(k) => write!(f, "control frame {k:?} carried a payload"),
             Self::PayloadTooLarge(n) => write!(f, "payload of {n} bytes exceeds the cap"),
@@ -177,7 +203,12 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
     if kind.is_control() && !payload.is_empty() {
         return Err(FrameError::ControlWithPayload(kind));
     }
-    Ok(Frame { kind, sequence, reliable, payload })
+    Ok(Frame {
+        kind,
+        sequence,
+        reliable,
+        payload,
+    })
 }
 
 /// A streaming reader that turns arbitrary chunk boundaries into whole frames.
@@ -256,7 +287,9 @@ pub struct ReorderBuffer {
 
 impl ReorderBuffer {
     pub fn new() -> Self {
-        Self { highest_delivered: None }
+        Self {
+            highest_delivered: None,
+        }
     }
 
     /// True when this sequence number is new and should be delivered.

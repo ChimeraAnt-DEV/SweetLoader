@@ -169,7 +169,10 @@ impl Config {
 
 /// Builds a sibling path by appending `suffix` to the file name (`config.json` -> `config.json.tmp`).
 fn sibling(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(".");
     name.push(suffix);
     path.with_file_name(name)
@@ -193,7 +196,10 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let mut dir = std::env::temp_dir();
-        dir.push(format!("universe-config-test-{name}-{}", std::process::id()));
+        dir.push(format!(
+            "universe-config-test-{name}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -259,9 +265,18 @@ mod tests {
         }
         // The live file holds the last round, and the three most recent prior rounds survive.
         assert_eq!(Config::load(&path).get_int("round", -1), 5);
-        assert_eq!(Config::load(&sibling(&path, "bak.1")).get_int("round", -1), 4);
-        assert_eq!(Config::load(&sibling(&path, "bak.2")).get_int("round", -1), 3);
-        assert_eq!(Config::load(&sibling(&path, "bak.3")).get_int("round", -1), 2);
+        assert_eq!(
+            Config::load(&sibling(&path, "bak.1")).get_int("round", -1),
+            4
+        );
+        assert_eq!(
+            Config::load(&sibling(&path, "bak.2")).get_int("round", -1),
+            3
+        );
+        assert_eq!(
+            Config::load(&sibling(&path, "bak.3")).get_int("round", -1),
+            2
+        );
         // A fourth backup is never created.
         assert!(!sibling(&path, "bak.4").exists());
     }

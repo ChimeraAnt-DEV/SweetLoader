@@ -104,8 +104,8 @@ pub fn step(
                 if gravity > 0.0 {
                     if let Some((above_kind, above_level)) = grid.get(x, y - 1) {
                         let props = properties(above_kind);
-                        let flow =
-                            ((above_level as f32) * gravity / props.viscosity.max(0.01)).round() as i32;
+                        let flow = ((above_level as f32) * gravity / props.viscosity.max(0.01))
+                            .round() as i32;
                         if flow >= 1 {
                             inflow = inflow.max(flow);
                         }
@@ -115,7 +115,8 @@ pub fn step(
                     if let Some((neighbour_kind, neighbour_level)) = grid.get(x + dx, y + dy) {
                         if neighbour_level > 1 {
                             let props = properties(neighbour_kind);
-                            let flow = (neighbour_level as f32 / props.viscosity.max(0.01)).round() as i32;
+                            let flow =
+                                (neighbour_level as f32 / props.viscosity.max(0.01)).round() as i32;
                             if flow >= 1 {
                                 inflow = inflow.max(flow);
                             }
@@ -124,7 +125,8 @@ pub fn step(
                 }
                 if inflow > 0 {
                     // The incoming fluid keeps its kind; take it from the strongest contributor.
-                    let kind = strongest_neighbour_kind(grid, properties, x, y).unwrap_or(FluidKind::Water);
+                    let kind = strongest_neighbour_kind(grid, properties, x, y)
+                        .unwrap_or(FluidKind::Water);
                     next.set(x, y, Some((kind, inflow.min(FluidGrid::MAX_LEVEL))));
                 }
                 continue;
@@ -237,7 +239,10 @@ mod tests {
         let mut source = props(FluidKind::Water);
         source.infinite_source = true;
         let stepped = step(&grid, &|_| source, 1.0);
-        assert_eq!(stepped.get(0, 0), Some((FluidKind::Water, FluidGrid::MAX_LEVEL)));
+        assert_eq!(
+            stepped.get(0, 0),
+            Some((FluidKind::Water, FluidGrid::MAX_LEVEL))
+        );
     }
 
     #[test]
@@ -263,7 +268,10 @@ mod tests {
         let mut grid = FluidGrid::new(4, 8);
         grid.set(1, 0, Some((FluidKind::Water, 8)));
         let stepped = step(&grid, &props, 1.0);
-        assert!(stepped.get(1, 1).is_some(), "water should fall into the cell below");
+        assert!(
+            stepped.get(1, 1).is_some(),
+            "water should fall into the cell below"
+        );
     }
 
     #[test]
@@ -291,7 +299,19 @@ mod tests {
         };
         let mut grid = FluidGrid::new(32, 32);
         grid.set(0, 0, Some((FluidKind::Water, 8)));
-        assert!(within_source_range(&grid, &source_props, FluidKind::Water, 3, 0));
-        assert!(!within_source_range(&grid, &source_props, FluidKind::Water, 20, 0));
+        assert!(within_source_range(
+            &grid,
+            &source_props,
+            FluidKind::Water,
+            3,
+            0
+        ));
+        assert!(!within_source_range(
+            &grid,
+            &source_props,
+            FluidKind::Water,
+            20,
+            0
+        ));
     }
 }

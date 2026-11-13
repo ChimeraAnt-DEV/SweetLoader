@@ -29,6 +29,10 @@ jobs:
     name: Host tests (C++ suite + sanitisers)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The suite fetches its nlohmann/json and fmt headers into a cache beside the checkout.
+      # Point it at the runner's temp dir so nothing is written inside the workspace.
+      SWEETLOADER_HOST_CACHE: ${{ runner.temp }}/sweetloader-host-cache
     steps:
       - uses: actions/checkout@v4
 
@@ -56,10 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/cosmetics/run_tests.sh 2>&1 | tee /tmp/host-tests.log
-          if grep -q "skipped: ThreadSanitizer" /tmp/host-tests.log; then
+          # grep reads the log file, not a pipe: `tee ... | grep -q` under pipefail would report
+          # tee's SIGPIPE as the pipeline status.
+          grep -q "skipped: ThreadSanitizer" /tmp/host-tests.log && {
             echo "a ThreadSanitizer test skipped; the sanitizer must actually run" >&2
             exit 1
-          fi
+          }
           grep -q "all cosmetics host tests passed" /tmp/host-tests.log
 
   rust:
@@ -146,30 +152,39 @@ jobs:
           readelf="$(find "$NDK/toolchains/llvm/prebuilt" -name llvm-readelf | head -1)"
           echo "nm=$nm readelf=$readelf"
 
+          # Dump the tables to files once. Every check below greps a file rather than a pipe: under
+          # `set -o pipefail` a `nm ... | grep -q` reports the producer's SIGPIPE (grep -q exits on
+          # its first match and closes the pipe) as the pipeline's status, so a symbol that is
+          # present reads as missing.
+          "$nm" -D --defined-only "$so" > /tmp/dynsyms.txt
+          "$readelf" -h "$so" > /tmp/elfheader.txt
+          "$readelf" -d "$so" > /tmp/elfdyn.txt
+
           # 1. The ABI is the one the client ships.
-          "$readelf" -h "$so" | grep -q "AArch64" || {
+          grep -q "AArch64" /tmp/elfheader.txt || {
             echo "libsweetloader.so is not an AArch64 object" >&2; exit 1; }
 
           # 2. JNI symbols bind to the org.chimeramc.client package. A rename of the launcher's
           #    package would otherwise produce a library that loads and then resolves nothing.
-          jni="$("$nm" -D --defined-only "$so" | grep -c 'Java_org_chimeramc_client' || true)"
+          jni="$(grep -c 'Java_org_chimeramc_client' /tmp/dynsyms.txt || true)"
           echo "JNI exports: $jni"
           [ "$jni" -gt 0 ] || { echo "no Java_org_chimeramc_client JNI exports" >&2; exit 1; }
 
-          # 3. The C++ SDK entry points the mod-facing headers declare.
+          # 3. The C++ SDK entry points the mod-facing headers declare. The leading space anchors
+          #    the name so a symbol that merely ends in the same text cannot satisfy the check.
           for symbol in JNI_OnLoad GetSweetLoaderInput PLRequestDocument; do
-            "$nm" -D --defined-only "$so" | grep -q " $symbol\$" || {
+            grep -q " $symbol\$" /tmp/dynsyms.txt || {
               echo "missing exported symbol: $symbol" >&2; exit 1; }
           done
 
           # 4. `--exclude-libs,ALL` keeps the static archives' symbols out of the dynsym. A leak
           #    here means the link options regressed and a mod's copy could clash.
-          leaked="$("$nm" -D --defined-only "$so" | grep -c '_ZN3fmt\|_ZN7lunasvg\|_ZN8plutovg' || true)"
+          leaked="$(grep -c '_ZN3fmt\|_ZN7lunasvg\|_ZN8plutovg' /tmp/dynsyms.txt || true)"
           [ "$leaked" -eq 0 ] || {
             echo "static-archive symbols leaked into the dynamic table: $leaked" >&2; exit 1; }
 
           # 5. The list of libraries the loader must resolve at dlopen time.
-          "$readelf" -d "$so" | grep NEEDED
+          grep NEEDED /tmp/elfdyn.txt
 
       - name: Cross-compile the Rust cdylibs
         env:
@@ -184,7 +199,7 @@ jobs:
           # rather than as an UnsatisfiedLinkError on a device.
           for lib in libcaramel_universe.so libcaramel_singularity.so libsweetloader_nethernet.so; do
             f="rust/target/aarch64-linux-android/release/$lib"
-            [ -f "$f" ] || { echo "missing Rust cdylib: $f" >&2; exit 1; }
+            test -f "$f" || { echo "missing Rust cdylib: $f" >&2; exit 1; }
             echo "$f: $(stat -c %s "$f") bytes"
           done
 

@@ -323,14 +323,20 @@ mod tests {
             continentalness: 0.5,
         };
         let weight = registry.blend(near_desert, "desert", "jungle", 0.2);
-        assert!(weight < 0.5, "near desert should weight desert higher: {weight}");
+        assert!(
+            weight < 0.5,
+            "near desert should weight desert higher: {weight}"
+        );
         let near_jungle = Climate {
             temperature: 0.9,
             humidity: 0.95,
             continentalness: 0.5,
         };
         let weight = registry.blend(near_jungle, "desert", "jungle", 0.2);
-        assert!(weight > 0.5, "near jungle should weight jungle higher: {weight}");
+        assert!(
+            weight > 0.5,
+            "near jungle should weight jungle higher: {weight}"
+        );
     }
 
     #[test]
@@ -375,10 +381,7 @@ mod tests {
 
     #[test]
     fn parses_a_biome_definition_list() {
-        let biomes = parse_definitions(
-            r#"[{"id":"a"},{"id":"b","weight":3}]"#,
-        )
-        .unwrap();
+        let biomes = parse_definitions(r#"[{"id":"a"},{"id":"b","weight":3}]"#).unwrap();
         assert_eq!(biomes.len(), 2);
         assert_eq!(biomes[1].weight, 3);
     }

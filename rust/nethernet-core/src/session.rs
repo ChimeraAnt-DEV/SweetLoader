@@ -44,7 +44,10 @@ impl TransportState {
 
     /// True while the transport is doing work the UI should show progress for.
     pub fn is_busy(self) -> bool {
-        matches!(self, Self::Signaling | Self::AwaitingWelcome | Self::Connecting)
+        matches!(
+            self,
+            Self::Signaling | Self::AwaitingWelcome | Self::Connecting
+        )
     }
 
     /// True once no further transition can happen without a new connect.
@@ -200,7 +203,10 @@ impl Session {
 
     /// The budget for a state, if it has one.
     pub fn budget(&self, state: TransportState) -> Option<Duration> {
-        self.budgets.iter().find(|(s, _)| *s == state).map(|(_, d)| *d)
+        self.budgets
+            .iter()
+            .find(|(s, _)| *s == state)
+            .map(|(_, d)| *d)
     }
 
     /// The legal next states from the current one.
@@ -322,7 +328,11 @@ mod tests {
     fn idle_cannot_jump_straight_to_connected() {
         let mut s = session();
         assert!(!s.transition(TransportState::Connected));
-        assert_eq!(s.state(), TransportState::Idle, "a refused transition must not move");
+        assert_eq!(
+            s.state(),
+            TransportState::Idle,
+            "a refused transition must not move"
+        );
     }
 
     #[test]
@@ -372,7 +382,10 @@ mod tests {
         s.transition(TransportState::Signaling);
         s.fail(TransportError::Cancelled);
         assert!(s.transition(TransportState::Idle));
-        assert!(s.error().is_none(), "a new connect must clear the previous failure");
+        assert!(
+            s.error().is_none(),
+            "a new connect must clear the previous failure"
+        );
     }
 
     #[test]
@@ -382,7 +395,9 @@ mod tests {
         advance_ms(14_999);
         assert!(s.check_timeout().is_none(), "must not fire early");
         advance_ms(1);
-        let error = s.check_timeout().expect("the budget must fire at exactly 15s");
+        let error = s
+            .check_timeout()
+            .expect("the budget must fire at exactly 15s");
         assert_eq!(error, TransportError::Timeout("opening the connection"));
         assert_eq!(s.state(), TransportState::Failed);
     }
@@ -395,7 +410,10 @@ mod tests {
         s.transition(TransportState::Connecting);
         s.transition(TransportState::Connected);
         advance_ms(60 * 60 * 1_000);
-        assert!(s.check_timeout().is_none(), "a connected session has no budget");
+        assert!(
+            s.check_timeout().is_none(),
+            "a connected session has no budget"
+        );
     }
 
     #[test]
@@ -426,7 +444,10 @@ mod tests {
             TransportState::Closed,
             TransportState::Failed,
         ] {
-            assert!(!(state.is_busy() && state.is_terminal()), "{state:?} is both");
+            assert!(
+                !(state.is_busy() && state.is_terminal()),
+                "{state:?} is both"
+            );
         }
         assert!(TransportState::Signaling.is_busy());
         assert!(TransportState::AwaitingWelcome.is_busy());
@@ -442,8 +463,16 @@ mod tests {
         assert!(TransportError::Timeout("x").is_retryable());
         assert!(TransportError::PeerClosed(String::new()).is_retryable());
         assert!(!TransportError::Cancelled.is_retryable());
-        assert!(!TransportError::ProtocolMismatch { client: 1, server: 2 }.is_retryable());
-        assert!(!TransportError::ServiceRefused { code: "b".into(), message: String::new() }.is_retryable());
+        assert!(!TransportError::ProtocolMismatch {
+            client: 1,
+            server: 2
+        }
+        .is_retryable());
+        assert!(!TransportError::ServiceRefused {
+            code: "b".into(),
+            message: String::new()
+        }
+        .is_retryable());
         assert!(!TransportError::Malformed(String::new()).is_retryable());
     }
 
@@ -451,8 +480,14 @@ mod tests {
     fn every_error_tag_is_distinct_and_snake_case() {
         let errors = [
             TransportError::SignalingUnreachable(String::new()),
-            TransportError::ProtocolMismatch { client: 1, server: 2 },
-            TransportError::ServiceRefused { code: "c".into(), message: String::new() },
+            TransportError::ProtocolMismatch {
+                client: 1,
+                server: 2,
+            },
+            TransportError::ServiceRefused {
+                code: "c".into(),
+                message: String::new(),
+            },
             TransportError::Timeout("x"),
             TransportError::PeerClosed(String::new()),
             TransportError::Cancelled,
@@ -462,7 +497,10 @@ mod tests {
         let unique: std::collections::HashSet<&str> = tags.iter().copied().collect();
         assert_eq!(unique.len(), errors.len(), "tags must be distinct");
         for tag in tags {
-            assert!(tag.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{tag}");
+            assert!(
+                tag.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{tag}"
+            );
         }
     }
 
@@ -470,8 +508,14 @@ mod tests {
     fn user_copy_never_leaks_a_code_or_a_stack_word() {
         let errors = [
             TransportError::SignalingUnreachable("dns".into()),
-            TransportError::ProtocolMismatch { client: 1, server: 9 },
-            TransportError::ServiceRefused { code: "busy".into(), message: "try later".into() },
+            TransportError::ProtocolMismatch {
+                client: 1,
+                server: 9,
+            },
+            TransportError::ServiceRefused {
+                code: "busy".into(),
+                message: "try later".into(),
+            },
             TransportError::Timeout("connecting"),
             TransportError::PeerClosed("host left".into()),
             TransportError::Cancelled,
@@ -488,7 +532,11 @@ mod tests {
 
     #[test]
     fn the_protocol_mismatch_copy_names_both_versions() {
-        let text = TransportError::ProtocolMismatch { client: 1, server: 3 }.user_message();
+        let text = TransportError::ProtocolMismatch {
+            client: 1,
+            server: 3,
+        }
+        .user_message();
         assert!(text.contains('3'));
         assert!(text.contains('1'));
     }

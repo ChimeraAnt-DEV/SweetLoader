@@ -96,11 +96,15 @@ mod tests {
         let b = Version::parse("v1.26.60.28").unwrap();
         assert_eq!(a.compare(&b), Ordering::Equal);
         assert_eq!(
-            Version::parse("1.20").unwrap().compare(&Version::parse("1.20.0.0").unwrap()),
+            Version::parse("1.20")
+                .unwrap()
+                .compare(&Version::parse("1.20.0.0").unwrap()),
             Ordering::Equal
         );
         assert_eq!(
-            Version::parse("26.51").unwrap().compare(&Version::parse("1.20.0").unwrap()),
+            Version::parse("26.51")
+                .unwrap()
+                .compare(&Version::parse("1.20.0").unwrap()),
             Ordering::Greater
         );
     }

@@ -49,4 +49,3 @@ fn print_usage() {
         env!("CARGO_PKG_VERSION")
     );
 }
-

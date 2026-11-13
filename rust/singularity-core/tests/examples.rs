@@ -23,7 +23,10 @@ fn the_sky_islands_pack_parses() {
     let manifest_text = fs::read_to_string(root.join("manifest.json")).expect("manifest.json");
     let manifest = singularity_core::manifest::parse(&manifest_text).expect("a valid manifest");
     assert_eq!(manifest.id, "sky_islands");
-    assert_eq!(manifest.seed_algorithm, singularity_core::manifest::SeedAlgorithm::Sha256);
+    assert_eq!(
+        manifest.seed_algorithm,
+        singularity_core::manifest::SeedAlgorithm::Sha256
+    );
 
     let mut biome_ids = Vec::new();
     for entry in fs::read_dir(root.join("biomes")).expect("biomes/") {
@@ -46,12 +49,16 @@ fn the_sky_islands_pack_parses() {
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let rule = singularity_core::structure::parse_definition(&fs::read_to_string(&path).unwrap())
-            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let rule =
+            singularity_core::structure::parse_definition(&fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         structure_ids.push(rule.id);
     }
     structure_ids.sort();
     let mut declared = manifest.structures.clone();
     declared.sort();
-    assert_eq!(structure_ids, declared, "structures/ and the manifest must agree");
+    assert_eq!(
+        structure_ids, declared,
+        "structures/ and the manifest must agree"
+    );
 }

@@ -126,6 +126,9 @@ python3 tools/tests/gen_rules_test.py
 stripped-binary-shaped ELF so the `.data.rel.ro` relocation step is exercised without a real
 multi-hundred-megabyte download; disabling that step makes three of the eight tests fail.
 
+The Rust tree was normalized with `rustfmt` when the `fmt --check` gate was added. It had never
+been formatted, so the gate is what keeps it that way.
+
 ## Writing a mod against it
 
 A mod is a shared library that the client's mod loader `dlopen`s. It includes the public headers

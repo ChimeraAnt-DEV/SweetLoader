@@ -82,14 +82,20 @@ impl Handle {
                     publish(
                         &worker_shared,
                         TransportState::Failed,
-                        Some(TransportError::Malformed("the connection worker failed".into())),
+                        Some(TransportError::Malformed(
+                            "the connection worker failed".into(),
+                        )),
                         None,
                     );
                 }
             })
             .expect("spawning the signaling worker cannot fail");
 
-        Self { shared, cancelled, worker: Some(worker) }
+        Self {
+            shared,
+            cancelled,
+            worker: Some(worker),
+        }
     }
 
     /// A snapshot of the shared state.
@@ -180,7 +186,12 @@ fn run_worker(
     while socket.is_none() {
         if cancelled.load(Ordering::Acquire) {
             session.fail(TransportError::Cancelled);
-            publish(shared, TransportState::Failed, session.error().cloned(), None);
+            publish(
+                shared,
+                TransportState::Failed,
+                session.error().cloned(),
+                None,
+            );
             return;
         }
         if attempt > 0 && policy.is_saturated(attempt) {
@@ -193,7 +204,12 @@ fn run_worker(
                 let delay = policy.delay_ms(attempt, rng_fraction(attempt));
                 if delay > 0 && !sleep_cancellable(Duration::from_millis(delay), cancelled) {
                     session.fail(TransportError::Cancelled);
-                    publish(shared, TransportState::Failed, session.error().cloned(), None);
+                    publish(
+                        shared,
+                        TransportState::Failed,
+                        session.error().cloned(),
+                        None,
+                    );
                     return;
                 }
                 attempt += 1;
@@ -207,14 +223,26 @@ fn run_worker(
 
     let Some(mut socket) = socket else {
         session.fail(TransportError::SignalingUnreachable(String::new()));
-        publish(shared, TransportState::Failed, session.error().cloned(), None);
+        publish(
+            shared,
+            TransportState::Failed,
+            session.error().cloned(),
+            None,
+        );
         return;
     };
 
     // Hello, then await the welcome.
-    if let Err(e) = socket.send(Message::Text(signaling::encode_client_signal(&signaling::hello(&network_id)))) {
+    if let Err(e) = socket.send(Message::Text(signaling::encode_client_signal(
+        &signaling::hello(&network_id),
+    ))) {
         session.fail(TransportError::SignalingUnreachable(e.to_string()));
-        publish(shared, TransportState::Failed, session.error().cloned(), None);
+        publish(
+            shared,
+            TransportState::Failed,
+            session.error().cloned(),
+            None,
+        );
         return;
     }
     session.transition(TransportState::AwaitingWelcome);
@@ -229,7 +257,12 @@ fn run_worker(
     loop {
         if cancelled.load(Ordering::Acquire) {
             session.fail(TransportError::Cancelled);
-            publish(shared, TransportState::Failed, session.error().cloned(), None);
+            publish(
+                shared,
+                TransportState::Failed,
+                session.error().cloned(),
+                None,
+            );
             let _ = socket.close(None);
             return;
         }
@@ -254,7 +287,12 @@ fn run_worker(
             }
             Ok(Message::Close(_)) => {
                 session.fail(TransportError::PeerClosed(String::new()));
-                publish(shared, TransportState::Failed, session.error().cloned(), None);
+                publish(
+                    shared,
+                    TransportState::Failed,
+                    session.error().cloned(),
+                    None,
+                );
                 return;
             }
             Ok(_) => {}
@@ -266,12 +304,22 @@ fn run_worker(
             }
             Err(tungstenite::Error::ConnectionClosed) => {
                 session.fail(TransportError::PeerClosed(String::new()));
-                publish(shared, TransportState::Failed, session.error().cloned(), None);
+                publish(
+                    shared,
+                    TransportState::Failed,
+                    session.error().cloned(),
+                    None,
+                );
                 return;
             }
             Err(e) => {
                 session.fail(TransportError::SignalingUnreachable(e.to_string()));
-                publish(shared, TransportState::Failed, session.error().cloned(), None);
+                publish(
+                    shared,
+                    TransportState::Failed,
+                    session.error().cloned(),
+                    None,
+                );
                 return;
             }
         }
@@ -312,17 +360,32 @@ fn handle_frame(
         }
         Ok(Signal::Disconnect { reason, .. }) => {
             session.fail(TransportError::PeerClosed(reason));
-            publish(shared, TransportState::Failed, session.error().cloned(), None);
+            publish(
+                shared,
+                TransportState::Failed,
+                session.error().cloned(),
+                None,
+            );
             false
         }
         Ok(Signal::ServiceError { code, message }) => {
             session.fail(TransportError::ServiceRefused { code, message });
-            publish(shared, TransportState::Failed, session.error().cloned(), None);
+            publish(
+                shared,
+                TransportState::Failed,
+                session.error().cloned(),
+                None,
+            );
             false
         }
         Err(nethernet_core::signaling::SignalError::ProtocolMismatch { client, server }) => {
             session.fail(TransportError::ProtocolMismatch { client, server });
-            publish(shared, TransportState::Failed, session.error().cloned(), None);
+            publish(
+                shared,
+                TransportState::Failed,
+                session.error().cloned(),
+                None,
+            );
             false
         }
         Err(e) => {
@@ -394,9 +457,7 @@ mod tests {
         let thread = std::thread::spawn(move || {
             let (lock, condvar) = &*waiter;
             let guard = lock.lock().unwrap();
-            let (guard, _) = condvar
-                .wait_timeout(guard, Duration::from_secs(5))
-                .unwrap();
+            let (guard, _) = condvar.wait_timeout(guard, Duration::from_secs(5)).unwrap();
             guard.state
         });
         std::thread::sleep(Duration::from_millis(50));
@@ -433,7 +494,10 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(true));
         let start = Instant::now();
         assert!(!sleep_cancellable(Duration::from_secs(30), &cancelled));
-        assert!(start.elapsed() < Duration::from_secs(1), "cancel must not wait");
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "cancel must not wait"
+        );
     }
 
     #[test]
