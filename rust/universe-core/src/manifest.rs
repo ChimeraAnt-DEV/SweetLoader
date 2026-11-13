@@ -95,8 +95,11 @@ impl UniverseManifest {
 
 /// Parses and validates manifest JSON.
 pub fn parse(json: &str) -> Result<UniverseManifest> {
-    let manifest: UniverseManifest = serde_json::from_str(json)
-        .map_err(|e| Error::new(format!("{MANIFEST_NAME} is not a valid universe manifest: {e}")))?;
+    let manifest: UniverseManifest = serde_json::from_str(json).map_err(|e| {
+        Error::new(format!(
+            "{MANIFEST_NAME} is not a valid universe manifest: {e}"
+        ))
+    })?;
     validate(&manifest)?;
     Ok(manifest)
 }
@@ -112,8 +115,7 @@ pub fn validate(manifest: &UniverseManifest) -> Result<()> {
     if !manifest.name.is_empty() && manifest.name.len() > MAX_ID_LEN {
         return Err(Error::new("name is too long"));
     }
-    version::Version::parse(&manifest.version)
-        .map_err(|e| Error::new(format!("version: {e}")))?;
+    version::Version::parse(&manifest.version).map_err(|e| Error::new(format!("version: {e}")))?;
     version::Version::parse(&manifest.min_client_version)
         .map_err(|e| Error::new(format!("min_client_version: {e}")))?;
     if manifest.abi != SUPPORTED_ABI {
@@ -132,8 +134,7 @@ pub fn validate(manifest: &UniverseManifest) -> Result<()> {
         validate_native_lib(lib)?;
     }
     for dependency in &manifest.dependencies {
-        validate_id(dependency)
-            .map_err(|e| Error::new(format!("dependency: {e}")))?;
+        validate_id(dependency).map_err(|e| Error::new(format!("dependency: {e}")))?;
     }
     if manifest.hooks.len() > MAX_HOOKS {
         return Err(Error::new("hooks lists too many declarations"));
@@ -182,9 +183,9 @@ pub fn is_safe_segment(text: &str) -> bool {
     if text.is_empty() || text == "." || text == ".." {
         return false;
     }
-    text.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || c == ' '
-    }) && !text.contains(['/', '\\', '\0'])
+    text.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || c == ' ')
+        && !text.contains(['/', '\\', '\0'])
 }
 
 /// Validates a native library path: a safe relative `.so` path inside the package.
@@ -196,13 +197,19 @@ fn validate_native_lib(path: &str) -> Result<()> {
         return Err(Error::new(format!("native lib path '{path}' is too long")));
     }
     if path.contains('\0') || path.contains('\\') {
-        return Err(Error::new(format!("native lib path '{path}' has an invalid character")));
+        return Err(Error::new(format!(
+            "native lib path '{path}' has an invalid character"
+        )));
     }
     if path.starts_with('/') {
-        return Err(Error::new(format!("native lib path '{path}' must be relative")));
+        return Err(Error::new(format!(
+            "native lib path '{path}' must be relative"
+        )));
     }
     if path.split('/').any(|segment| segment == "..") {
-        return Err(Error::new(format!("native lib path '{path}' escapes the package")));
+        return Err(Error::new(format!(
+            "native lib path '{path}' escapes the package"
+        )));
     }
     if !path.to_ascii_lowercase().ends_with(".so") {
         return Err(Error::new(format!("native lib '{path}' is not a .so file")));
@@ -265,7 +272,10 @@ mod tests {
         ] {
             let json = valid_json("");
             let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
-            value.as_object_mut().unwrap().remove(&field[1..field.len() - 1]);
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove(&field[1..field.len() - 1]);
             let text = value.to_string();
             assert!(parse(&text).is_err(), "missing {field} should be refused");
         }

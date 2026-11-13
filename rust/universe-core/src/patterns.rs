@@ -266,7 +266,10 @@ mod tests {
         let haystack = [0xaa, 0xbb, 0xaa];
         assert!(pattern.matches_at(&haystack, 0));
         assert!(!pattern.matches_at(&haystack, 1));
-        assert!(!pattern.matches_at(&haystack, 2), "a truncated tail must not match");
+        assert!(
+            !pattern.matches_at(&haystack, 2),
+            "a truncated tail must not match"
+        );
     }
 
     #[test]

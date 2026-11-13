@@ -206,7 +206,10 @@ mod tests {
         let env = Environment::default();
         let normal_step = integrate(&normal, &env, &[], FIXED_STEP);
         let moon_step = integrate(&moon, &env, &[], FIXED_STEP);
-        assert!(moon_step.velocity.y > normal_step.velocity.y, "moon gravity should fall slower");
+        assert!(
+            moon_step.velocity.y > normal_step.velocity.y,
+            "moon gravity should fall slower"
+        );
     }
 
     #[test]
@@ -228,7 +231,10 @@ mod tests {
         };
         let low_step = integrate(&low, &env, &[], FIXED_STEP);
         let high_step = integrate(&high, &env, &[], FIXED_STEP);
-        assert!(high_step.velocity.x > low_step.velocity.x, "wind should be stronger higher up");
+        assert!(
+            high_step.velocity.x > low_step.velocity.x,
+            "wind should be stronger higher up"
+        );
     }
 
     #[test]
@@ -265,7 +271,10 @@ mod tests {
             ..Body::default()
         };
         let landed = resolve_landing(&body, Material::new(0.0, 0.9));
-        assert!(landed.velocity.y > 0.0, "a bouncy surface should reverse the fall");
+        assert!(
+            landed.velocity.y > 0.0,
+            "a bouncy surface should reverse the fall"
+        );
         assert!(landed.on_ground);
     }
 

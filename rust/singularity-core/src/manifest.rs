@@ -185,7 +185,9 @@ impl SingularityManifest {
 /// Parses and validates manifest JSON.
 pub fn parse(json: &str) -> Result<SingularityManifest> {
     let manifest: SingularityManifest = serde_json::from_str(json).map_err(|e| {
-        Error::new(format!("{MANIFEST_NAME} is not a valid singularity manifest: {e}"))
+        Error::new(format!(
+            "{MANIFEST_NAME} is not a valid singularity manifest: {e}"
+        ))
     })?;
     validate(&manifest)?;
     Ok(manifest)
@@ -221,9 +223,7 @@ pub fn validate(manifest: &SingularityManifest) -> Result<()> {
             .map_err(|e| Error::new(format!("dependency: {e}")))?;
     }
     if manifest.terrain.height < 16 || manifest.terrain.height > 2048 {
-        return Err(Error::new(
-            "terrain.height must be between 16 and 2048",
-        ));
+        return Err(Error::new("terrain.height must be between 16 and 2048"));
     }
     if manifest.terrain.amplitude < 0 {
         return Err(Error::new("terrain.amplitude must not be negative"));
@@ -234,13 +234,17 @@ pub fn validate(manifest: &SingularityManifest) -> Result<()> {
         ));
     }
     if manifest.terrain.sea_level < 0 || manifest.terrain.sea_level > manifest.terrain.height {
-        return Err(Error::new("terrain.sea_level must be inside the chunk height"));
+        return Err(Error::new(
+            "terrain.sea_level must be inside the chunk height",
+        ));
     }
     if !(1..=MAX_OCTAVES).contains(&manifest.terrain.octaves) {
         return Err(Error::new("terrain.octaves is out of range"));
     }
     if !manifest.terrain.warp.is_finite() || manifest.terrain.warp < 0.0 {
-        return Err(Error::new("terrain.warp must be a non-negative finite number"));
+        return Err(Error::new(
+            "terrain.warp must be a non-negative finite number",
+        ));
     }
     if manifest.physics.gravity.iter().any(|v| !v.is_finite()) {
         return Err(Error::new("physics.gravity must be finite"));
@@ -278,8 +282,12 @@ mod tests {
             }"##;
         let mut value: serde_json::Value = serde_json::from_str(base).unwrap();
         if !extra.is_empty() {
-            let extra_value: serde_json::Value = serde_json::from_str(&format!("{{{extra}}}")).unwrap();
-            merge(value.as_object_mut().unwrap(), extra_value.as_object().unwrap());
+            let extra_value: serde_json::Value =
+                serde_json::from_str(&format!("{{{extra}}}")).unwrap();
+            merge(
+                value.as_object_mut().unwrap(),
+                extra_value.as_object().unwrap(),
+            );
         }
         value.to_string()
     }
@@ -308,11 +316,21 @@ mod tests {
 
     #[test]
     fn refuses_a_missing_required_field() {
-        for field in ["id", "version", "min_client_version", "seed_algorithm", "custom_dimensions", "berry_api_dependencies"] {
+        for field in [
+            "id",
+            "version",
+            "min_client_version",
+            "seed_algorithm",
+            "custom_dimensions",
+            "berry_api_dependencies",
+        ] {
             let json = valid_json("");
             let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
             value.as_object_mut().unwrap().remove(field);
-            assert!(parse(&value.to_string()).is_err(), "missing {field} should be refused");
+            assert!(
+                parse(&value.to_string()).is_err(),
+                "missing {field} should be refused"
+            );
         }
     }
 
@@ -330,7 +348,10 @@ mod tests {
 
     #[test]
     fn refuses_a_base_height_outside_the_chunk() {
-        assert!(parse(&valid_json(r#""terrain": {"base_height": 500, "height": 128}"#)).is_err());
+        assert!(parse(&valid_json(
+            r#""terrain": {"base_height": 500, "height": 128}"#
+        ))
+        .is_err());
     }
 
     #[test]

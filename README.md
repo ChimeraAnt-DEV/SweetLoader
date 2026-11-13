@@ -98,6 +98,37 @@ bash tests/cosmetics/run_tests.sh
 They need a host C++20 compiler and `zlib` headers. The `nlohmann/json` single header is fetched
 into a gitignored cache on first run, or point `NLOHMANN_JSON_INCLUDE` at an existing copy.
 
+The three ThreadSanitizer tests need `setarch` (util-linux) so the sanitizer can disable ASLR;
+without it they report `skipped` rather than failing, and CI treats that as a failure so a
+sanitizer that stopped running cannot read as a pass.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request, and a green run is the claim that
+the library a client loads is the library the sources describe. Four jobs, each a real check:
+
+| Job | What it proves |
+| --- | --- |
+| `host-tests` | The C++ suite (57 tests, including the TSAN ones) passes on the host, with no sanitizer silently skipped. |
+| `rust` | `cargo fmt --check`, `cargo clippy -D clippy::correctness` and `cargo test --workspace` (249 tests) are clean on a pinned toolchain. |
+| `native-build` | `libsweetloader.so` and the three Rust cdylibs cross-compile for arm64-v8a on the NDK the client pins, and the built `.so` exports the JNI and SDK symbols with no static-archive leakage. |
+| `repo-integrity` | No `.cpp` is missing from `SWEETLOADER_SOURCES`, no host test is unregistered, every fetched dependency is pinned to a commit and attributed in `NOTICE`, and the tooling's own tests pass. |
+
+The two drift checks are also runnable by hand:
+
+```sh
+python3 scripts/check_sources_listed.py
+python3 scripts/check_pinned_deps.py
+python3 tools/tests/gen_rules_test.py
+```
+
+`gen_rules.py` derives the RTTI vtable rules from a Minecraft APK. Its test builds a synthetic
+stripped-binary-shaped ELF so the `.data.rel.ro` relocation step is exercised without a real
+multi-hundred-megabyte download; disabling that step makes three of the eight tests fail.
+
+The Rust tree was normalized with `rustfmt` when the `fmt --check` gate was added. It had never
+been formatted, so the gate is what keeps it that way.
+
 ## Writing a mod against it
 
 A mod is a shared library that the client's mod loader `dlopen`s. It includes the public headers

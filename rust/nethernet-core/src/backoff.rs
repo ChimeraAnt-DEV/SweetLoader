@@ -23,7 +23,11 @@ impl Default for BackoffPolicy {
     fn default() -> Self {
         // 500ms, 1s, 2s, 4s, 8s, 16s, then the 20s cap. The launcher's whole reconnect budget is
         // sized around this cap: a user who cancels is never more than 20s from the next attempt.
-        Self { base_ms: 500, factor: 2, cap_ms: 20_000 }
+        Self {
+            base_ms: 500,
+            factor: 2,
+            cap_ms: 20_000,
+        }
     }
 }
 
@@ -33,7 +37,11 @@ impl BackoffPolicy {
         assert!(base_ms > 0, "backoff base must be non-zero");
         assert!(factor >= 1, "backoff factor must be at least 1");
         assert!(cap_ms >= base_ms, "backoff cap must not be below the base");
-        Self { base_ms, factor, cap_ms }
+        Self {
+            base_ms,
+            factor,
+            cap_ms,
+        }
     }
 
     /// The cap, in milliseconds.
@@ -106,7 +114,11 @@ mod tests {
         let p = BackoffPolicy::default();
         for attempt in 0..10 {
             let nominal = p.nominal_ms(attempt);
-            assert_eq!(p.delay_ms(attempt, 0.0), nominal / 2, "floor at attempt {attempt}");
+            assert_eq!(
+                p.delay_ms(attempt, 0.0),
+                nominal / 2,
+                "floor at attempt {attempt}"
+            );
             // The top of the band is nominal - 1 at the very edge, and nominal for any rng < 1.
             let top = p.delay_ms(attempt, 0.999_999);
             assert!(top <= nominal, "attempt {attempt}: {top} > {nominal}");

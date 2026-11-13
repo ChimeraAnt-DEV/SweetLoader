@@ -252,7 +252,9 @@ fn dl_error() -> String {
     if pointer.is_null() {
         return "no dl error".to_string();
     }
-    unsafe { CStr::from_ptr(pointer) }.to_string_lossy().into_owned()
+    unsafe { CStr::from_ptr(pointer) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(test)]
@@ -354,7 +356,11 @@ uint64_t universe_test_frames(void) { return g_frames; }
         runtime.load(&[spec("badinit", &lib, &[])]);
         assert_eq!(runtime.live_count(), 0, "a failed init is not loaded");
         runtime.tick(0.016);
-        assert_eq!(read_fixture_frames(&lib), 0, "a refused mod is never ticked");
+        assert_eq!(
+            read_fixture_frames(&lib),
+            0,
+            "a refused mod is never ticked"
+        );
     }
 
     /// The fixture's source: a well-formed `.universe` mod that counts its ticks.
@@ -397,7 +403,9 @@ uint64_t universe_test_frames(void) { return g_frames; }
         let name = CString::new(path).unwrap();
         let handle = unsafe { dlopen(name.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
         assert!(!handle.is_null(), "the fixture should reopen");
-        let frames_fn = unsafe { resolve_symbol::<unsafe extern "C" fn() -> u64>(handle, b"universe_test_frames\0") };
+        let frames_fn = unsafe {
+            resolve_symbol::<unsafe extern "C" fn() -> u64>(handle, b"universe_test_frames\0")
+        };
         let frames = unsafe { frames_fn.expect("the fixture exports its counter")() };
         unsafe { dlclose(handle) };
         frames

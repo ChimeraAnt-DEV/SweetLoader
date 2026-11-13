@@ -57,4 +57,3 @@ mod tests {
         assert_ne!(seed_hash("hello", true), seed_hash("hello", false));
     }
 }
-

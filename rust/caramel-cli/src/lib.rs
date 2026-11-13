@@ -16,11 +16,24 @@ use universe_core::{sha256_hex, Error, Result};
 /// A parsed command line.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    Pack { source: PathBuf, output: PathBuf },
-    Sign { package: PathBuf, private_key_hex: String },
-    Verify { package: PathBuf, public_key_hex: String },
-    Keygen { output: Option<PathBuf> },
-    Inspect { package: PathBuf },
+    Pack {
+        source: PathBuf,
+        output: PathBuf,
+    },
+    Sign {
+        package: PathBuf,
+        private_key_hex: String,
+    },
+    Verify {
+        package: PathBuf,
+        public_key_hex: String,
+    },
+    Keygen {
+        output: Option<PathBuf>,
+    },
+    Inspect {
+        package: PathBuf,
+    },
 }
 
 impl Command {
@@ -101,7 +114,10 @@ const MAX_PACKAGE_BYTES: u64 = 512 * 1024 * 1024;
 /// Builds a ZIP from a directory, deterministically.
 pub fn pack(source: &Path, output: &Path) -> Result<()> {
     if !source.is_dir() {
-        return Err(Error::new(format!("{} is not a directory", source.display())));
+        return Err(Error::new(format!(
+            "{} is not a directory",
+            source.display()
+        )));
     }
     // The manifest must exist and parse, or the package would be refused at load time.
     let manifest_path = source.join("manifest.json");
@@ -136,7 +152,8 @@ pub fn pack(source: &Path, output: &Path) -> Result<()> {
     zip.finish()
         .map_err(|e| Error::new(format!("could not finish the archive: {e}")))?;
 
-    let bytes = fs::read(output).map_err(|e| Error::new(format!("could not read back the package: {e}")))?;
+    let bytes = fs::read(output)
+        .map_err(|e| Error::new(format!("could not read back the package: {e}")))?;
     println!("packed {} files into {}", files.len(), output.display());
     println!("sha256 {}", sha256_hex(&bytes));
     Ok(())
@@ -147,7 +164,8 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> R
     let entries = fs::read_dir(dir)
         .map_err(|e| Error::new(format!("could not read {}: {e}", dir.display())))?;
     for entry in entries {
-        let entry = entry.map_err(|e| Error::new(format!("could not read a directory entry: {e}")))?;
+        let entry =
+            entry.map_err(|e| Error::new(format!("could not read a directory entry: {e}")))?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path)
             .map_err(|e| Error::new(format!("could not stat {}: {e}", path.display())))?;
@@ -215,7 +233,8 @@ pub fn verify(package: &Path, public_key_hex: &str) -> Result<()> {
 /// `output` (or printed), and the public key is printed in the hex form the trusted-key set uses.
 pub fn keygen(output: Option<&Path>) -> Result<()> {
     let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).map_err(|e| Error::new(format!("no entropy available: {e}")))?;
+    getrandom::getrandom(&mut seed)
+        .map_err(|e| Error::new(format!("no entropy available: {e}")))?;
     let signing_key = signature::signing_key_from_bytes(&seed)?;
     let public = signature::public_key_of(&signing_key);
     let private_hex = universe_core::to_hex(&seed);

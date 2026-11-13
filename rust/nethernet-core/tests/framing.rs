@@ -52,10 +52,14 @@ fn the_header_is_big_endian() {
 fn the_reliable_bit_is_separate_from_the_kind() {
     let reliable = Frame::data(1, b"x".to_vec()).encode().unwrap();
     assert_eq!(reliable[4], 0x80, "reliable data must set the top bit");
-    let unreliable =
-        Frame { kind: FrameKind::Data, sequence: 1, reliable: false, payload: b"x".to_vec() }
-            .encode()
-            .unwrap();
+    let unreliable = Frame {
+        kind: FrameKind::Data,
+        sequence: 1,
+        reliable: false,
+        payload: b"x".to_vec(),
+    }
+    .encode()
+    .unwrap();
     assert_eq!(unreliable[4], 0x00);
     assert!(!decode_frame(&unreliable).unwrap().reliable);
 }
@@ -72,13 +76,19 @@ fn ack_nack_and_keepalive_round_trip() {
 
 #[test]
 fn a_frame_shorter_than_the_header_is_refused() {
-    assert_eq!(decode_frame(&[0u8; 4]).unwrap_err(), FrameError::LengthTooSmall(4));
+    assert_eq!(
+        decode_frame(&[0u8; 4]).unwrap_err(),
+        FrameError::LengthTooSmall(4)
+    );
 }
 
 #[test]
 fn a_length_prefix_below_the_fixed_body_is_refused() {
     let bytes = header(4, 0, 0);
-    assert_eq!(decode_frame(&bytes).unwrap_err(), FrameError::LengthTooSmall(4));
+    assert_eq!(
+        decode_frame(&bytes).unwrap_err(),
+        FrameError::LengthTooSmall(4)
+    );
 }
 
 #[test]
@@ -100,13 +110,19 @@ fn a_payload_exactly_at_the_cap_is_accepted() {
 #[test]
 fn encoding_an_oversized_payload_is_refused_rather_than_truncated() {
     let frame = Frame::data(1, vec![0u8; MAX_FRAME_BYTES + 1]);
-    assert_eq!(frame.encode().unwrap_err(), FrameError::PayloadTooLarge(MAX_FRAME_BYTES + 1));
+    assert_eq!(
+        frame.encode().unwrap_err(),
+        FrameError::PayloadTooLarge(MAX_FRAME_BYTES + 1)
+    );
 }
 
 #[test]
 fn an_unknown_kind_byte_is_refused_with_its_value() {
     let bytes = header(5, 0x7F, 0);
-    assert_eq!(decode_frame(&bytes).unwrap_err(), FrameError::UnknownKind(0x7F));
+    assert_eq!(
+        decode_frame(&bytes).unwrap_err(),
+        FrameError::UnknownKind(0x7F)
+    );
 }
 
 #[test]
@@ -114,7 +130,10 @@ fn a_control_frame_carrying_a_payload_is_refused() {
     // kind 1 is Ack; give it a one-byte payload.
     let mut bytes = header(6, 1, 0);
     bytes.push(0xAA);
-    assert_eq!(decode_frame(&bytes).unwrap_err(), FrameError::ControlWithPayload(FrameKind::Ack));
+    assert_eq!(
+        decode_frame(&bytes).unwrap_err(),
+        FrameError::ControlWithPayload(FrameKind::Ack)
+    );
 }
 
 #[test]
@@ -123,7 +142,10 @@ fn the_reader_yields_nothing_until_a_frame_is_complete() {
     let mut reader = FrameReader::new();
     for byte in &bytes[..bytes.len() - 1] {
         reader.push(&[*byte]).unwrap();
-        assert!(reader.next_frame().is_none(), "a partial frame must not be delivered");
+        assert!(
+            reader.next_frame().is_none(),
+            "a partial frame must not be delivered"
+        );
     }
     reader.push(&bytes[bytes.len() - 1..]).unwrap();
     assert_eq!(reader.next_frame().unwrap().unwrap().payload, b"payload");
@@ -160,9 +182,14 @@ fn the_reader_reports_a_bad_length_prefix_and_keeps_making_progress() {
     let mut reader = FrameReader::new();
     // A length prefix of 1 is impossible: the fixed body is 5 bytes.
     reader.push(&header(1, 0, 0)).unwrap();
-    assert_eq!(reader.next_frame().unwrap().unwrap_err(), FrameError::LengthTooSmall(1));
+    assert_eq!(
+        reader.next_frame().unwrap().unwrap_err(),
+        FrameError::LengthTooSmall(1)
+    );
     // The bad header was consumed, so a following valid frame still decodes.
-    reader.push(&Frame::data(9, b"ok".to_vec()).encode().unwrap()).unwrap();
+    reader
+        .push(&Frame::data(9, b"ok".to_vec()).encode().unwrap())
+        .unwrap();
     assert_eq!(reader.next_frame().unwrap().unwrap().payload, b"ok");
 }
 
@@ -170,7 +197,9 @@ fn the_reader_reports_a_bad_length_prefix_and_keeps_making_progress() {
 fn the_reader_refuses_a_peer_that_never_completes_a_frame() {
     let mut reader = FrameReader::new();
     // Claim the largest legal frame, then keep sending filler without ever finishing it.
-    reader.push(&header((MAX_FRAME_BYTES + 5) as u32, 0, 0)).unwrap();
+    reader
+        .push(&header((MAX_FRAME_BYTES + 5) as u32, 0, 0))
+        .unwrap();
     let chunk = vec![0u8; 64 * 1024];
     let mut refused = false;
     for _ in 0..64 {
@@ -179,14 +208,20 @@ fn the_reader_refuses_a_peer_that_never_completes_a_frame() {
             break;
         }
     }
-    assert!(refused, "the reader must refuse an unbounded frame, not grow forever");
+    assert!(
+        refused,
+        "the reader must refuse an unbounded frame, not grow forever"
+    );
 }
 
 #[test]
 fn a_duplicate_sequence_number_is_rejected() {
     let mut reorder = ReorderBuffer::new();
     assert!(reorder.accept(1));
-    assert!(!reorder.accept(1), "a duplicate must not be delivered twice");
+    assert!(
+        !reorder.accept(1),
+        "a duplicate must not be delivered twice"
+    );
     assert!(reorder.accept(2));
     assert!(!reorder.accept(2));
 }
@@ -195,7 +230,10 @@ fn a_duplicate_sequence_number_is_rejected() {
 fn an_out_of_order_older_frame_is_rejected() {
     let mut reorder = ReorderBuffer::new();
     assert!(reorder.accept(10));
-    assert!(!reorder.accept(9), "an older frame must not be delivered late");
+    assert!(
+        !reorder.accept(9),
+        "an older frame must not be delivered late"
+    );
     assert!(reorder.accept(11));
 }
 
@@ -208,7 +246,11 @@ fn the_reorder_buffer_reports_its_high_water_mark() {
     reorder.accept(8);
     assert_eq!(reorder.highest(), Some(8));
     reorder.accept(6);
-    assert_eq!(reorder.highest(), Some(8), "a rejected frame must not lower the mark");
+    assert_eq!(
+        reorder.highest(),
+        Some(8),
+        "a rejected frame must not lower the mark"
+    );
 }
 
 #[test]
@@ -218,7 +260,10 @@ fn a_sequence_rollover_is_still_ordered() {
     assert!(reorder.accept(u32::MAX));
     assert!(reorder.accept(0), "the sequence must wrap, not reset");
     assert!(reorder.accept(1));
-    assert!(!reorder.accept(u32::MAX), "the old high frame must still be rejected");
+    assert!(
+        !reorder.accept(u32::MAX),
+        "the old high frame must still be rejected"
+    );
 }
 
 #[test]
@@ -227,7 +272,10 @@ fn reset_clears_the_high_water_mark() {
     reorder.accept(100);
     reorder.reset();
     assert_eq!(reorder.highest(), None);
-    assert!(reorder.accept(1), "a new connection restarts the sequence space");
+    assert!(
+        reorder.accept(1),
+        "a new connection restarts the sequence space"
+    );
 }
 
 #[test]

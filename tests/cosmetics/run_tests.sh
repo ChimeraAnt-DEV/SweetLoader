@@ -15,9 +15,10 @@ if [[ -z "$nlohmann" ]]; then
   nlohmann="$(find "$root/../../../.cxx" -path '*nlohmann_json-src/single_include' -type d 2>/dev/null | head -1 || true)"
 fi
 if [[ -z "$nlohmann" || ! -f "$nlohmann/nlohmann/json.hpp" ]]; then
-  # Fetch the single-header release into a gitignored cache so the host tests do not depend on a
-  # previous native Gradle build. Header-only and pinned by tag, so the run is reproducible.
-  nlohmann="$root/../../../../build/host-tools/nlohmann/include"
+  # Fetch the single-header release into a cache next to the checkout, so the run is reproducible
+  # whether this tree is the submodule inside the client or a standalone clone in CI. The cache is
+  # not written inside the checkout, which a read-only or oddly mounted tree would reject.
+  nlohmann="${SWEETLOADER_HOST_CACHE:-$root/../.host-tools}/nlohmann/include"
   if [[ ! -f "$nlohmann/nlohmann/json.hpp" ]]; then
     mkdir -p "$nlohmann/nlohmann"
     echo "Fetching nlohmann/json single header..." >&2
@@ -51,8 +52,8 @@ zlib_link=""
 for candidate in \
     /usr/include \
     "${ZLIB_INCLUDE:-}" \
-    "$(ls -d /opt/android-sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include 2>/dev/null | head -1)" \
-    "$(ls -d /workspace/android-sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include 2>/dev/null | head -1)" \
+    "$(find /opt/android-sdk/ndk /workspace/android-sdk/ndk -type d \
+        -path '*sysroot/usr/include' -print -quit 2>/dev/null)" \
     "$root/../libHttpClient/External/zlib"; do
   if [[ -n "$candidate" && -f "$candidate/zlib.h" ]]; then
     zlib_source="$candidate"
@@ -97,8 +98,9 @@ if [[ -z "$fmt_include" ]]; then
   fmt_include="$(find "$root/../../../.cxx" -path '*fmt-src/include' -type d 2>/dev/null | head -1 || true)"
 fi
 if [[ -z "$fmt_include" || ! -f "$fmt_include/fmt/format.h" ]]; then
-  # 11.2.0, the commit CMakeLists.txt pins.
-  fmt_include="$root/../../../../build/host-tools/fmt/include"
+  # 11.2.0, the commit CMakeLists.txt pins. Cached beside the checkout for the same reason as
+  # nlohmann/json above.
+  fmt_include="${SWEETLOADER_HOST_CACHE:-$root/../.host-tools}/fmt/include"
   if [[ ! -f "$fmt_include/fmt/format.h" ]]; then
     mkdir -p "$fmt_include"
     echo "Fetching fmt headers..." >&2

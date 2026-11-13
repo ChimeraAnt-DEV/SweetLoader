@@ -125,7 +125,9 @@ impl TrustedKeys {
 
     /// True when any trusted key verifies the body.
     pub fn verifies(&self, body: &[u8], signature: &RawSignature) -> bool {
-        self.keys.iter().any(|entry| verify(body, signature, &entry.key))
+        self.keys
+            .iter()
+            .any(|entry| verify(body, signature, &entry.key))
     }
 }
 

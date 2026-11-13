@@ -10,3 +10,7 @@ docs/.vitepress/dist
 
 # Rust build output for the .universe / .singularity engine crates.
 rust/target
+
+# Bytecode from the host test and checker scripts under tools/ and scripts/.
+__pycache__/
+*.pyc

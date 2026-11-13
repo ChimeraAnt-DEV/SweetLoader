@@ -126,7 +126,14 @@ pub fn surface_height(config: &TerrainConfig, world_x: i32, world_z: i32) -> i32
     let base = if config.warp > 0.0 {
         noise::warped3(config.seed, wx / 256.0, 0.0, wz / 256.0, config.warp)
     } else {
-        noise::fbm2(config.seed, wx / 256.0, wz / 256.0, config.octaves, 2.0, 0.5)
+        noise::fbm2(
+            config.seed,
+            wx / 256.0,
+            wz / 256.0,
+            config.octaves,
+            2.0,
+            0.5,
+        )
     };
     let shaped = (base - 0.5) * 2.0 * config.amplitude as f32;
     let height = config.base_height as f32 + shaped;
@@ -285,7 +292,10 @@ mod tests {
             for local_x in 0..CHUNK_SIZE {
                 let surface = chunk.heightmap[(local_x + CHUNK_SIZE * local_z) as usize];
                 assert!(!chunk.is_solid(local_x, surface + 1, local_z));
-                assert!(chunk.is_solid(local_x, surface, local_z) || chunk.block(local_x, surface, local_z) == WATER);
+                assert!(
+                    chunk.is_solid(local_x, surface, local_z)
+                        || chunk.block(local_x, surface, local_z) == WATER
+                );
             }
         }
     }

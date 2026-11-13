@@ -131,9 +131,18 @@ mod tests {
 
     #[test]
     fn parses_known_permissions() {
-        assert_eq!(Permission::parse("read_memory").unwrap(), Permission::ReadMemory);
-        assert_eq!(Permission::parse("Render_Hook").unwrap(), Permission::RenderHook);
-        assert_eq!(Permission::parse("filesystem").unwrap(), Permission::FileSystem);
+        assert_eq!(
+            Permission::parse("read_memory").unwrap(),
+            Permission::ReadMemory
+        );
+        assert_eq!(
+            Permission::parse("Render_Hook").unwrap(),
+            Permission::RenderHook
+        );
+        assert_eq!(
+            Permission::parse("filesystem").unwrap(),
+            Permission::FileSystem
+        );
     }
 
     #[test]

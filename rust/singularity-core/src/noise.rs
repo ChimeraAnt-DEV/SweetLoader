@@ -143,7 +143,15 @@ pub fn warped3(seed: u64, x: f32, y: f32, z: f32, strength: f32) -> f32 {
     let wx = value3(seed ^ 0x1111, x * 0.5, y * 0.5, z * 0.5) - 0.5;
     let wy = value3(seed ^ 0x2222, x * 0.5, y * 0.5, z * 0.5) - 0.5;
     let wz = value3(seed ^ 0x3333, x * 0.5, y * 0.5, z * 0.5) - 0.5;
-    fbm3(seed, x + wx * strength, y + wy * strength, z + wz * strength, 4, 2.0, 0.5)
+    fbm3(
+        seed,
+        x + wx * strength,
+        y + wy * strength,
+        z + wz * strength,
+        4,
+        2.0,
+        0.5,
+    )
 }
 
 #[cfg(test)]
@@ -155,7 +163,10 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(value3(42, 1.5, 2.5, 3.5), value3(42, 1.5, 2.5, 3.5));
         }
-        assert_eq!(fbm2(7, 10.0, 20.0, 4, 2.0, 0.5), fbm2(7, 10.0, 20.0, 4, 2.0, 0.5));
+        assert_eq!(
+            fbm2(7, 10.0, 20.0, 4, 2.0, 0.5),
+            fbm2(7, 10.0, 20.0, 4, 2.0, 0.5)
+        );
     }
 
     #[test]
@@ -190,7 +201,10 @@ mod tests {
         // Two samples either side of a lattice boundary must be close.
         let a = value3(9, 3.9999, 0.0, 0.0);
         let b = value3(9, 4.0001, 0.0, 0.0);
-        assert!((a - b).abs() < 0.01, "noise jumps at a lattice boundary: {a} vs {b}");
+        assert!(
+            (a - b).abs() < 0.01,
+            "noise jumps at a lattice boundary: {a} vs {b}"
+        );
     }
 
     #[test]

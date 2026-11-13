@@ -155,8 +155,11 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_singularity_SingularityE
     run_or_message(&mut env, "nativeValidate", || {
         let text = universe_core::archive::read_manifest_text(&path).map_err(|e| e.to_string())?;
         let manifest = singularity_core::manifest::parse(&text).map_err(|e| e.to_string())?;
-        universe_core::version::check_min_client_version(&manifest.min_client_version, CLIENT_VERSION)
-            .map_err(|e| e.to_string())?;
+        universe_core::version::check_min_client_version(
+            &manifest.min_client_version,
+            CLIENT_VERSION,
+        )
+        .map_err(|e| e.to_string())?;
         log_info(&format!(
             "validated {} v{}",
             manifest.display_name(),
@@ -317,7 +320,9 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
     };
     // Read the registered biomes, so a pack's biomes/*.json actually shape the terrain. The read
     // lock is held only for the generation call; registration takes the write lock once at load.
-    let registry = biomes().read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let registry = biomes()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let chunk = singularity_core::chunk::generate_chunk(
         &config,
         &registry,
@@ -350,7 +355,9 @@ pub unsafe extern "C" fn caramel_singularity_register_biomes(biomes_json: *const
     let json = cstr(biomes_json);
     match singularity_core::biome::parse_definitions(&json) {
         Ok(definitions) => {
-            let mut registry = biomes().write().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut registry = biomes()
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             *registry = singularity_core::biome::BiomeRegistry::new("plains");
             for definition in &definitions {
                 registry.register(definition.clone());
@@ -425,18 +432,7 @@ mod tests {
     fn chunk_generation_writes_the_expected_size() {
         let mut blocks = vec![0u8; 16 * 16 * 64];
         let written = unsafe {
-            caramel_singularity_generate_chunk(
-                42,
-                32,
-                8,
-                30,
-                64,
-                4,
-                0.0,
-                0,
-                0,
-                blocks.as_mut_ptr(),
-            )
+            caramel_singularity_generate_chunk(42, 32, 8, 30, 64, 4, 0.0, 0, 0, blocks.as_mut_ptr())
         };
         assert_eq!(written, (16 * 16 * 64) as i32);
     }
@@ -454,13 +450,22 @@ mod tests {
         // One test, not two: the registry is process-global, so two tests mutating it would race
         // under the parallel test runner.
         let two = CString::new(r#"[{"id":"a"},{"id":"b"}]"#).unwrap();
-        assert_eq!(unsafe { caramel_singularity_register_biomes(two.as_ptr()) }, 2);
+        assert_eq!(
+            unsafe { caramel_singularity_register_biomes(two.as_ptr()) },
+            2
+        );
         // A second call replaces rather than accumulates.
         let one = CString::new(r#"[{"id":"keep"}]"#).unwrap();
-        assert_eq!(unsafe { caramel_singularity_register_biomes(one.as_ptr()) }, 1);
+        assert_eq!(
+            unsafe { caramel_singularity_register_biomes(one.as_ptr()) },
+            1
+        );
         // A malformed list is refused and leaves the previous set intact.
         let bad = CString::new(r#"[{"id":"../evil"}]"#).unwrap();
-        assert_eq!(unsafe { caramel_singularity_register_biomes(bad.as_ptr()) }, -1);
+        assert_eq!(
+            unsafe { caramel_singularity_register_biomes(bad.as_ptr()) },
+            -1
+        );
 
         let registry = biomes().read().unwrap();
         assert_eq!(registry.len(), 1);
