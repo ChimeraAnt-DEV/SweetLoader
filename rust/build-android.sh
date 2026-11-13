@@ -22,7 +22,7 @@ export AR_aarch64_linux_android="$toolchain/bin/llvm-ar"
 
 packages=("$@")
 if [ "${#packages[@]}" -eq 0 ]; then
-  packages=(universe-jni singularity-jni)
+  packages=(universe-jni singularity-jni nethernet-jni)
 fi
 
 cd "$here" || exit 1
