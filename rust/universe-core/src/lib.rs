@@ -14,6 +14,7 @@ pub mod config;
 pub mod fault;
 pub mod loadorder;
 pub mod manifest;
+pub mod patterns;
 pub mod permission;
 pub mod report;
 pub mod runtime;
