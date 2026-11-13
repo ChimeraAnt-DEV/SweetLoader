@@ -153,11 +153,14 @@
   That is the format's load-bearing rule: break it and multiplayer desyncs.
 - **`universe-jni` / `singularity-jni`** are the cdylibs (`libcaramel_universe.so`,
   `libcaramel_singularity.so`). They export JNI entry points **and** a small C ABI
-  (`caramel_universe_*`). The C++ runtime reaches them through
-  `pl/engine/UniverseBridge.cpp`, which resolves the **already-loaded** library with
+  (`caramel_universe_*` / `caramel_singularity_*`). The C++ runtime reaches the `.universe` loader
+  through `pl/engine/UniverseBridge.cpp`, which resolves the **already-loaded** library with
   `dlopen(name, RTLD_NOW | RTLD_NOLOAD)` — never a fresh `dlopen`, so there is one loader instance
   and one owner of the cancellation flag and the BerryAPI pointer. `UniverseBridgeTest` pins the
   fail-closed contract: when the cdylib is not loaded, every operation refuses rather than faulting.
+  The `.universe` C ABI covers validate, extract, verify-signature, check-permissions and
+  resolve-load-order, so the signature/permission/order rules the format doc promises are enforced
+  at runtime, not only in the core crate.
 - **`caramel-cli`** packs a directory into a deterministic ZIP, signs it (Ed25519 over the SHA-256),
   verifies, keygens and inspects. `inspect` tries the singularity schema first, then prints raw JSON.
 - The mod-author ABI is `include/pl/universe/universe_api.h` and

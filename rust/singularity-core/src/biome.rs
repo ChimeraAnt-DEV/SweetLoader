@@ -119,6 +119,17 @@ pub fn parse_definition(json: &str) -> universe_core::Result<Biome> {
     definition.to_biome()
 }
 
+/// Parses a JSON array of biome definitions into a [`Vec<Biome>`].
+///
+/// All-or-nothing: one malformed element fails the whole list, so a caller never registers a
+/// partial biome set and then generates a world against it.
+pub fn parse_definitions(json: &str) -> universe_core::Result<Vec<Biome>> {
+    let definitions: Vec<BiomeDefinition> = serde_json::from_str(json).map_err(|error| {
+        universe_core::Error::new(format!("the biome list is not valid JSON: {error}"))
+    })?;
+    definitions.iter().map(BiomeDefinition::to_biome).collect()
+}
+
 /// The biome registry.
 #[derive(Debug, Clone)]
 pub struct BiomeRegistry {
@@ -360,5 +371,22 @@ mod tests {
     #[test]
     fn refuses_a_biome_definition_that_is_not_json() {
         assert!(parse_definition("not json").is_err());
+    }
+
+    #[test]
+    fn parses_a_biome_definition_list() {
+        let biomes = parse_definitions(
+            r#"[{"id":"a"},{"id":"b","weight":3}]"#,
+        )
+        .unwrap();
+        assert_eq!(biomes.len(), 2);
+        assert_eq!(biomes[1].weight, 3);
+    }
+
+    #[test]
+    fn a_biome_list_is_all_or_nothing() {
+        // One bad element fails the whole list rather than yielding the good prefix.
+        assert!(parse_definitions(r#"[{"id":"a"},{"id":"../evil"}]"#).is_err());
+        assert!(parse_definitions(r#"[{"id":"a"},"#).is_err());
     }
 }

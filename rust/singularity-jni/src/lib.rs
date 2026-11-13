@@ -25,6 +25,20 @@ static CANCELLED: AtomicBool = AtomicBool::new(false);
 /// The BerryAPI API table, set once by `nativeInit`.
 static BERRY_API: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
+/// The biome registry a world's chunks are generated against.
+///
+/// A pack's `biomes/*.json` files are registered here once, then read on every chunk. A `RwLock`
+/// rather than a `Mutex` because generation reads from many worker threads while registration is a
+/// single write at world load, so the common path (generate) never blocks another generator.
+static BIOMES: std::sync::OnceLock<std::sync::RwLock<singularity_core::biome::BiomeRegistry>> =
+    std::sync::OnceLock::new();
+
+fn biomes() -> &'static std::sync::RwLock<singularity_core::biome::BiomeRegistry> {
+    BIOMES.get_or_init(|| {
+        std::sync::RwLock::new(singularity_core::biome::BiomeRegistry::new("plains"))
+    })
+}
+
 pub fn is_cancelled() -> bool {
     CANCELLED.load(Ordering::Acquire)
 }
@@ -301,7 +315,9 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
         warp,
         default_biome: "plains".to_string(),
     };
-    let registry = singularity_core::biome::BiomeRegistry::new("plains");
+    // Read the registered biomes, so a pack's biomes/*.json actually shape the terrain. The read
+    // lock is held only for the generation call; registration takes the write lock once at load.
+    let registry = biomes().read().unwrap_or_else(|poisoned| poisoned.into_inner());
     let chunk = singularity_core::chunk::generate_chunk(
         &config,
         &registry,
@@ -317,6 +333,35 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
     }
     std::ptr::copy_nonoverlapping(chunk.blocks.as_ptr(), out_blocks, expected);
     expected as i32
+}
+
+/// Registers a pack's biomes from a JSON array of biome definition objects.
+///
+/// Each element is the same shape as a `biomes/*.json` file (`id`, `temperature`, `humidity`,
+/// `continentalness`, `weight`). Registration **replaces** the current set, so a caller registers a
+/// pack's whole biome list in one call rather than accumulating across worlds. Returns the number of
+/// biomes registered, or -1 when a definition is malformed (in which case the previous set is left
+/// untouched — the caller gets all-or-nothing).
+///
+/// # Safety
+/// `biomes_json` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn caramel_singularity_register_biomes(biomes_json: *const c_char) -> i32 {
+    let json = cstr(biomes_json);
+    match singularity_core::biome::parse_definitions(&json) {
+        Ok(definitions) => {
+            let mut registry = biomes().write().unwrap_or_else(|poisoned| poisoned.into_inner());
+            *registry = singularity_core::biome::BiomeRegistry::new("plains");
+            for definition in &definitions {
+                registry.register(definition.clone());
+            }
+            definitions.len() as i32
+        }
+        Err(error) => {
+            log_error(&format!("could not register biomes: {error}"));
+            -1
+        }
+    }
 }
 
 /// The seed hash for a world seed string, using the requested algorithm.
@@ -402,5 +447,30 @@ mod tests {
             caramel_singularity_generate_chunk(1, 32, 8, 30, 64, 4, 0.0, 0, 0, std::ptr::null_mut())
         };
         assert_eq!(written, -1);
+    }
+
+    #[test]
+    fn registering_biomes_replaces_the_set_and_refuses_a_bad_list() {
+        // One test, not two: the registry is process-global, so two tests mutating it would race
+        // under the parallel test runner.
+        let two = CString::new(r#"[{"id":"a"},{"id":"b"}]"#).unwrap();
+        assert_eq!(unsafe { caramel_singularity_register_biomes(two.as_ptr()) }, 2);
+        // A second call replaces rather than accumulates.
+        let one = CString::new(r#"[{"id":"keep"}]"#).unwrap();
+        assert_eq!(unsafe { caramel_singularity_register_biomes(one.as_ptr()) }, 1);
+        // A malformed list is refused and leaves the previous set intact.
+        let bad = CString::new(r#"[{"id":"../evil"}]"#).unwrap();
+        assert_eq!(unsafe { caramel_singularity_register_biomes(bad.as_ptr()) }, -1);
+
+        let registry = biomes().read().unwrap();
+        assert_eq!(registry.len(), 1);
+        assert_eq!(
+            registry.select(singularity_core::biome::Climate {
+                temperature: 0.5,
+                humidity: 0.5,
+                continentalness: 0.5,
+            }),
+            "keep"
+        );
     }
 }
