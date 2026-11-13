@@ -93,6 +93,7 @@ set(SWEETLOADER_SOURCES
         src/pl/runtime/ModMenuBridge.cpp
         src/pl/runtime/BerryApiBridge.cpp
         src/pl/runtime/BerryApiJni.cpp
+        src/pl/engine/UniverseBridge.cpp
 )
 
 add_library(sweetloader SHARED ${SWEETLOADER_SOURCES})

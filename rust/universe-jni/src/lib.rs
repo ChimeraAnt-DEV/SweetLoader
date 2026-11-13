@@ -373,6 +373,21 @@ pub extern "C" fn caramel_universe_is_cancelled() -> bool {
     is_cancelled()
 }
 
+/// Sets the loader's cancellation flag (unload, safe mode, shutdown).
+#[no_mangle]
+pub extern "C" fn caramel_universe_set_cancelled(cancelled: bool) {
+    set_cancelled(cancelled);
+}
+
+/// The loader's client version, as a static NUL-terminated string.
+///
+/// Static storage, so the caller must not free it.
+#[no_mangle]
+pub extern "C" fn caramel_universe_client_version() -> *const c_char {
+    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
+    VERSION.as_ptr() as *const c_char
+}
+
 fn message_to_c(message: String) -> *mut c_char {
     match CString::new(message) {
         Ok(value) => value.into_raw(),

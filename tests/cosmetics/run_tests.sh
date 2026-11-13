@@ -150,6 +150,13 @@ compile_run NativeCosmeticDataTest \
 compile_run VersionCompareTest \
   "$here/VersionCompareTest.cpp"
 
+# The `.universe` Rust-loader bridge: it resolves the loader's C ABI with RTLD_NOLOAD and must
+# report "unavailable" (and refuse every call) when the cdylib is not loaded, which is the host's
+# case. This is the fail-closed contract, so it is pinned here.
+compile_run UniverseBridgeTest \
+  "$root/src/pl/engine/UniverseBridge.cpp" \
+  "$here/UniverseBridgeTest.cpp"
+
 # The RTTI vtable-slot resolver: given a type name and a string, find the vtable slot whose function
 # references that string. It is what the player-render seam uses to self-locate without a byte
 # signature, so the fixture pins the walk base -- the vtable (`_ZTV`), not the typeinfo (`_ZTI`).
