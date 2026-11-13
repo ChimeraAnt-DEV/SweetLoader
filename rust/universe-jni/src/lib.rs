@@ -517,10 +517,22 @@ pub unsafe extern "C" fn caramel_universe_resolve_load_order(nodes_json: *const 
 static RUNTIME: std::sync::Mutex<Option<loader::ModRuntime>> = std::sync::Mutex::new(None);
 
 /// Runs `body` with the runtime, creating it on first use.
-fn with_runtime<T>(body: impl FnOnce(&mut loader::ModRuntime) -> T) -> T {
-    let mut guard = RUNTIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+///
+/// **`try_lock`, never `lock`.** `tick` holds this mutex while it calls into mod code, so a mod that
+/// calls back into the loader's C ABI from its own `universe_tick` would deadlock the game thread on
+/// a non-reentrant `lock`. `try_lock` turns that reentrant call into a fail-closed `None` instead of
+/// a hang, which is the whole point: a mod must never be able to freeze the game thread.
+fn with_runtime<T>(body: impl FnOnce(&mut loader::ModRuntime) -> T) -> Option<T> {
+    let mut guard = match RUNTIME.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            log_error("a mod re-entered the loader from inside its own tick; refusing the call");
+            return None;
+        }
+    };
     let runtime = guard.get_or_insert_with(loader::ModRuntime::new);
-    body(runtime)
+    Some(body(runtime))
 }
 
 /// Loads every mod in `specs_json` (a JSON array of `{"id", "lib_path", "dependencies"}`), applying
@@ -550,6 +562,7 @@ pub unsafe extern "C" fn caramel_universe_load_mods(
         let live = runtime.live_ids();
         message_to_c(universe_core::report::load_plan_json(&plan, &live))
     })
+    .unwrap_or_else(|| message_to_c("{\"error\":\"the loader is busy\"}".to_string()))
 }
 
 /// Ticks every live mod once with the frame's delta time.
@@ -557,14 +570,14 @@ pub unsafe extern "C" fn caramel_universe_load_mods(
 pub extern "C" fn caramel_universe_tick_mods(dt: f32) {
     // A NaN dt would poison every mod's integrator; the loader's contract is a finite dt.
     let dt = if dt.is_finite() { dt } else { 0.0 };
-    with_runtime(|runtime| runtime.tick(dt));
+    let _ = with_runtime(|runtime| runtime.tick(dt));
 }
 
 /// Shuts every live mod down and closes it. Safe to call when nothing is loaded, and safe to call
 /// twice.
 #[no_mangle]
 pub extern "C" fn caramel_universe_shutdown_mods() {
-    with_runtime(|runtime| runtime.shutdown_all());
+    let _ = with_runtime(|runtime| runtime.shutdown_all());
 }
 
 /// The mod ids currently live, as a JSON array.
@@ -574,6 +587,7 @@ pub extern "C" fn caramel_universe_live_mods() -> *mut c_char {
         let live = runtime.live_ids();
         message_to_c(universe_core::report::json_string_array(&live))
     })
+    .unwrap_or_else(|| message_to_c("[]".to_string()))
 }
 
 fn message_to_c(message: String) -> *mut c_char {
