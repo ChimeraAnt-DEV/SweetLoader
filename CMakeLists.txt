@@ -54,6 +54,7 @@ set(SWEETLOADER_SOURCES
         src/pl/cosmetics/network/CosmeticSyncJni.cpp
         src/pl/render/CameraSource.cpp
         src/pl/render/GlesProbe.cpp
+        src/pl/render/PresentFrameEffect.cpp
         src/pl/render/RenderApi.cpp
         src/pl/hooks/DobbyHookManager.cpp
         src/pl/runtime/FeatureAvailability.cpp

@@ -425,4 +425,10 @@ else
   echo "== PublishedBlobTsanTest == (skipped: ThreadSanitizer/setarch unavailable)"
 fi
 
+# The present-frame effect math (frame generation + motion blur) is pure arithmetic in a header, so
+# it is pinned here off-device. These two functions are the whole honest content of the two modules:
+# the blend weight and the interpolation factor, both clamped to [0, 1].
+compile_run PresentFrameMathTest \
+  "$here/PresentFrameMathTest.cpp"
+
 echo "all cosmetics host tests passed"

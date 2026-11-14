@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <ctime>
 
+#include "pl/render/PresentFrameEffect.hpp"
+
 #if !defined(__aarch64__)
 #error "RegisterAwareHook is only implemented for AArch64; the sweetloader builds arm64-v8a only."
 #endif
@@ -69,6 +71,10 @@ void *pl_runtime_passthrough_swapBuffers_record() {
       static_cast<long long>(ts.tv_sec) * 1000000LL + ts.tv_nsec / 1000LL,
       std::memory_order_relaxed);
   pl_runtime_swap_buffers_count.fetch_add(1, std::memory_order_relaxed);
+  // Run the present-frame effects (frame generation / motion blur) here, before the real swap: the
+  // back buffer still holds the frame the engine just drew, which is what they blend. This is a
+  // no-op unless a module is enabled and the seam installed, and it fails closed inside.
+  pl::render::OnPresentBoundary();
   return reinterpret_cast<void *>(pl_runtime_passthrough_ctx_swapBuffers.original);
 }
 

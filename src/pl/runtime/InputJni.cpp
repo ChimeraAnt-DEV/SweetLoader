@@ -12,6 +12,8 @@
 #include "pl/memory/Signature.hpp"
 #include "pl/runtime/InputBridge.h"
 #include "pl/runtime/JavaRuntime.h"
+#include "pl/runtime/SwapFrameBoundary.h"
+#include "pl/render/PresentFrameEffect.hpp"
 
 namespace {
 
@@ -253,6 +255,44 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeIsPlayerRenderHookLive(
   return pl::runtime::IsPlayerRenderHookLive() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeIsPresentHookLive(
+    JNIEnv *env, jclass clazz) {
+  (void)env;
+  (void)clazz;
+  // The engine's present/frame-boundary hook. Frame generation and motion blur act on the presented
+  // frame, so this is their availability probe: a Vulkan-only build with no libEGL present call
+  // reports false and the modules stay badged rather than toggling to no effect.
+  return pl::runtime::IsSwapFrameBoundaryLive() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeSetPresentFramePlan(
+    JNIEnv *env, jclass clazz, jboolean frameGenerationEnabled, jfloat interpolationStrength,
+    jint maxFramesPerRendered, jboolean reduceEdgeArtifacts, jboolean motionBlurEnabled,
+    jfloat blurStrength, jfloat blurBudget, jboolean weightByViewSpeed) {
+  (void)env;
+  (void)clazz;
+  pl::render::PresentFramePlan plan;
+  plan.frameGenerationEnabled = frameGenerationEnabled == JNI_TRUE;
+  plan.interpolationStrength = static_cast<float>(interpolationStrength);
+  plan.maxFramesPerRendered = static_cast<int>(maxFramesPerRendered);
+  plan.reduceEdgeArtifacts = reduceEdgeArtifacts == JNI_TRUE;
+  plan.motionBlurEnabled = motionBlurEnabled == JNI_TRUE;
+  plan.blurStrength = static_cast<float>(blurStrength);
+  plan.blurBudget = static_cast<float>(blurBudget);
+  plan.weightByViewSpeed = weightByViewSpeed == JNI_TRUE;
+  pl::render::SetPresentFramePlan(plan);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_chimeramc_client_preloader_PreloaderInput_nativeIsPresentFrameEffectLive(
+    JNIEnv *env, jclass clazz) {
+  (void)env;
+  (void)clazz;
+  return pl::render::IsPresentFrameEffectLive() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jintArray JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadPlayerRenderStats(
     JNIEnv *env, jclass clazz) {
@@ -261,11 +301,16 @@ Java_org_chimeramc_client_preloader_PreloaderInput_nativeReadPlayerRenderStats(
   if (!pl::runtime::ReadPlayerRenderStats(stats)) {
     return nullptr;
   }
-  jintArray result = env->NewIntArray(4);
+  // Five elements: {renderTick, callsThisFrame, totalCalls, msSinceLastRender, tickExact}. The fifth
+  // says whether the tick is the exact present boundary (1) or an inference (0), so the launcher can
+  // label a rate derived from an inferred tick as approximate instead of presenting it as the game's.
+  const bool exact = pl::runtime::IsRenderTickExact();
+  jintArray result = env->NewIntArray(5);
   if (result != nullptr) {
-    jint values[4] = {static_cast<jint>(stats[0]), static_cast<jint>(stats[1]),
-                      static_cast<jint>(stats[2]), static_cast<jint>(stats[3])};
-    env->SetIntArrayRegion(result, 0, 4, values);
+    jint values[5] = {static_cast<jint>(stats[0]), static_cast<jint>(stats[1]),
+                      static_cast<jint>(stats[2]), static_cast<jint>(stats[3]),
+                      exact ? 1 : 0};
+    env->SetIntArrayRegion(result, 0, 5, values);
   }
   return result;
 }

@@ -91,6 +91,7 @@ GlesFunctions ResolveGles() {
   LOAD("glGenVertexArrays", GenVertexArrays);
   LOAD("glBindVertexArray", BindVertexArray);
   LOAD("glEnableVertexAttribArray", EnableVertexAttribArray);
+  LOAD("glDisableVertexAttribArray", DisableVertexAttribArray);
   LOAD("glVertexAttribPointer", VertexAttribPointer);
   LOAD("glUseProgram", UseProgram);
   LOAD("glGetUniformLocation", GetUniformLocation);
@@ -98,6 +99,8 @@ GlesFunctions ResolveGles() {
   LOAD("glUniform4f", Uniform4f);
   LOAD("glUniform3f", Uniform3f);
   LOAD("glUniform1i", Uniform1i);
+  LOAD("glUniform1f", Uniform1f);
+  LOAD("glUniform2f", Uniform2f);
   LOAD("glActiveTexture", ActiveTexture);
   LOAD("glBindTexture", BindTexture);
   LOAD("glGenTextures", GenTextures);
@@ -107,9 +110,26 @@ GlesFunctions ResolveGles() {
   LOAD("glDrawElements", DrawElements);
   LOAD("glDrawArrays", DrawArrays);
   LOAD("glBlendFunc", BlendFunc);
+  LOAD("glBlendFuncSeparate", BlendFuncSeparate);
   LOAD("glDeleteBuffers", DeleteBuffers);
   LOAD("glDeleteVertexArrays", DeleteVertexArrays);
   LOAD("glDeleteTextures", DeleteTextures);
+  LOAD("glCreateShader", CreateShader);
+  LOAD("glShaderSource", ShaderSource);
+  LOAD("glCompileShader", CompileShader);
+  LOAD("glGetShaderiv", GetShaderiv);
+  LOAD("glCreateProgram", CreateProgram);
+  LOAD("glAttachShader", AttachShader);
+  LOAD("glLinkProgram", LinkProgram);
+  LOAD("glGetProgramiv", GetProgramiv);
+  LOAD("glGetAttribLocation", GetAttribLocation);
+  LOAD("glGenFramebuffers", GenFramebuffers);
+  LOAD("glBindFramebuffer", BindFramebuffer);
+  LOAD("glFramebufferTexture2D", FramebufferTexture2D);
+  LOAD("glCopyTexImage2D", CopyTexImage2D);
+  LOAD("glTexParameterf", TexParameterf);
+  LOAD("glClearColor", ClearColor);
+  LOAD("glClear", Clear);
 #undef LOAD
 
   if (g_gles.usable()) {
