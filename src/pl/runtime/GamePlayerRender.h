@@ -52,6 +52,17 @@ bool IsPlayerRenderHookLive();
 bool IsPlayerRenderHookInstalled();
 
 /**
+ * @brief True when the render tick is the exact present boundary rather than an inference.
+ *
+ * <p>The tick is exact once the engine's present hook (the {@code eglSwapBuffers} detour) is live and
+ * counting, because then it is the real frame count. Without that hook the tick is inferred from the
+ * render-entry timestamps, which can collapse or split frames when the visible-model count changes, so
+ * a frame rate derived from it is approximate and must be labelled as such rather than shown as the
+ * game's exact frame rate.
+ */
+bool IsRenderTickExact();
+
+/**
  * @brief The resolved {@code LivePlayerRenderer::render} entry address, or 0 if unresolved.
  *
  * <p>For the hook self-test: the self-test round-trips the real addresses the install
