@@ -16,6 +16,12 @@ here so a distributor can honour the attribution requirement.
   fmtlib/fmt          40626af88bd7df9a5fb80be7b25ac85b122d6c21   MIT
   sammycage/lunasvg   83c58df8103dc7dca423dfd824992af94d49bed6   MIT
 
+The following is vendored rather than fetched, because the build must not need the network:
+
+  ocornut/imgui        1.91.5 (third_party/imgui/)                MIT
+  (Dear ImGui, plus its backends/imgui_impl_opengl3 backend; the
+   in-game menu is drawn through the game's own GL context)
+
 The following is vendored as a prebuilt static library under lib/ARM64/ and is not rebuilt here:
 
   GlossHook (libGlossHook.a)                                      MIT
