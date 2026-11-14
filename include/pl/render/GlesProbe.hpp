@@ -60,6 +60,7 @@ struct GlesFunctions {
   void *GenVertexArrays = nullptr;
   void *BindVertexArray = nullptr;
   void *EnableVertexAttribArray = nullptr;
+  void *DisableVertexAttribArray = nullptr;
   void *VertexAttribPointer = nullptr;
   void *UseProgram = nullptr;
   void *GetUniformLocation = nullptr;
@@ -67,6 +68,8 @@ struct GlesFunctions {
   void *Uniform4f = nullptr;
   void *Uniform3f = nullptr;
   void *Uniform1i = nullptr;
+  void *Uniform1f = nullptr;
+  void *Uniform2f = nullptr;
   void *ActiveTexture = nullptr;
   void *BindTexture = nullptr;
   void *GenTextures = nullptr;
@@ -76,9 +79,29 @@ struct GlesFunctions {
   void *DrawElements = nullptr;
   void *DrawArrays = nullptr;
   void *BlendFunc = nullptr;
+  void *BlendFuncSeparate = nullptr;
   void *DeleteBuffers = nullptr;
   void *DeleteVertexArrays = nullptr;
   void *DeleteTextures = nullptr;
+  // Present-frame effect path (frame generation / motion blur): the shader program that samples the
+  // captured frame, and the framebuffer/texture copy used to keep it. Resolved here rather than in
+  // the effect so the probe stays the single GL symbol table.
+  void *CreateShader = nullptr;
+  void *ShaderSource = nullptr;
+  void *CompileShader = nullptr;
+  void *GetShaderiv = nullptr;
+  void *CreateProgram = nullptr;
+  void *AttachShader = nullptr;
+  void *LinkProgram = nullptr;
+  void *GetProgramiv = nullptr;
+  void *GetAttribLocation = nullptr;
+  void *GenFramebuffers = nullptr;
+  void *BindFramebuffer = nullptr;
+  void *FramebufferTexture2D = nullptr;
+  void *CopyTexImage2D = nullptr;
+  void *TexParameterf = nullptr;
+  void *ClearColor = nullptr;
+  void *Clear = nullptr;
 
   /** @brief True when the core query path is available (nothing essential is null). */
   [[nodiscard]] bool usable() const;

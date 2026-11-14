@@ -54,7 +54,14 @@ set(SWEETLOADER_SOURCES
         src/pl/cosmetics/network/CosmeticSyncJni.cpp
         src/pl/render/CameraSource.cpp
         src/pl/render/GlesProbe.cpp
+        src/pl/render/PresentFrameEffect.cpp
         src/pl/render/RenderApi.cpp
+        src/pl/menu/MenuTheme.cpp
+        src/pl/menu/MenuWidgets.cpp
+        src/pl/menu/MenuRender.cpp
+        src/pl/menu/MenuFilter.cpp
+        src/pl/menu/MenuHost.cpp
+        src/pl/menu/MenuJni.cpp
         src/pl/hooks/DobbyHookManager.cpp
         src/pl/runtime/FeatureAvailability.cpp
         src/pl/runtime/GameHookRules.cpp
@@ -200,6 +207,33 @@ set(BUILD_SHARED_LIBS OFF)
 FetchContent_MakeAvailable(nlohmann_json boost_pfr magic_enum fmt lunasvg)
 set(BUILD_SHARED_LIBS ${_sweetloader_build_shared_libs})
 
+# --- Dear ImGui (vendored, not fetched) -------------------------------------------------------
+# The in-game Mod Menu is drawn with Dear ImGui on the game's own GL context, from inside the
+# present hook (pl::render::OnPresentBoundary -> pl::menu). The pack (Lynxifyy/CaramelClient-UI-pack)
+# ships the menu as a renderer-agnostic library plus a GLFW desktop backend; GLFW has no Android
+# path, so only the renderer-agnostic half is used and the backend is the GLES3 one, which the
+# game's context already satisfies. Vendored rather than FetchContent'd because the network is not
+# available to a normal Android build and the revision must be pinned for a reproducible binary.
+# Licence: MIT (see third_party/imgui/LICENSE.txt and NOTICE).
+add_library(imgui STATIC
+        third_party/imgui/imgui.cpp
+        third_party/imgui/imgui_draw.cpp
+        third_party/imgui/imgui_tables.cpp
+        third_party/imgui/imgui_widgets.cpp
+        third_party/imgui/backends/imgui_impl_opengl3.cpp)
+target_include_directories(imgui PUBLIC
+        third_party/imgui
+        third_party/imgui/backends)
+# The game's context is GLES3, so the backend compiles against <GLES3/gl3.h> from the NDK and uses
+# its own bundled loader. IMGUI_DISABLE_OBSOLETE_FUNCTIONS keeps the surface to the current API.
+target_compile_definitions(imgui PUBLIC
+        IMGUI_IMPL_OPENGL_ES3
+        IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+# ImGui is third-party code built with the project's strict flags (-Wall -Wextra); silence the
+# advisory warnings it would otherwise raise so the build stays clean without touching the source.
+target_compile_options(imgui PRIVATE
+        $<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-w>)
+
 find_library(log-lib log REQUIRED)
 find_library(android-lib android REQUIRED)
 find_library(egl-lib EGL REQUIRED)
@@ -228,6 +262,7 @@ target_link_libraries(sweetloader
         PUBLIC
         fmt::fmt
         PRIVATE
+        imgui
         ${GLOSSHOOK_PATH}
         ${log-lib}
         ${android-lib}

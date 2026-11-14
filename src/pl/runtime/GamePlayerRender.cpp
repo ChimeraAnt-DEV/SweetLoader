@@ -54,6 +54,11 @@ RenderFn g_origRender = nullptr;
 std::atomic_bool g_hookInstalled{false};
 
 std::atomic<std::uint32_t> g_renderTick{0};   // increments once per frame (first call)
+// Whether g_renderTick is the exact present boundary (the eglSwapBuffers hook counted this
+// frame) or an inference from render-call timestamps. The FPS reader needs to know: an
+// inferred tick can collapse or split frames when the visible-model count changes, so the
+// rate derived from it is approximate. The present hook makes it exact.
+std::atomic_bool g_renderTickExact{false};
 std::atomic<std::uint32_t> g_frameCalls{0};   // calls seen in the current frame
 std::atomic<std::uint32_t> g_totalCalls{0};   // lifetime call count
 std::atomic<long long> g_lastRenderMs{0};
@@ -145,9 +150,11 @@ void HookRender(void *a, void *b, void *c, void *d, void *e, void *f, void *g, v
     frameStarted = swapPresents != g_renderTick.load(std::memory_order_relaxed);
     g_frameCalls.store(1, std::memory_order_relaxed);
     g_renderTick.store(static_cast<std::uint32_t>(swapPresents), std::memory_order_relaxed);
+    g_renderTickExact.store(true, std::memory_order_relaxed);
     g_frameClock.onRenderCall(nowUs); // keep the fallback clock warm for a later detach
   } else if (g_frameClock.onRenderCall(nowUs, pl::render::FrameTickClock::kDefaultMinIntervalUs,
                                        &frameStarted)) {
+    g_renderTickExact.store(false, std::memory_order_relaxed);
     g_frameCalls.store(1, std::memory_order_relaxed);
     g_renderTick.store(g_frameClock.tick(), std::memory_order_relaxed);
   } else {
@@ -385,6 +392,8 @@ bool LastResolvedRenderSlot(std::size_t &outSlot, bool &outByString) {
 bool IsPlayerRenderHookLive() {
   return g_lastRenderMs.load(std::memory_order_relaxed) != 0;
 }
+
+bool IsRenderTickExact() { return g_renderTickExact.load(std::memory_order_relaxed); }
 
 bool ReadPlayerRenderStats(std::uint32_t out[4]) {
   const long long last = g_lastRenderMs.load(std::memory_order_relaxed);
