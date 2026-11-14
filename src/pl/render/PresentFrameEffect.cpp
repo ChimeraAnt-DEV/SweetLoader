@@ -30,7 +30,6 @@
 #include <cstdint>
 
 #include "pl/Logger.hpp"
-#include "pl/menu/MenuHost.hpp"
 #include "pl/render/GlesProbe.hpp"
 #include "pl/runtime/SwapFrameBoundary.h"
 
@@ -365,18 +364,6 @@ void OnPresentBoundary() {
   // that need one install lazily here rather than at load time (when no context exists yet). Until
   // they install, the modules stay badged; a build with no present hook never reaches this function.
   //
-  // The in-game Mod Menu draws here too, before the effects: the menu's ImGui frame must render into
-  // the back buffer the engine is about to present, and it runs whether or not any present-frame
-  // effect is enabled, so it is the first thing the boundary does.
-  if (pl::menu::IsOpen() || pl::menu::IsMenuLive()) {
-    std::int32_t menuViewport[4] = {0, 0, 0, 0};
-    const GlesFunctions menuGles = ResolveGles();
-    if (menuGles.usable() && menuGles.GetIntegerv != nullptr) {
-      As<GlGetIntegervFn>(menuGles.GetIntegerv)(GL_VIEWPORT, menuViewport);
-    }
-    pl::menu::Frame(static_cast<float>(menuViewport[2]), static_cast<float>(menuViewport[3]));
-  }
-
   if (!g_live.load(std::memory_order_relaxed)) {
     InstallPresentFrameEffect();
     if (!g_live.load(std::memory_order_relaxed)) return;
