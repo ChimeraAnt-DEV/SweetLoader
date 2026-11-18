@@ -20,7 +20,7 @@ pub mod transport;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use jni::objects::{JClass, JString};
@@ -34,13 +34,26 @@ use transport::Handle;
 pub const LOG_TAG: &str = "SweetLoader";
 
 /// The live connection, if any. One at a time: the launcher joins one world.
-static CONNECTION: OnceLock<Mutex<Option<Handle>>> = OnceLock::new();
+///
+/// The handle is behind an `Arc` so a state read can clone the handle out under a short lock and
+/// release it before doing any work. Holding the connection lock while waiting for a state change
+/// would stall `nativeState`, `nativeTakeCandidate` and `nativeDisconnect` behind a wait that can be
+/// up to the caller's timeout.
+static CONNECTION: OnceLock<Mutex<Option<Arc<Handle>>>> = OnceLock::new();
 
 /// Set when the launcher asks the transport to stop.
 static CANCELLED: AtomicBool = AtomicBool::new(false);
 
-fn connection() -> &'static Mutex<Option<Handle>> {
+fn connection() -> &'static Mutex<Option<Arc<Handle>>> {
     CONNECTION.get_or_init(|| Mutex::new(None))
+}
+
+/// The current handle, cloned out under a short lock. Returns `None` when no connection is live.
+fn current_connection() -> Option<Arc<Handle>> {
+    connection()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Installs the logger and the panic hook, once.
@@ -130,12 +143,12 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
         // One connection at a time: shut any previous one down before starting a new one, so a
         // reconnect cannot leave two workers fighting over the shared state.
         let mut slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(mut previous) = slot.take() {
+        if let Some(previous) = slot.take() {
             previous.shutdown();
         }
         CANCELLED.store(false, Ordering::Release);
         log_info(&format!("connecting to {url} as network id {network_id}"));
-        *slot = Some(Handle::connect(url, network_id));
+        *slot = Some(Arc::new(Handle::connect(url, network_id)));
         1
     })
 }
@@ -146,12 +159,9 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    guarded("nativeState", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        match slot.as_ref() {
-            Some(handle) => handle.snapshot().0.code(),
-            None => TransportState::Idle.code(),
-        }
+    guarded("nativeState", || match current_connection() {
+        Some(handle) => handle.snapshot().0.code(),
+        None => TransportState::Idle.code(),
     })
 }
 
@@ -162,9 +172,7 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _class: JClass,
 ) -> jstring {
     guarded("nativeErrorTag", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        let tag = slot
-            .as_ref()
+        let tag = current_connection()
             .and_then(|h| h.snapshot().1)
             .map(|e| e.tag().to_string());
         match tag {
@@ -181,9 +189,7 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _class: JClass,
 ) -> jstring {
     guarded("nativeErrorMessage", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        let message = slot
-            .as_ref()
+        let message = current_connection()
             .and_then(|h| h.snapshot().1)
             .map(|e| e.user_message());
         match message {
@@ -200,8 +206,7 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _class: JClass,
 ) -> jboolean {
     guarded("nativeErrorRetryable", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        match slot.as_ref().and_then(|h| h.snapshot().1) {
+        match current_connection().and_then(|h| h.snapshot().1) {
             Some(error) if error.is_retryable() => 1,
             _ => 0,
         }
@@ -215,8 +220,7 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _class: JClass,
 ) -> jstring {
     guarded("nativeSessionId", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        let id = slot.as_ref().and_then(|h| h.snapshot().2);
+        let id = current_connection().and_then(|h| h.snapshot().2);
         match id {
             Some(id) => to_jstring(&mut env, &id),
             None => std::ptr::null_mut(),
@@ -233,8 +237,9 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
 ) -> jint {
     guarded("nativeAwaitState", || {
         let timeout = Duration::from_millis(timeout_ms.max(0) as u64);
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        match slot.as_ref() {
+        // The handle is cloned out before waiting, so the connection lock is free for
+        // nativeState/nativeTakeCandidate/nativeDisconnect while this blocks.
+        match current_connection() {
             Some(handle) => handle.wait_for_change(timeout).code(),
             None => TransportState::Idle.code(),
         }
@@ -248,8 +253,7 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
     _class: JClass,
 ) -> jstring {
     guarded("nativeTakeCandidate", || {
-        let slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        match slot.as_ref().and_then(|h| h.take_candidate()) {
+        match current_connection().and_then(|h| h.take_candidate()) {
             Some(payload) => to_jstring(&mut env, &payload),
             None => std::ptr::null_mut(),
         }
@@ -264,8 +268,13 @@ pub extern "system" fn Java_org_chimeramc_client_core_nethernet_NativeNetherNet_
 ) {
     guarded("nativeDisconnect", || {
         CANCELLED.store(true, Ordering::Release);
-        let mut slot = connection().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(mut handle) = slot.take() {
+        let previous = connection()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(handle) = previous {
+            // The join happens outside the connection lock, so a concurrent state read is not
+            // blocked behind it.
             handle.shutdown();
             log_info("nethernet connection shut down");
         }

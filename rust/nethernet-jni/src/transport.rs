@@ -65,7 +65,7 @@ impl Default for Shared {
 pub struct Handle {
     shared: Arc<(Mutex<Shared>, Condvar)>,
     cancelled: Arc<AtomicBool>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Handle {
@@ -102,7 +102,7 @@ impl Handle {
         Self {
             shared,
             cancelled,
-            worker: Some(worker),
+            worker: Mutex::new(Some(worker)),
         }
     }
 
@@ -130,8 +130,9 @@ impl Handle {
         guard.pending_candidate.take()
     }
 
-    /// Asks the worker to stop and waits for it. Idempotent.
-    pub fn shutdown(&mut self) {
+    /// Asks the worker to stop and waits for it. Idempotent. Takes `&self` so a caller can shut the
+    /// handle down without holding the connection lock for the join.
+    pub fn shutdown(&self) {
         self.cancelled.store(true, Ordering::Release);
         {
             let (lock, condvar) = &*self.shared;
@@ -139,8 +140,9 @@ impl Handle {
             guard.revision = guard.revision.wrapping_add(1);
             condvar.notify_all();
         }
-        if let Some(worker) = self.worker.take() {
-            // The worker checks the flag at most once per poll interval, so this returns quickly.
+        let worker = self.worker.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(worker) = worker {
+            // The connect is bounded and the frame loop polls, so this returns promptly.
             let _ = worker.join();
         }
     }
@@ -482,7 +484,7 @@ mod tests {
         let mut handle = Handle {
             shared: Arc::clone(&shared),
             cancelled: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Mutex::new(None),
         };
         let (state, error, session) = handle.snapshot();
         assert_eq!(state, TransportState::Idle);
@@ -513,7 +515,7 @@ mod tests {
         let handle = Handle {
             shared: Arc::clone(&shared),
             cancelled: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Mutex::new(None),
         };
         {
             let (lock, _) = &*shared;
