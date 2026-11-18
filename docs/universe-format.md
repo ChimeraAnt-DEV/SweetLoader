@@ -83,11 +83,13 @@ Two honest caveats, because the words "sandbox" and "gate" overstate what this i
   is a permission the mod does not get *through the host table*, not one it cannot reach. An
   unsigned mod still runs arbitrary native code. Treat a permission grant as a statement of intent
   the UI can show, not as containment.
-- **The host table does not exist yet.** `universe_host_t` is defined in `pl/universe/universe_api.h`
-  and `check_permissions` is implemented and tested, but no code builds the table or hands it to
-  `universe_init`, so the permission model is not enforced at runtime today. The launcher labels an
-  engine package "Preview only" for this reason; see the client's
-  `docs/agents/engine-packages-universe-singularity-import-discovery-honest-availability.md`.
+- **The host table is built and the loader is driven.** `universe_host_t` is built by the C++
+  `pl::engine::UniverseFullHostTable()` and reduced per mod to the permissions it declared, and the
+  launcher drives the whole lifecycle (`org.chimeramc.client.universe.UniverseRuntime` → the C++
+  `UniverseLoadMods`/`UniverseTickMods`/`UniverseShutdownMods` → the Rust `caramel_universe_*` C
+  ABI). So an enabled `.universe` package is extracted, loaded, ticked per frame and shut down. A
+  `.singularity` pack is still discovery-and-validate only: nothing hooks Bedrock's world generator
+  to consume its chunks, so the launcher labels it "Preview only".
 
 ## Load order
 
