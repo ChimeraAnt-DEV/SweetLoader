@@ -150,6 +150,19 @@ impl BiomeRegistry {
         self.biomes.push(biome);
     }
 
+    /// Adds or replaces a biome by id, keeping the registry to one entry per id.
+    ///
+    /// A later registration of the same id replaces the earlier one rather than appending a
+    /// duplicate, so two packs that both define `plains` do not produce an ambiguous registry whose
+    /// winner depends on listing order.
+    pub fn register_or_replace(&mut self, biome: Biome) {
+        if let Some(existing) = self.biomes.iter_mut().find(|b| b.id == biome.id) {
+            *existing = biome;
+        } else {
+            self.biomes.push(biome);
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.biomes.len()
     }
@@ -168,8 +181,17 @@ impl BiomeRegistry {
     /// climate, or, if none fully contains it, the one whose climate is nearest. The fallback biome
     /// answers only when the registry is empty.
     pub fn select(&self, climate: Climate) -> &str {
+        self.select_with_fallback(climate, &self.default_biome)
+    }
+
+    /// Like [`select`](Self::select), but the fallback is supplied by the caller.
+    ///
+    /// The world's `default_biome` is a property of the pack's terrain config, not of the registry,
+    /// so `generate_chunk` passes it here rather than relying on whatever default the registry was
+    /// built with. An empty registry returns `fallback` unchanged.
+    pub fn select_with_fallback<'a>(&'a self, climate: Climate, fallback: &'a str) -> &'a str {
         if self.biomes.is_empty() {
-            return &self.default_biome;
+            return fallback;
         }
         let mut best: Option<(&Biome, f32)> = None; // (biome, distance)
         for biome in &self.biomes {
@@ -193,7 +215,7 @@ impl BiomeRegistry {
         }
         match best {
             Some((biome, _)) => &biome.id,
-            None => &self.default_biome,
+            None => fallback,
         }
     }
 
@@ -345,6 +367,36 @@ mod tests {
         assert_eq!(range.distance(0.5), 0.0);
         assert!((range.distance(0.0) - 0.2).abs() < 1e-6);
         assert!((range.distance(1.0) - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_explicit_fallback_is_used_when_no_biome_claims_the_climate() {
+        let registry = BiomeRegistry::new("registry_default");
+        assert_eq!(
+            registry.select_with_fallback(
+                Climate {
+                    temperature: 0.5,
+                    humidity: 0.5,
+                    continentalness: 0.5
+                },
+                "pack_default"
+            ),
+            "pack_default"
+        );
+    }
+
+    #[test]
+    fn register_or_replace_keeps_one_entry_per_id() {
+        let mut registry = BiomeRegistry::new("plains");
+        registry.register_or_replace(biome("dup", (0.0, 1.0), (0.0, 1.0), (0.0, 1.0), 1));
+        registry.register_or_replace(biome("dup", (0.0, 1.0), (0.0, 1.0), (0.0, 1.0), 9));
+        assert_eq!(
+            registry.len(),
+            1,
+            "the second registration replaced the first"
+        );
+        registry.register_or_replace(biome("other", (0.0, 1.0), (0.0, 1.0), (0.0, 1.0), 0));
+        assert_eq!(registry.len(), 2);
     }
 
     #[test]

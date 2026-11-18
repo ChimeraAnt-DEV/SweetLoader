@@ -10,8 +10,10 @@
 //! panic hook and the JNI signatures, and no policy of its own.
 
 pub mod archive;
+pub mod budget;
 pub mod config;
 pub mod fault;
+pub mod host;
 pub mod loadorder;
 pub mod manifest;
 pub mod patterns;

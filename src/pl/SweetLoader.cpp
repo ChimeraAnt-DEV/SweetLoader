@@ -6,6 +6,7 @@
 
 #include "pl/Export.hpp"
 #include "pl/Logger.hpp"
+#include "pl/engine/UniverseApi.h"
 #include "pl/internal/ModManager.h"
 #include "pl/hooks/DobbyHookManager.hpp"
 #include "pl/runtime/FeatureAvailability.hpp"
@@ -198,6 +199,48 @@ JNIEXPORT jint JNICALL
 Java_org_chimeramc_client_preloader_PreloaderInput_nativeCloseUnusedModuleHandles(JNIEnv *,
                                                                                  jclass) {
   return static_cast<jint>(pl::hooks::DobbyHookManager::instance().closeUnusedHandles());
+}
+
+// ---------------------------------------------------------------------------------------------
+// The .universe engine runtime driver (org.chimeramc.client.universe.UniverseRuntime)
+// ---------------------------------------------------------------------------------------------
+// These are the calls the launcher uses to drive the Rust loader's load/tick/shutdown lifecycle.
+// They live here, in the C++ that already owns the process's host table, rather than in the Rust
+// cdylib's own JNI, because the loader must be handed the C++-built `universe_host_t` and the C++
+// side is what can build it. The bridge (UniverseBridge.cpp) resolves the Rust C ABI by name; the
+// Rust library is loaded by the Java side first, so `RTLD_NOLOAD` finds it.
+
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_universe_UniverseRuntime_nativeLoadEngineMods(JNIEnv *env, jclass,
+                                                                        jstring specsJson) {
+  if (specsJson == nullptr) return env->NewStringUTF("");
+  const char *specs = env->GetStringUTFChars(specsJson, nullptr);
+  if (specs == nullptr) return env->NewStringUTF("");
+  // A null host table here makes the bridge default to the full process host table, which the
+  // loader then reduces per mod to its declared permissions. So the mod never sees a capability it
+  // did not declare, and never sees a null table that would leave every capability unavailable.
+  const std::string report = pl::engine::UniverseLoadMods(specs, nullptr);
+  env->ReleaseStringUTFChars(specsJson, specs);
+  return env->NewStringUTF(report.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_universe_UniverseRuntime_nativeTickEngineMods(JNIEnv *, jclass,
+                                                                        jfloat deltaSeconds) {
+  // The loader clamps a non-finite dt itself, so this forwards it directly; the per-frame cost is
+  // one mutex try_lock and a loop over the live mods.
+  pl::engine::UniverseTickMods(static_cast<float>(deltaSeconds));
+}
+
+JNIEXPORT void JNICALL
+Java_org_chimeramc_client_universe_UniverseRuntime_nativeShutdownEngineMods(JNIEnv *, jclass) {
+  pl::engine::UniverseShutdownMods();
+}
+
+JNIEXPORT jstring JNICALL
+Java_org_chimeramc_client_universe_UniverseRuntime_nativeLiveEngineMods(JNIEnv *env, jclass) {
+  const std::string live = pl::engine::UniverseLiveMods();
+  return env->NewStringUTF(live.c_str());
 }
 
 } // extern "C"

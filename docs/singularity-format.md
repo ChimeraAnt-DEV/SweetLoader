@@ -74,7 +74,10 @@ offers deterministic primitives (`seed_hash`, `noise2`, `noise3`) to a native sh
 
 1. **Climate.** Three noise fields (temperature, humidity, continentalness) sampled per column.
 2. **Biome.** The climate picks a biome from the registry; near a boundary the choice is blended
-   over a band rather than snapping.
+   over a band rather than snapping. A climate no registered biome claims falls back to the pack's
+   own `terrain.default_biome`, not the engine's built-in `plains`. Registration *merges*: a
+   definition whose id is already present replaces that entry, so two packs that both define
+   `plains` do not wipe each other's biome list.
 3. **Height.** fBm (optionally domain-warped) shapes the surface; the surface block comes from the
    biome, with sand at a shoreline.
 4. **Blocks.** Stone below, dirt above, the biome's surface block on top; water fills from the sea

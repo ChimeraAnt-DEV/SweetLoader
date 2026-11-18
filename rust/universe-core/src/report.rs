@@ -57,7 +57,9 @@ pub fn load_plan_json(plan: &crate::runtime::LoadPlan, live: &[String]) -> Strin
     )
 }
 
-/// Parses a JSON array of `{"id": ..., "lib_path": ..., "dependencies": [...]}` objects.
+/// Parses a JSON array of
+/// `{"id": ..., "lib_path": ..., "dependencies": [...], "permissions": [...], "trusted": bool}`
+/// objects.
 pub fn parse_mod_specs(json: &str) -> crate::Result<Vec<crate::runtime::ModSpec>> {
     #[derive(serde::Deserialize)]
     struct Spec {
@@ -66,6 +68,10 @@ pub fn parse_mod_specs(json: &str) -> crate::Result<Vec<crate::runtime::ModSpec>
         lib_path: String,
         #[serde(default)]
         dependencies: Vec<String>,
+        #[serde(default)]
+        permissions: Vec<String>,
+        #[serde(default)]
+        trusted: bool,
     }
 
     let specs: Vec<Spec> = serde_json::from_str(json)
@@ -76,6 +82,8 @@ pub fn parse_mod_specs(json: &str) -> crate::Result<Vec<crate::runtime::ModSpec>
             id: spec.id,
             lib_path: spec.lib_path,
             dependencies: spec.dependencies,
+            permissions: spec.permissions,
+            trusted: spec.trusted,
         })
         .collect())
 }
@@ -176,6 +184,20 @@ mod tests {
         let specs = parse_mod_specs(r#"[{"id":"a"}]"#).unwrap();
         assert!(specs[0].lib_path.is_empty());
         assert!(specs[0].dependencies.is_empty());
+    }
+
+    #[test]
+    fn parses_declared_permissions_and_trust() {
+        let specs = parse_mod_specs(
+            r#"[{"id":"a","permissions":["read_memory","write_memory"],"trusted":true}]"#,
+        )
+        .unwrap();
+        assert_eq!(specs[0].permissions, vec!["read_memory", "write_memory"]);
+        assert!(specs[0].trusted);
+        // Both are optional, and default to "no capability" and "unsigned".
+        let specs = parse_mod_specs(r#"[{"id":"a"}]"#).unwrap();
+        assert!(specs[0].permissions.is_empty());
+        assert!(!specs[0].trusted);
     }
 
     #[test]

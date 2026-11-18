@@ -23,6 +23,22 @@ pub struct ModSpec {
     pub lib_path: String,
     /// Other mod ids this mod must load after.
     pub dependencies: Vec<String>,
+    /// The capabilities the mod declared in its manifest. The loader reduces the host table to
+    /// these before `universe_init`, so a mod never sees a capability it did not declare.
+    pub permissions: Vec<String>,
+    /// Whether the package carried a trusted signature. A trust-gated capability (`write_memory`)
+    /// is dropped even when declared, unless this is true.
+    pub trusted: bool,
+}
+
+impl ModSpec {
+    /// The parsed declared permissions, or the first unknown name.
+    pub fn parsed_permissions(&self) -> crate::Result<Vec<crate::permission::Permission>> {
+        self.permissions
+            .iter()
+            .map(|name| crate::permission::Permission::parse(name))
+            .collect()
+    }
 }
 
 /// The outcome of planning a load: what to open, and what was refused and why.
@@ -58,10 +74,9 @@ pub fn plan(specs: &[ModSpec], tracker: &FaultTracker) -> LoadPlan {
     let resolved = loadorder::resolve(&nodes);
 
     let mut plan = LoadPlan::default();
+    // `resolved.order` already excludes cyclic mods (their position is undefined), so anything in
+    // it is either loadable or disabled.
     for id in &resolved.order {
-        if resolved.cycle.contains(id) {
-            continue;
-        }
         if tracker.is_disabled(id) {
             plan.disabled.push(id.clone());
             continue;
@@ -83,6 +98,8 @@ mod tests {
             id: id.to_string(),
             lib_path: format!("lib/lib{id}.so"),
             dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            permissions: Vec::new(),
+            trusted: false,
         }
     }
 

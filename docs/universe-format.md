@@ -2,7 +2,7 @@
 
 A `.universe` package is the CaramelClient native mod format. It replaces the removed `.AntEgg`
 format: same job (ship native code and assets into the game process), but with a checked manifest, a
-signature, a permission sandbox and a deterministic load order.
+signature, a permission gate and a deterministic load order.
 
 ## Package layout
 
@@ -42,7 +42,8 @@ Optional: `name`, `author`, `abi` (defaults to `arm64-v8a`), `dependencies`, `pe
 
 Every field is validated. The loader refuses a package whose:
 
-- `id` is not a safe identifier (letters, digits, `-`, `_`, length-capped);
+- `id` is not a safe identifier (letters, digits, `.`, `_`, `-`; must not begin with `.`, which is
+  reserved for the extractor's staging directories; length-capped);
 - `version` or `min_client_version` is not a `major.minor.patch` version;
 - `min_client_version` is newer than the client (a package built for a future client);
 - `abi` is not `arm64-v8a` (the only ABI the client ships);
@@ -72,8 +73,23 @@ package — an unsigned mod cannot be granted memory writes, whatever it declare
 | `world`        | read world / block state                                  | no           |
 | `audio`        | play custom audio                                         | no           |
 
-A mod only gets the capabilities it declared, and the loader passes a host table with the
-undeclared function pointers left null. A mod must null-check every pointer before calling.
+A mod only gets the capabilities it declared. The loader builds a host table with the undeclared
+function pointers left null, and a mod must null-check every pointer before calling.
+
+Two honest caveats, because the words "sandbox" and "gate" overstate what this is:
+
+- **This is a gate on a function table, not a sandbox.** A `.universe` mod is a native `.so` in the
+  game process; it can call `mprotect` and the syscalls directly, so a permission the loader refuses
+  is a permission the mod does not get *through the host table*, not one it cannot reach. An
+  unsigned mod still runs arbitrary native code. Treat a permission grant as a statement of intent
+  the UI can show, not as containment.
+- **The host table is built and the loader is driven.** `universe_host_t` is built by the C++
+  `pl::engine::UniverseFullHostTable()` and reduced per mod to the permissions it declared, and the
+  launcher drives the whole lifecycle (`org.chimeramc.client.universe.UniverseRuntime` → the C++
+  `UniverseLoadMods`/`UniverseTickMods`/`UniverseShutdownMods` → the Rust `caramel_universe_*` C
+  ABI). So an enabled `.universe` package is extracted, loaded, ticked per frame and shut down. A
+  `.singularity` pack is still discovery-and-validate only: nothing hooks Bedrock's world generator
+  to consume its chunks, so the launcher labels it "Preview only".
 
 ## Load order
 
@@ -94,18 +110,32 @@ installed, and the loader loads what it can.
 6. `universe_tick(frame, dt)` is called once per frame.
 7. `universe_shutdown()` is called, then the libraries are `dlclose`d.
 
-Every call into mod code is wrapped in a Rust `catch_unwind` guard: a panic in `universe_init`,
-`universe_tick` or `universe_shutdown` is caught, logged, and the mod is unloaded immediately, so
-one mod's failure never stops another's tick and the game thread keeps running. A mod that faults
-three times in a row is disabled for the session.
+Every call into mod code is wrapped in a Rust `catch_unwind` guard, and the entry points are typed
+`extern "C-unwind"` so a Rust panic can actually reach that guard (a panic unwinding out of a plain
+`extern "C"` function is undefined behaviour — in practice an abort — and the guard would never run).
+A caught panic is logged, the mod is unloaded immediately, and one mod's failure never stops
+another's tick. A mod that faults three times in a row is disabled for the session.
 
-A panic is not a segmentation fault. `catch_unwind` catches a Rust panic and a C++ exception that
-unwinds through Rust frames, but a hard fault (a null dereference inside a mod's C/C++ code, a
-`SIGSEGV`/`SIGABRT`) is delivered as a signal to the whole process and is not recoverable by
-`catch_unwind`. The loader's defence against that class is fail-closed loading — a wrong ABI, a
-missing entry point or a failed `universe_init` is refused before the mod ever runs — plus the
-per-mod fault budget that stops a mod which faults on every launch. Do not read this section as
-"a crashing native mod is contained"; it is not, and no in-process loader can contain it.
+The guard catches a Rust panic. A C++ exception thrown out of a mod's own C++ and left to escape its
+`universe_init`/`tick`/`shutdown` is *not* reliably caught by `catch_unwind` — the C-unwind ABI lets
+it cross the boundary, but a foreign exception unwinding through Rust frames is not the panic path
+the guard handles. A mod written in C++ must catch its own exceptions at its entry points.
+
+A panic is not a segmentation fault. `catch_unwind` catches a Rust panic, but a hard fault (a null
+dereference inside a mod's C/C++ code, a `SIGSEGV`/`SIGABRT`) is delivered as a signal to the whole
+process and is not recoverable by `catch_unwind`. The loader's defence against that class is
+fail-closed loading — a wrong ABI, a missing entry point or a failed `universe_init` is refused
+before the mod ever runs — plus the per-mod fault budget that stops a mod which faults on every
+launch. Do not read this section as "a crashing native mod is contained"; it is not, and no
+in-process loader can contain it.
+
+A running native call also cannot be interrupted from another thread, so a mod that *blocks* inside
+`universe_tick` cannot be stopped mid-call. The loader therefore measures each mod's tick against a
+per-frame budget (`universe_core::budget::TICK_BUDGET_US`, 2 ms) and counts an overrun as a fault,
+so a mod that overruns on every frame is disabled after the same three consecutive faults as a
+panicking one. The budget is an upper bound on ordinary per-frame work, not a hard preemption: the
+first overrun still costs that frame. `universe_init` is not budgeted — it runs once, at load, under
+the launcher's own bounded enable (see the client's `ModManager::enableLoadedMods`).
 
 The loader's C ABI (`caramel_universe_load_mods`, `_tick_mods`, `_shutdown_mods`, `_live_mods`) is
 the surface the C++ runtime drives, with matching wrappers in `pl/engine/UniverseApi.h`. Loading

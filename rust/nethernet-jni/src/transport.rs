@@ -17,7 +17,7 @@
 //! `tokio` in the game process. The cost is one thread per connection, which for a client with one
 //! multiplayer session is the right trade.
 
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -25,8 +25,16 @@ use std::time::{Duration, Instant};
 use nethernet_core::backoff::BackoffPolicy;
 use nethernet_core::session::{Session, TransportError, TransportState};
 use nethernet_core::signaling::{self, Signal};
+use tungstenite::client::IntoClientRequest;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
+
+/// The bound on opening one TCP connection, so a host that accepts no packets cannot stall the
+/// worker (and therefore `shutdown`) until the OS gives up, which can be minutes.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// The socket read/write timeout, so the frame loop stays responsive to cancellation and to the
+/// session's own timeout instead of blocking forever inside `read`.
+const IO_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// What the JNI layer reads. Guarded by a mutex and a condvar so `poll` can block until something
 /// changes instead of spinning.
@@ -57,7 +65,7 @@ impl Default for Shared {
 pub struct Handle {
     shared: Arc<(Mutex<Shared>, Condvar)>,
     cancelled: Arc<AtomicBool>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Handle {
@@ -94,7 +102,7 @@ impl Handle {
         Self {
             shared,
             cancelled,
-            worker: Some(worker),
+            worker: Mutex::new(Some(worker)),
         }
     }
 
@@ -122,8 +130,9 @@ impl Handle {
         guard.pending_candidate.take()
     }
 
-    /// Asks the worker to stop and waits for it. Idempotent.
-    pub fn shutdown(&mut self) {
+    /// Asks the worker to stop and waits for it. Idempotent. Takes `&self` so a caller can shut the
+    /// handle down without holding the connection lock for the join.
+    pub fn shutdown(&self) {
         self.cancelled.store(true, Ordering::Release);
         {
             let (lock, condvar) = &*self.shared;
@@ -131,8 +140,9 @@ impl Handle {
             guard.revision = guard.revision.wrapping_add(1);
             condvar.notify_all();
         }
-        if let Some(worker) = self.worker.take() {
-            // The worker checks the flag at most once per poll interval, so this returns quickly.
+        let worker = self.worker.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(worker) = worker {
+            // The connect is bounded and the frame loop polls, so this returns promptly.
             let _ = worker.join();
         }
     }
@@ -248,11 +258,8 @@ fn run_worker(
     session.transition(TransportState::AwaitingWelcome);
     publish(shared, TransportState::AwaitingWelcome, None, None);
 
-    // The socket is non-blocking-friendly: a read timeout lets the loop notice cancellation and the
-    // session's own timeout instead of blocking forever inside `read`.
-    if let MaybeTlsStream::Plain(stream) = socket.get_ref() {
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
-    }
+    // The read timeout (set on the underlying socket in `open_socket`) lets the loop notice
+    // cancellation and the session's own timeout instead of blocking forever inside `read`.
 
     loop {
         if cancelled.load(Ordering::Acquire) {
@@ -397,10 +404,47 @@ fn handle_frame(
     }
 }
 
-/// Opens a WebSocket. `ws://` and `wss://` are both handled.
-fn open_socket(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, tungstenite::Error> {
-    let (socket, _response) = tungstenite::connect(url)?;
-    Ok(socket)
+/// Opens a WebSocket with a bounded TCP connect. `ws://` and `wss://` are both handled.
+///
+/// `tungstenite::connect` calls `TcpStream::connect` with no timeout, so a host that blackholes
+/// packets stalls the worker for the OS default (minutes) and, because `shutdown` joins the worker,
+/// the caller blocks with it. The address is dialled here with [`CONNECT_TIMEOUT`] and the handshake
+/// then runs over that socket.
+fn open_socket(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, String> {
+    let request = url
+        .into_client_request()
+        .map_err(|e| format!("the signaling url is unusable: {e}"))?;
+    let uri = request.uri().clone();
+    let host = uri
+        .host()
+        .ok_or_else(|| "the signaling url has no host".to_string())?;
+    let host = host.strip_prefix('[').unwrap_or(host);
+    let host = host.strip_suffix(']').unwrap_or(host);
+    let tls = uri.scheme_str() == Some("wss");
+    let port = uri.port_u16().unwrap_or(if tls { 443 } else { 80 });
+    let addrs: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("the signaling host could not be resolved: {e}"))?
+        .collect();
+    let mut last = "no address".to_string();
+    let mut stream = None;
+    for addr in &addrs {
+        match TcpStream::connect_timeout(addr, CONNECT_TIMEOUT) {
+            Ok(s) => {
+                stream = Some(s);
+                break;
+            }
+            Err(e) => last = e.to_string(),
+        }
+    }
+    let Some(stream) = stream else {
+        return Err(format!("could not connect to {host}:{port}: {last}"));
+    };
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+    tungstenite::client_tls_with_config(request, stream, None, None)
+        .map(|(socket, _response)| socket)
+        .map_err(|e| format!("the websocket handshake failed: {e}"))
 }
 
 /// Sleeps in small slices so a cancel is honoured promptly. Returns false when cancelled.
@@ -440,7 +484,7 @@ mod tests {
         let mut handle = Handle {
             shared: Arc::clone(&shared),
             cancelled: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Mutex::new(None),
         };
         let (state, error, session) = handle.snapshot();
         assert_eq!(state, TransportState::Idle);
@@ -471,7 +515,7 @@ mod tests {
         let handle = Handle {
             shared: Arc::clone(&shared),
             cancelled: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Mutex::new(None),
         };
         {
             let (lock, _) = &*shared;
@@ -479,6 +523,16 @@ mod tests {
         }
         assert_eq!(handle.take_candidate().as_deref(), Some("payload"));
         assert_eq!(handle.take_candidate(), None);
+    }
+
+    #[test]
+    fn a_url_without_a_host_is_refused_without_connecting() {
+        // Fail-closed on a bad URL: no DNS, no dial. This exercises the parse path only.
+        let error = open_socket("not-a-url").unwrap_err();
+        assert!(
+            error.contains("url") || error.contains("host"),
+            "the refusal should name the url/host problem: {error}"
+        );
     }
 
     #[test]
