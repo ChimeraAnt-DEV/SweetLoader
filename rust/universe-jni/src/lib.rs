@@ -322,6 +322,27 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
     new_message(&mut env, &running_client_version())
 }
 
+/// Verifies a package's detached Ed25519 signature against a comma-separated list of trusted public
+/// keys (32-byte, hex). Returns an empty string when the signature verifies, or the refusal reason.
+///
+/// # Safety
+/// `env` and `_class` are supplied by the JVM; the strings are read but not retained.
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_nativeVerifySignature(
+    mut env: JNIEnv,
+    _class: JClass,
+    archive_path: JString,
+    signature_hex: JString,
+    trusted_keys_hex: JString,
+) -> jstring {
+    let path = read_string(&mut env, &archive_path);
+    let signature = read_string(&mut env, &signature_hex);
+    let keys = read_string(&mut env, &trusted_keys_hex);
+    run_or_message(&mut env, "nativeVerifySignature", || {
+        verify_signature(&path, &signature, &keys)
+    })
+}
+
 /// A C-string helper used by the small C ABI below.
 ///
 /// # Safety
