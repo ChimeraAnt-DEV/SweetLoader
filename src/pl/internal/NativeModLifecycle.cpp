@@ -18,7 +18,11 @@ constexpr const char *kLifecycleDisableSymbol = "PLMod_Disable";
 constexpr const char *kLifecycleUnloadSymbol = "PLMod_Unload";
 constexpr const char *kCppRegistrationSymbol = pl::mod::ModRegistrationSymbol;
 constexpr int kLoadedModLookupFlags = RTLD_NOLOAD | RTLD_NOW;
-constexpr int kModDlopenFlags = RTLD_NOW | RTLD_GLOBAL;
+// RTLD_LOCAL, not RTLD_GLOBAL: a mod's exported symbols must not enter the global namespace, or a
+// second mod that exports a same-named symbol shadows the first and calls land in the wrong library.
+// The universe loader already uses RTLD_LOCAL for the same reason. A mod still resolves the
+// sweetloader's own symbols, which the JVM loaded into the global scope.
+constexpr int kModDlopenFlags = RTLD_NOW | RTLD_LOCAL;
 
 using PLModLifecycleLoadFunc = bool (*)(JavaVM *vm, const PLModInfo *modInfo);
 using PLCppModRegistrationFunc = pl::mod::ModRegistration *(*)();
