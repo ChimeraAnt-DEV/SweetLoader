@@ -145,11 +145,15 @@ pub fn generate_chunk(config: &TerrainConfig, biomes: &BiomeRegistry, pos: Chunk
     let mut blocks = vec![AIR; (CHUNK_SIZE * CHUNK_SIZE * config.height) as usize];
     let mut heightmap = vec![0i32; (CHUNK_SIZE * CHUNK_SIZE) as usize];
     // The chunk's biome is the one at its centre column; a finer-grained per-column biome is
-    // available through `climate_at` when a pack wants it.
+    // available through `climate_at` when a pack wants it. The pack's own `default_biome` answers a
+    // climate no registered biome claims, rather than the registry's build-time default.
     let centre_x = pos.x * CHUNK_SIZE + CHUNK_SIZE / 2;
     let centre_z = pos.z * CHUNK_SIZE + CHUNK_SIZE / 2;
     let biome = biomes
-        .select(climate_at(config.seed, centre_x, centre_z))
+        .select_with_fallback(
+            climate_at(config.seed, centre_x, centre_z),
+            &config.default_biome,
+        )
         .to_string();
 
     for local_z in 0..CHUNK_SIZE {
@@ -242,6 +246,16 @@ mod tests {
         other.seed = 999;
         let b = generate_chunk(&other, &registry(), ChunkPos { x: 0, z: 0 });
         assert_ne!(a.heightmap, b.heightmap);
+    }
+
+    #[test]
+    fn the_packs_default_biome_answers_an_unclaimed_climate() {
+        // An empty registry claims nothing, so the chunk's biome must be the config's own default
+        // rather than the registry's build-time one.
+        let mut cfg = config();
+        cfg.default_biome = "cherry_grove".to_string();
+        let chunk = generate_chunk(&cfg, &registry(), ChunkPos { x: 0, z: 0 });
+        assert_eq!(chunk.biome, "cherry_grove");
     }
 
     #[test]

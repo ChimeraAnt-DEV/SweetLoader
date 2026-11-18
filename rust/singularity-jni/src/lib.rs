@@ -323,11 +323,16 @@ pub unsafe extern "C" fn caramel_singularity_validate_manifest(
 
 /// Generates a chunk's block array, returning the number of blocks written into `out_blocks`.
 ///
-/// `out_blocks` must hold `16 * height * 16` bytes. The caller passes the config's numbers so the
-/// engine does not have to mirror the manifest struct.
+/// `out_capacity` is the number of bytes the caller has actually reserved at `out_blocks`; the
+/// engine writes only when `16 * height * 16` fits inside it, so a caller whose `height` disagrees
+/// with its own buffer is refused (`-1`) rather than overflowing. Passing the wrong capacity is the
+/// caller's bug, but it must be a refused call, not a heap corruption in the game process.
+///
+/// `default_biome` is the pack's own fallback biome id, or null/empty for `"plains"`.
 ///
 /// # Safety
-/// `out_blocks` must point to at least `16 * height * 16` writable bytes.
+/// `out_blocks` must point to at least `out_capacity` writable bytes; `default_biome` must be null
+/// or a valid NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn caramel_singularity_generate_chunk(
     seed: u64,
@@ -340,10 +345,26 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
     chunk_x: i32,
     chunk_z: i32,
     out_blocks: *mut u8,
+    out_capacity: usize,
+    default_biome: *const c_char,
 ) -> i32 {
     if out_blocks.is_null() || height < 1 || height > 2048 {
         return -1;
     }
+    let needed = (16 * 16 * height) as usize;
+    // Refuse before generating: a mismatched capacity must not reach the copy below.
+    if out_capacity < needed {
+        log_error(&format!(
+            "chunk buffer too small: {out_capacity} bytes for {needed}"
+        ));
+        return -1;
+    }
+    let biome_id = cstr(default_biome);
+    let default_biome = if biome_id.trim().is_empty() {
+        "plains".to_string()
+    } else {
+        biome_id
+    };
     let config = singularity_core::chunk::TerrainConfig {
         seed,
         base_height,
@@ -352,7 +373,7 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
         height,
         octaves,
         warp,
-        default_biome: "plains".to_string(),
+        default_biome,
     };
     // Read the registered biomes, so a pack's biomes/*.json actually shape the terrain. The read
     // lock is held only for the generation call; registration takes the write lock once at load.
@@ -368,8 +389,7 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
         },
     );
     let expected = chunk.blocks.len();
-    let capacity = (16 * 16 * height) as usize;
-    if expected != capacity {
+    if expected != needed {
         return -1;
     }
     std::ptr::copy_nonoverlapping(chunk.blocks.as_ptr(), out_blocks, expected);
@@ -379,10 +399,11 @@ pub unsafe extern "C" fn caramel_singularity_generate_chunk(
 /// Registers a pack's biomes from a JSON array of biome definition objects.
 ///
 /// Each element is the same shape as a `biomes/*.json` file (`id`, `temperature`, `humidity`,
-/// `continentalness`, `weight`). Registration **replaces** the current set, so a caller registers a
-/// pack's whole biome list in one call rather than accumulating across worlds. Returns the number of
-/// biomes registered, or -1 when a definition is malformed (in which case the previous set is left
-/// untouched — the caller gets all-or-nothing).
+/// `continentalness`, `weight`). Registration **merges** into the current set: a definition whose id
+/// is already registered replaces that entry, a new id is added, so two packs that both define
+/// `plains` do not clobber each other's whole biome list. Returns the number of biomes registered,
+/// or -1 when a definition is malformed (in which case the previous set is left untouched — the
+/// caller gets all-or-nothing).
 ///
 /// # Safety
 /// `biomes_json` must be null or a valid NUL-terminated string.
@@ -394,9 +415,8 @@ pub unsafe extern "C" fn caramel_singularity_register_biomes(biomes_json: *const
             let mut registry = biomes()
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *registry = singularity_core::biome::BiomeRegistry::new("plains");
             for definition in &definitions {
-                registry.register(definition.clone());
+                registry.register_or_replace(definition.clone());
             }
             definitions.len() as i32
         }
@@ -467,8 +487,22 @@ mod tests {
     #[test]
     fn chunk_generation_writes_the_expected_size() {
         let mut blocks = vec![0u8; 16 * 16 * 64];
+        let capacity = blocks.len();
         let written = unsafe {
-            caramel_singularity_generate_chunk(42, 32, 8, 30, 64, 4, 0.0, 0, 0, blocks.as_mut_ptr())
+            caramel_singularity_generate_chunk(
+                42,
+                32,
+                8,
+                30,
+                64,
+                4,
+                0.0,
+                0,
+                0,
+                blocks.as_mut_ptr(),
+                capacity,
+                std::ptr::null(),
+            )
         };
         assert_eq!(written, (16 * 16 * 64) as i32);
     }
@@ -476,13 +510,51 @@ mod tests {
     #[test]
     fn chunk_generation_refuses_a_null_pointer() {
         let written = unsafe {
-            caramel_singularity_generate_chunk(1, 32, 8, 30, 64, 4, 0.0, 0, 0, std::ptr::null_mut())
+            caramel_singularity_generate_chunk(
+                1,
+                32,
+                8,
+                30,
+                64,
+                4,
+                0.0,
+                0,
+                0,
+                std::ptr::null_mut(),
+                16 * 16 * 64,
+                std::ptr::null(),
+            )
         };
         assert_eq!(written, -1);
     }
 
     #[test]
-    fn registering_biomes_replaces_the_set_and_refuses_a_bad_list() {
+    fn chunk_generation_refuses_a_buffer_smaller_than_the_chunk() {
+        // The buffer must be checked against the capacity the caller actually reserved, not the
+        // height it claims, so a mismatched caller is refused rather than overflowing.
+        let mut blocks = vec![0u8; 16 * 16 * 63];
+        let capacity = blocks.len();
+        let written = unsafe {
+            caramel_singularity_generate_chunk(
+                1,
+                32,
+                8,
+                30,
+                64,
+                4,
+                0.0,
+                0,
+                0,
+                blocks.as_mut_ptr(),
+                capacity,
+                std::ptr::null(),
+            )
+        };
+        assert_eq!(written, -1, "a short buffer must be refused");
+    }
+
+    #[test]
+    fn registering_biomes_merges_and_refuses_a_bad_list() {
         // One test, not two: the registry is process-global, so two tests mutating it would race
         // under the parallel test runner.
         let two = CString::new(r#"[{"id":"a"},{"id":"b"}]"#).unwrap();
@@ -490,8 +562,8 @@ mod tests {
             unsafe { caramel_singularity_register_biomes(two.as_ptr()) },
             2
         );
-        // A second call replaces rather than accumulates.
-        let one = CString::new(r#"[{"id":"keep"}]"#).unwrap();
+        // A second call adds a new id and keeps the existing ones, rather than clobbering the set.
+        let one = CString::new(r#"[{"id":"c"}]"#).unwrap();
         assert_eq!(
             unsafe { caramel_singularity_register_biomes(one.as_ptr()) },
             1
@@ -504,14 +576,16 @@ mod tests {
         );
 
         let registry = biomes().read().unwrap();
-        assert_eq!(registry.len(), 1);
-        assert_eq!(
-            registry.select(singularity_core::biome::Climate {
-                temperature: 0.5,
-                humidity: 0.5,
-                continentalness: 0.5,
-            }),
-            "keep"
+        assert_eq!(registry.len(), 3, "a, b and c all survive");
+        assert!(
+            registry
+                .select(singularity_core::biome::Climate {
+                    temperature: 0.5,
+                    humidity: 0.5,
+                    continentalness: 0.5,
+                })
+                .len()
+                > 0
         );
     }
 }
