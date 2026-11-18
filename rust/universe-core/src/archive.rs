@@ -247,6 +247,37 @@ pub fn extract_with(
         id,
         native_libs,
         MAX_UNCOMPRESSED_BYTES,
+        &|| false,
+    )
+}
+
+/// [`extract`] that stops early when `is_cancelled` returns true.
+///
+/// The cancellation flag the C ABI/JNI exposes was read by nothing, so "cancel" did not cancel an
+/// in-progress extraction. The check runs between entries and the staging directory is removed on
+/// a cancel, so no partial install is left behind.
+pub fn extract_cancellable(
+    archive_path: &str,
+    sandbox_root: &str,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf> {
+    #[derive(serde::Deserialize)]
+    struct Header {
+        id: String,
+        #[serde(default)]
+        native_libs: Vec<String>,
+    }
+    let text = read_manifest_text(archive_path)?;
+    let header: Header = serde_json::from_str(&text)
+        .map_err(|e| Error::new(format!("{MANIFEST_NAME} has no usable id: {e}")))?;
+    crate::manifest::validate_id(&header.id)?;
+    extract_with_limit(
+        archive_path,
+        sandbox_root,
+        &header.id,
+        &header.native_libs,
+        MAX_UNCOMPRESSED_BYTES,
+        is_cancelled,
     )
 }
 
@@ -257,13 +288,14 @@ fn copy_to_file<R: Read>(reader: &mut R, destination: &Path) -> std::io::Result<
 }
 
 /// [`extract_with`] with an explicit uncompressed-size budget, so the bound is testable without a
-/// 256 MB fixture.
+/// 256 MB fixture, and a cancellation check so a long extraction can be stopped.
 fn extract_with_limit(
     archive_path: &str,
     sandbox_root: &str,
     id: &str,
     native_libs: &[String],
     limit: u64,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<PathBuf> {
     crate::manifest::validate_id(id)?;
     let mut archive = open_archive(archive_path)?;
@@ -279,6 +311,10 @@ fn extract_with_limit(
 
     let mut total: u64 = 0;
     for index in 0..archive.len() {
+        if is_cancelled() {
+            let _ = fs::remove_dir_all(&stage);
+            return Err(Error::new("the extraction was cancelled"));
+        }
         let mut file = archive
             .by_index(index)
             .map_err(|e| Error::new(format!("could not read an archive entry: {e}")))?;
@@ -467,6 +503,7 @@ mod tests {
             "example",
             &["lib/x.so".to_string()],
             1024,
+            &|| false,
         )
         .unwrap_err();
         assert!(
@@ -494,6 +531,7 @@ mod tests {
             "example",
             &["lib/x.so".to_string()],
             1024,
+            &|| false,
         )
         .unwrap();
         assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 512);
@@ -512,6 +550,7 @@ mod tests {
             "example",
             &["lib/x.so".to_string()],
             1024,
+            &|| false,
         )
         .unwrap();
         assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 256);
@@ -534,6 +573,7 @@ mod tests {
             "example",
             &["lib/x.so".to_string()],
             1024,
+            &|| false,
         )
         .unwrap();
         assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 128);
@@ -544,6 +584,34 @@ mod tests {
         assert!(
             !sandbox.join(".example.extracting").exists(),
             "no staging directory may survive a successful extract"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_extraction_stops_and_leaves_nothing_behind() {
+        let dir = temp_dir("cancel");
+        let archive = write_archive(&dir, &vec![3u8; 512]);
+        let sandbox = dir.join("sandbox");
+        let error = extract_with_limit(
+            archive.to_str().unwrap(),
+            sandbox.to_str().unwrap(),
+            "example",
+            &["lib/x.so".to_string()],
+            4096,
+            &|| true,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("cancelled"),
+            "the refusal should name the cancellation: {error}"
+        );
+        assert!(
+            !sandbox.join("example").exists(),
+            "a cancelled package must leave no extracted mod behind"
+        );
+        assert!(
+            !sandbox.join(".example.extracting").exists(),
+            "a cancelled package must leave no staging directory behind"
         );
     }
 }

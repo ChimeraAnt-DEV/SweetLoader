@@ -251,8 +251,8 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
     run_or_message(&mut env, "nativeExtract", || {
         universe_core::archive::validate_sandbox_root(&sandbox, &allowed)
             .map_err(|e| e.to_string())?;
-        let directory =
-            universe_core::archive::extract(&path, &sandbox).map_err(|e| e.to_string())?;
+        let directory = universe_core::archive::extract_cancellable(&path, &sandbox, &is_cancelled)
+            .map_err(|e| e.to_string())?;
         log_info(&format!("extracted into {}", directory.display()));
         Ok(())
     })
@@ -411,7 +411,7 @@ pub unsafe extern "C" fn caramel_universe_extract(
     c_abi_guard("extract", || {
         universe_core::archive::validate_sandbox_root(&sandbox, &allowed)
             .map_err(|e| e.to_string())?;
-        universe_core::archive::extract(&path, &sandbox)
+        universe_core::archive::extract_cancellable(&path, &sandbox, &is_cancelled)
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
