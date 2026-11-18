@@ -191,6 +191,14 @@ impl ModRuntime {
     ///
     /// A mod that panics on tick is unloaded immediately and counted; after [`MAX_FAULTS`] it is
     /// refused at the next load. One mod's fault never stops another's tick.
+    ///
+    /// Each mod's own tick time is also measured against
+    /// [`universe_core::budget::TICK_BUDGET_US`]: a running native call cannot be interrupted, so a
+    /// mod that blocks *inside* one tick cannot be stopped here, but a mod that overruns on every
+    /// frame is counted as a fault and disabled after [`MAX_FAULTS`] consecutive overruns rather
+    /// than taxing every frame forever. The clock is the loader's (the device side); the budget
+    /// comparison is the pure [`universe_core::budget`] rule, so the policy is unit-tested off-device
+    /// and only the measurement is device-only.
     pub fn tick(&mut self, dt: f32) {
         self.frame = self.frame.wrapping_add(1);
         let frame = self.frame;
@@ -198,7 +206,9 @@ impl ModRuntime {
         while index < self.loaded.len() {
             let id = self.loaded[index].id.clone();
             let tick = self.loaded[index].tick;
+            let started = std::time::Instant::now();
             let faulted = catch_unwind(AssertUnwindSafe(|| unsafe { tick(frame, dt) })).is_err();
+            let elapsed_us = started.elapsed().as_micros() as u64;
             if faulted {
                 log_error(&format!("mod {id} panicked on tick; unloading it"));
                 let decision = self.tracker.record_fault(&id);
@@ -210,6 +220,22 @@ impl ModRuntime {
                     ));
                 }
                 continue; // the entry at `index` is now the next mod
+            }
+            if let Some(reason) = universe_core::budget::overrun_reason(elapsed_us) {
+                // The tick returned, but it overran. Count it as a fault and drop the mod once the
+                // policy disables it, so a slow-but-returning mod cannot tax every frame forever.
+                log_error(&format!("mod {id} overran its tick budget: {reason}"));
+                let decision = self.tracker.record_fault(&id);
+                if decision.action == universe_core::fault::FaultAction::Disable {
+                    log_error(&format!(
+                        "mod {id} disabled after {} consecutive overruns",
+                        decision.fault_count
+                    ));
+                    self.unload_at(index);
+                    continue;
+                }
+                index += 1;
+                continue;
             }
             self.tracker.record_success(&id);
             index += 1;
@@ -312,6 +338,42 @@ mod tests {
         runtime.tick(0.016);
         runtime.tick(0.016);
         assert_eq!(runtime.frame(), 2);
+    }
+
+    #[test]
+    fn a_mod_that_overruns_every_tick_is_disabled() {
+        // The budget rule is pure and tested in `universe-core::budget`; here we prove the loader
+        // counts an overrun as a fault and stops calling the mod once the policy disables it. The
+        // fixture blocks past the budget on every tick, so after MAX_FAULTS ticks it must be gone.
+        const SLOW: &str = r#"
+#include <stdint.h>
+#include <time.h>
+static uint64_t g_frames = 0;
+int32_t universe_init(const void *host) { (void)host; return 0; }
+void universe_tick(uint64_t frame, float dt) {
+    (void)frame; (void)dt; g_frames++;
+    struct timespec ts = { 0, 8000000 }; // 8 ms, well over the 2 ms budget
+    nanosleep(&ts, 0);
+}
+void universe_shutdown(void) {}
+uint64_t universe_test_frames(void) { return g_frames; }
+"#;
+        let Some(lib) = compile_source("slow", SLOW) else {
+            eprintln!("skipping: no host C compiler");
+            return;
+        };
+        let mut runtime = ModRuntime::new();
+        runtime.load(&[spec("slow", &lib, &[])]);
+        assert_eq!(runtime.live_count(), 1, "the slow fixture loads");
+        for _ in 0..universe_core::fault::MAX_FAULTS {
+            runtime.tick(0.016);
+        }
+        assert_eq!(
+            runtime.live_count(),
+            0,
+            "a mod that overruns on every tick is disabled"
+        );
+        assert!(runtime.disabled().contains(&"slow".to_string()));
     }
 
     #[test]

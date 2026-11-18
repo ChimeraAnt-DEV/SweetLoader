@@ -107,6 +107,14 @@ missing entry point or a failed `universe_init` is refused before the mod ever r
 per-mod fault budget that stops a mod which faults on every launch. Do not read this section as
 "a crashing native mod is contained"; it is not, and no in-process loader can contain it.
 
+A running native call also cannot be interrupted from another thread, so a mod that *blocks* inside
+`universe_tick` cannot be stopped mid-call. The loader therefore measures each mod's tick against a
+per-frame budget (`universe_core::budget::TICK_BUDGET_US`, 2 ms) and counts an overrun as a fault,
+so a mod that overruns on every frame is disabled after the same three consecutive faults as a
+panicking one. The budget is an upper bound on ordinary per-frame work, not a hard preemption: the
+first overrun still costs that frame. `universe_init` is not budgeted — it runs once, at load, under
+the launcher's own bounded enable (see the client's `ModManager::enableLoadedMods`).
+
 The loader's C ABI (`caramel_universe_load_mods`, `_tick_mods`, `_shutdown_mods`, `_live_mods`) is
 the surface the C++ runtime drives, with matching wrappers in `pl/engine/UniverseApi.h`. Loading
 applies the dependency order, refuses a dependency cycle rather than loading it partially, and
