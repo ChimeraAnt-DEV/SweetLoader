@@ -163,12 +163,21 @@ pub fn looks_like_universe(file_name: &str) -> bool {
 }
 
 /// A mod id: a single safe path segment, so it can name a sandbox directory directly.
+///
+/// A leading `.` is refused: the extractor stages an install as `.<id>.extracting`, so an id that
+/// itself begins with a dot could collide with another mod's staging directory. Spaces are refused
+/// too, since the format's rule is letters, digits, `.`, `_` and `-`.
 pub fn validate_id(id: &str) -> Result<()> {
     if id.is_empty() {
         return Err(Error::new("id is empty"));
     }
     if id.len() > MAX_ID_LEN {
         return Err(Error::new("id is too long"));
+    }
+    if id.starts_with('.') {
+        return Err(Error::new(format!(
+            "id '{id}' must not begin with '.' (reserved for the extractor's staging directories)"
+        )));
     }
     if !is_safe_segment(id) {
         return Err(Error::new(format!(
@@ -184,7 +193,7 @@ pub fn is_safe_segment(text: &str) -> bool {
         return false;
     }
     text.chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || c == ' ')
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
         && !text.contains(['/', '\\', '\0'])
 }
 
@@ -301,6 +310,19 @@ mod tests {
         assert!(parse(&valid_json(r#""id": "../etc""#)).is_err());
         assert!(parse(&valid_json(r#""id": "a/b""#)).is_err());
         assert!(parse(&valid_json(r#""id": "..""#)).is_err());
+    }
+
+    #[test]
+    fn refuses_a_leading_dot_or_space_in_the_id() {
+        // The extractor stages an install as `.<id>.extracting`, so a leading dot is reserved.
+        // The id is replaced rather than appended: a duplicate key would leave the outcome to the
+        // parser's duplicate-key rule instead of the id rule under test.
+        let with_id = |id: &str| valid_json("").replace("\"example-mod\"", &format!("\"{id}\""));
+        assert!(parse(&with_id(".hidden")).is_err());
+        // The format's rule is letters, digits, '.', '_' and '-'; a space is not in it.
+        assert!(parse(&with_id("a b")).is_err());
+        assert!(parse(&with_id("example-mod")).is_ok());
+        assert!(parse(&with_id("sky_dungeon")).is_ok());
     }
 
     #[test]

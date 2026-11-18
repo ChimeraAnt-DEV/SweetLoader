@@ -338,9 +338,29 @@ fn extract_with_limit(
         }
     }
 
-    let _ = fs::remove_dir_all(&target);
-    fs::rename(&stage, &target)
-        .map_err(|e| Error::new(format!("could not move the extracted mod into place: {e}")))?;
+    // Replace the old install without ever leaving the mod missing: move the current install aside
+    // first, then move the new one in, then drop the old. The old sequence (`remove_dir_all` then
+    // `rename`) deleted a working mod before the new one was in place, so a failed rename lost it.
+    let backup = root.join(format!(".{id}.old"));
+    let _ = fs::remove_dir_all(&backup);
+    if target.exists() {
+        if let Err(e) = fs::rename(&target, &backup) {
+            let _ = fs::remove_dir_all(&stage);
+            return Err(Error::new(format!(
+                "could not move the existing mod aside: {e}"
+            )));
+        }
+    }
+    if let Err(e) = fs::rename(&stage, &target) {
+        // Put the old install back, so a failed update leaves the previous mod in place rather than
+        // deleting it.
+        let _ = fs::rename(&backup, &target);
+        let _ = fs::remove_dir_all(&stage);
+        return Err(Error::new(format!(
+            "could not move the extracted mod into place: {e}"
+        )));
+    }
+    let _ = fs::remove_dir_all(&backup);
     Ok(target)
 }
 
@@ -477,5 +497,53 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 512);
+    }
+
+    #[test]
+    fn a_second_extract_replaces_the_first_without_a_gap() {
+        // The old sequence removed the existing install before renaming the new one in, so a failed
+        // rename lost the mod. Re-extracting the same id must leave a complete install either way.
+        let dir = temp_dir("replace");
+        let sandbox = dir.join("sandbox");
+        let first = write_archive(&dir, &vec![1u8; 256]);
+        let target = extract_with_limit(
+            first.to_str().unwrap(),
+            sandbox.to_str().unwrap(),
+            "example",
+            &["lib/x.so".to_string()],
+            1024,
+        )
+        .unwrap();
+        assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 256);
+
+        let second = dir.join("package2.universe");
+        {
+            let file = fs::File::create(&second).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+            let manifest = r#"{"id":"example","version":"2.0.0","min_client_version":"1.0.0","native_libs":["lib/x.so"],"berry_api_dependencies":[],"hooks":[]}"#;
+            zip.start_file("manifest.json", options).unwrap();
+            std::io::Write::write_all(&mut zip, manifest.as_bytes()).unwrap();
+            zip.start_file("lib/x.so", options).unwrap();
+            std::io::Write::write_all(&mut zip, &vec![2u8; 128]).unwrap();
+            zip.finish().unwrap();
+        }
+        let target = extract_with_limit(
+            second.to_str().unwrap(),
+            sandbox.to_str().unwrap(),
+            "example",
+            &["lib/x.so".to_string()],
+            1024,
+        )
+        .unwrap();
+        assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 128);
+        assert!(
+            !sandbox.join(".example.old").exists(),
+            "the previous install must not be left behind as a backup"
+        );
+        assert!(
+            !sandbox.join(".example.extracting").exists(),
+            "no staging directory may survive a successful extract"
+        );
     }
 }
