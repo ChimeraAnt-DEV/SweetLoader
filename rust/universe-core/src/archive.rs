@@ -241,6 +241,30 @@ pub fn extract_with(
     id: &str,
     native_libs: &[String],
 ) -> Result<PathBuf> {
+    extract_with_limit(
+        archive_path,
+        sandbox_root,
+        id,
+        native_libs,
+        MAX_UNCOMPRESSED_BYTES,
+    )
+}
+
+/// Copies `reader` into `destination`, streaming rather than buffering the whole entry in memory.
+fn copy_to_file<R: Read>(reader: &mut R, destination: &Path) -> std::io::Result<u64> {
+    let mut out = fs::File::create(destination)?;
+    std::io::copy(reader, &mut out)
+}
+
+/// [`extract_with`] with an explicit uncompressed-size budget, so the bound is testable without a
+/// 256 MB fixture.
+fn extract_with_limit(
+    archive_path: &str,
+    sandbox_root: &str,
+    id: &str,
+    native_libs: &[String],
+    limit: u64,
+) -> Result<PathBuf> {
     crate::manifest::validate_id(id)?;
     let mut archive = open_archive(archive_path)?;
 
@@ -283,26 +307,24 @@ pub fn extract_with(
                 return Err(Error::new(format!("could not create a directory: {e}")));
             }
         }
-        // Bound the write by the remaining budget before reading a byte: the entry's declared size
-        // is attacker-controlled and drives the read, so an unchecked one is a zip bomb.
-        if total + file.size() > MAX_UNCOMPRESSED_BYTES {
+        // Bound the write by the *remaining* budget, not the entry's declared size: that size is
+        // attacker-controlled, so a package that lies about it must still be stopped. The entry is
+        // streamed to disk through `take(remaining + 1)`, so at most one byte past the budget is
+        // ever produced and an oversized entry is refused without buffering it whole.
+        let remaining = limit.saturating_sub(total);
+        let mut limited = (&mut file).take(remaining + 1);
+        let written = match copy_to_file(&mut limited, &destination) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&stage);
+                return Err(Error::new(format!("could not decompress {name}: {e}")));
+            }
+        };
+        if written > remaining {
             let _ = fs::remove_dir_all(&stage);
             return Err(Error::new("the package expands beyond the size limit"));
         }
-        let mut buffer = Vec::new();
-        if let Err(e) = file.read_to_end(&mut buffer) {
-            let _ = fs::remove_dir_all(&stage);
-            return Err(Error::new(format!("could not decompress {name}: {e}")));
-        }
-        total += buffer.len() as u64;
-        if total > MAX_UNCOMPRESSED_BYTES {
-            let _ = fs::remove_dir_all(&stage);
-            return Err(Error::new("the package expands beyond the size limit"));
-        }
-        if let Err(e) = fs::write(&destination, &buffer) {
-            let _ = fs::remove_dir_all(&stage);
-            return Err(Error::new(format!("could not write {name}: {e}")));
-        }
+        total += written;
     }
 
     // Every declared native library must be present, or the package is refused rather than loaded
@@ -382,5 +404,78 @@ mod tests {
         assert!(lexically_within(Path::new("/a/b"), Path::new("/a/b")));
         assert!(!lexically_within(Path::new("/a/b"), Path::new("/a/bc")));
         assert!(!lexically_within(Path::new("/a/b"), Path::new("/a")));
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "universe-archive-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Writes a zip holding `manifest.json` (with `native_libs` naming `lib/x.so`) and an entry
+    /// `lib/x.so` of `payload` bytes.
+    fn write_archive(dir: &Path, payload: &[u8]) -> PathBuf {
+        let path = dir.join("package.universe");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+        let manifest = r#"{"id":"example","version":"1.0.0","min_client_version":"1.0.0","native_libs":["lib/x.so"],"berry_api_dependencies":[],"hooks":[]}"#;
+        zip.start_file("manifest.json", options).unwrap();
+        std::io::Write::write_all(&mut zip, manifest.as_bytes()).unwrap();
+        zip.start_file("lib/x.so", options).unwrap();
+        std::io::Write::write_all(&mut zip, payload).unwrap();
+        zip.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn an_oversized_entry_is_refused_and_leaves_no_staging_behind() {
+        // The declared size is attacker-controlled, so the bound must be enforced on the bytes that
+        // are actually produced, not on what the archive claims. A 4 KB entry with a 1 KB budget is
+        // the smallest version of the zip bomb the old check let through.
+        let dir = temp_dir("bomb");
+        let archive = write_archive(&dir, &vec![0u8; 4096]);
+        let sandbox = dir.join("sandbox");
+        let error = extract_with_limit(
+            archive.to_str().unwrap(),
+            sandbox.to_str().unwrap(),
+            "example",
+            &["lib/x.so".to_string()],
+            1024,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("size limit"),
+            "the refusal should name the size limit: {error}"
+        );
+        assert!(
+            !sandbox.join("example").exists(),
+            "a refused package must leave no extracted mod behind"
+        );
+        assert!(
+            !sandbox.join(".example.extracting").exists(),
+            "a refused package must leave no staging directory behind"
+        );
+    }
+
+    #[test]
+    fn a_package_within_the_budget_extracts() {
+        let dir = temp_dir("ok");
+        let archive = write_archive(&dir, &vec![7u8; 512]);
+        let sandbox = dir.join("sandbox");
+        let target = extract_with_limit(
+            archive.to_str().unwrap(),
+            sandbox.to_str().unwrap(),
+            "example",
+            &["lib/x.so".to_string()],
+            1024,
+        )
+        .unwrap();
+        assert_eq!(fs::read(target.join("lib/x.so")).unwrap().len(), 512);
     }
 }
