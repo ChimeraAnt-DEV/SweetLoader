@@ -101,6 +101,7 @@ set(SWEETLOADER_SOURCES
         src/pl/runtime/BerryApiBridge.cpp
         src/pl/runtime/BerryApiJni.cpp
         src/pl/engine/UniverseBridge.cpp
+        src/pl/engine/UniverseHostTable.cpp
 )
 
 add_library(sweetloader SHARED ${SWEETLOADER_SOURCES})

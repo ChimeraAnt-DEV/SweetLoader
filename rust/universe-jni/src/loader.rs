@@ -18,6 +18,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use universe_core::fault::FaultTracker;
+use universe_core::host::{self, UniverseHost};
 use universe_core::runtime::{self, ModSpec};
 
 use crate::{log_error, log_info};
@@ -53,6 +54,13 @@ pub struct ModRuntime {
     frame: u64,
     /// The host table pointer handed to every mod's `universe_init`. Owned by the caller.
     host: *const c_void,
+    /// One reduced host table per live mod, boxed so the pointer stays valid for the session.
+    ///
+    /// The reduced table is what the mod's `universe_init` receives. It cannot live on the stack of
+    /// the call that hands it over: a mod may keep the pointer and read the table from its
+    /// `universe_tick`, so it must outlive the init call. One per mod id, kept until the mod is
+    /// unloaded, so re-loading the same mod reuses its table rather than leaking a second.
+    reduced_hosts: HashMap<String, Box<UniverseHost>>,
 }
 
 unsafe impl Send for ModRuntime {}
@@ -64,6 +72,7 @@ impl Default for ModRuntime {
             tracker: FaultTracker::new(),
             frame: 0,
             host: std::ptr::null(),
+            reduced_hosts: HashMap::new(),
         }
     }
 }
@@ -74,8 +83,38 @@ impl ModRuntime {
     }
 
     /// Sets the host table handed to a mod's `universe_init`.
+    ///
+    /// The pointer is the *full* table the C++ side built; [`Self::host_for`] reduces it per mod.
     pub fn set_host(&mut self, host: *const c_void) {
         self.host = host;
+    }
+
+    /// The host table pointer a specific mod receives, reduced to the capabilities it declared.
+    ///
+    /// Returns the full table's null pointer when no full table was supplied (the C++ side passes
+    /// null until its own facilities resolve), in which case the mod reports every capability
+    /// unavailable itself. When a full table exists, the reduced table is boxed and kept in
+    /// [`Self::reduced_hosts`] under the mod's id so the pointer stays valid for the mod's whole
+    /// life; every capability the mod did not declare (or that needs a trusted signature it does not
+    /// have) is nulled out — the enforcement the format documents. A mod whose declared permissions
+    /// do not parse gets the fully-reduced table (fail-closed), because the manifest gate already
+    /// refused it.
+    fn host_for(&mut self, spec: &ModSpec) -> *const c_void {
+        if self.host.is_null() {
+            return std::ptr::null();
+        }
+        // Safety: the pointer is the full table the C++ side owns and keeps alive for the session;
+        // it is read, never written, and only under the loader's mutex.
+        let full = unsafe { &*(self.host as *const UniverseHost) };
+        let declared = spec.parsed_permissions().unwrap_or_default();
+        let reduced = host::filter(full, &declared, spec.trusted);
+        let boxed = self
+            .reduced_hosts
+            .entry(spec.id.clone())
+            .or_insert_with(|| Box::new(reduced));
+        // Refresh the entry in place so a re-load with different permissions sees the new grant.
+        **boxed = reduced;
+        boxed.as_ref() as *const UniverseHost as *const c_void
     }
 
     /// The number of mods currently live.
@@ -142,7 +181,7 @@ impl ModRuntime {
     }
 
     /// `dlopen`s one mod and resolves its entry points.
-    fn open_one(&self, spec: &ModSpec) -> Result<LoadedMod, String> {
+    fn open_one(&mut self, spec: &ModSpec) -> Result<LoadedMod, String> {
         if spec.lib_path.is_empty() {
             return Err("the manifest names no native library".to_string());
         }
@@ -164,8 +203,11 @@ impl ModRuntime {
             return Err("the library does not export universe_init/tick/shutdown".to_string());
         };
 
-        // The mod's own init is the first call into mod code, so it is guarded like a tick.
-        let result = catch_unwind(AssertUnwindSafe(|| unsafe { init(self.host) }));
+        // The mod's own init is the first call into mod code, so it is guarded like a tick. The
+        // host table is reduced to the mod's declared permissions first: this is where the
+        // permission model is enforced, not merely validated.
+        let host_pointer = self.host_for(spec);
+        let result = catch_unwind(AssertUnwindSafe(|| unsafe { init(host_pointer) }));
         match result {
             Ok(0) => {
                 log_info(&format!("loaded mod {}", spec.id));
@@ -251,6 +293,8 @@ impl ModRuntime {
                 log_error(&format!("mod {id} panicked on shutdown"));
             }
             unsafe { dlclose(loaded.handle) };
+            // The reduced table is only reachable through the mod that was just closed.
+            self.reduced_hosts.remove(&id);
         }
         log_info("all mods shut down");
     }
@@ -263,6 +307,7 @@ impl ModRuntime {
             log_error(&format!("mod {} panicked on shutdown", loaded.id));
         }
         unsafe { dlclose(loaded.handle) };
+        self.reduced_hosts.remove(&loaded.id);
     }
 }
 
@@ -313,6 +358,8 @@ mod tests {
             id: id.to_string(),
             lib_path: lib.to_string(),
             dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            permissions: Vec::new(),
+            trusted: false,
         }
     }
 
@@ -461,6 +508,108 @@ uint64_t universe_test_frames(void) { return g_frames; }
             runtime.live_count(),
             0,
             "a mod absent from the new list must be unloaded"
+        );
+    }
+
+    #[test]
+    fn the_host_table_is_reduced_to_the_mods_declared_permissions() {
+        // The enforcement, proved end to end: the loader hands the mod a table whose granted
+        // pointers are non-null and whose ungranted ones are null, and the mod can read that back.
+        // The C++ side builds the *full* table; here the test builds one itself so it needs no
+        // device.
+        use universe_core::host::{UniverseHost, HOST_ABI_VERSION};
+        // Stand-in capabilities: real no-op functions so the table needs no unsafe pointer surgery.
+        unsafe extern "C" fn noop_read(_a: usize, _o: *mut c_void, _l: usize) -> bool {
+            true
+        }
+        unsafe extern "C" fn noop_write(_a: usize, _d: *const c_void, _l: usize) -> bool {
+            true
+        }
+        unsafe extern "C" fn noop_log(_level: i32, _message: *const c_char) {}
+        let mut full = UniverseHost::default();
+        full.read_memory = Some(noop_read);
+        full.write_memory = Some(noop_write);
+        full.log = Some(noop_log);
+        full.size = std::mem::size_of::<UniverseHost>() as u32;
+
+        const OBSERVER: &str = r#"
+#include <stdint.h>
+#include <stddef.h>
+typedef struct universe_host {
+  uint32_t size; uint32_t abi_version;
+  void *register_hook; void *unregister_hook; void *resolve_signature;
+  void *read_memory; void *write_memory; void *get_local_player;
+  void *berry_api_version; void *log;
+} universe_host_t;
+static uint32_t g_abi = 0;
+static int g_read = -1;
+static int g_write = -1;
+static int g_log = -1;
+int32_t universe_init(const void *host_ptr) {
+  const universe_host_t *h = (const universe_host_t *)host_ptr;
+  g_abi = h->abi_version;
+  g_read = h->read_memory != 0;
+  g_write = h->write_memory != 0;
+  g_log = h->log != 0;
+  return 0;
+}
+void universe_tick(uint64_t frame, float dt) { (void)frame; (void)dt; }
+void universe_shutdown(void) {}
+uint32_t universe_test_abi(void) { return g_abi; }
+int universe_test_read(void) { return g_read; }
+int universe_test_write(void) { return g_write; }
+int universe_test_log(void) { return g_log; }
+"#;
+        let Some(lib) = compile_source("observer", OBSERVER) else {
+            eprintln!("skipping: no host C compiler");
+            return;
+        };
+        let read_int = |name: &str| -> i32 {
+            let cname = CString::new(lib.clone()).unwrap();
+            let handle = unsafe { dlopen(cname.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
+            let symbol = CString::new(name).unwrap();
+            let f = unsafe {
+                resolve_symbol::<unsafe extern "C" fn() -> i32>(handle, symbol.as_bytes_with_nul())
+            };
+            let value = unsafe { f.unwrap()() };
+            unsafe { dlclose(handle) };
+            value
+        };
+        let read_abi = || -> u32 {
+            let cname = CString::new(lib.clone()).unwrap();
+            let handle = unsafe { dlopen(cname.as_ptr(), RTLD_NOW | RTLD_LOCAL) };
+            let f = unsafe {
+                resolve_symbol::<unsafe extern "C" fn() -> u32>(handle, b"universe_test_abi\0")
+            };
+            let value = unsafe { f.unwrap()() };
+            unsafe { dlclose(handle) };
+            value
+        };
+
+        let mut runtime = ModRuntime::new();
+        runtime.set_host(&full as *const UniverseHost as *const c_void);
+        let mut mod_spec = spec("observer", &lib, &[]);
+        // Declare read_memory only; write_memory is trust-gated and not declared, so it must be
+        // nulled; log needs no permission, so it stays.
+        mod_spec.permissions = vec!["read_memory".to_string()];
+        runtime.load(&[mod_spec]);
+        assert_eq!(runtime.live_count(), 1, "the observer mod loads");
+
+        assert_eq!(read_abi(), HOST_ABI_VERSION, "the ABI version survives");
+        assert_eq!(
+            read_int("universe_test_read"),
+            1,
+            "a declared capability is kept"
+        );
+        assert_eq!(
+            read_int("universe_test_write"),
+            0,
+            "an undeclared, trust-gated capability is dropped"
+        );
+        assert_eq!(
+            read_int("universe_test_log"),
+            1,
+            "an unrestricted capability is kept"
         );
     }
 

@@ -9,6 +9,9 @@
 
 #include <mutex>
 
+#include "pl/Render.hpp"
+#include "pl/engine/UniverseHostTable.h"
+
 namespace pl::engine {
 namespace {
 
@@ -194,7 +197,11 @@ std::string UniverseResolveLoadOrder(const std::string &nodesJson) {
 
 std::string UniverseLoadMods(const std::string &specsJson, const void *hostTable) {
   if (!EnsureUniverseLoaded() || g_loadMods == nullptr) return std::string();
-  char *report = g_loadMods(specsJson.c_str(), hostTable);
+  // A null `hostTable` means the caller has none; default to the full table this process builds, so
+  // a mod always receives its capabilities (reduced to its declared permissions by the loader) rather
+  // than a null table that would leave every one of them unavailable.
+  const void *host = hostTable != nullptr ? hostTable : UniverseFullHostTable();
+  char *report = g_loadMods(specsJson.c_str(), host);
   if (report == nullptr) return std::string();
   std::string result(report);
   if (g_free != nullptr) g_free(report);
@@ -204,6 +211,10 @@ std::string UniverseLoadMods(const std::string &specsJson, const void *hostTable
 void UniverseTickMods(float deltaSeconds) {
   if (!EnsureUniverseLoaded() || g_tickMods == nullptr) return;
   g_tickMods(deltaSeconds);
+  // Fire the mod hooks whose target ran since the last frame. The host table's signature hooks are
+  // register-preserving passthroughs that only *record* a call; the mod's own callback is invoked
+  // here, on the frame thread with a known ABI, never from the hooked function's unknown one.
+  UniversePumpHostHooks(pl::render::RenderFrameTick());
 }
 
 void UniverseShutdownMods() {

@@ -161,9 +161,33 @@ compile_run MenuFilterTest \
 # The `.universe` Rust-loader bridge: it resolves the loader's C ABI with RTLD_NOLOAD and must
 # report "unavailable" (and refuse every call) when the cdylib is not loaded, which is the host's
 # case. This is the fail-closed contract, so it is pinned here.
-compile_run UniverseBridgeTest \
+#
+# The two `.universe` host tests are compiled directly rather than through compile_run: their
+# translation units include Logger.hpp (via the host table), which pulls in <android/log.h> and fmt,
+# so the host shims and the fmt include dir must come first (the same reason VtableResolveTest is
+# compiled by hand). Both link the host table and its facility stubs.
+echo "== UniverseBridgeTest =="
+"$cxx" -std=c++20 -O1 -g -DFMT_HEADER_ONLY \
+  -I"$here/../host-shims" -I"$here" -I"$root/include" -I"$root/src" -I"$fmt_include" \
   "$root/src/pl/engine/UniverseBridge.cpp" \
-  "$here/UniverseBridgeTest.cpp"
+  "$root/src/pl/engine/UniverseHostTable.cpp" \
+  "$here/UniverseHostTestStubs.cpp" \
+  "$here/UniverseBridgeTest.cpp" \
+  -o "$work/UniverseBridgeTest"
+"$work/UniverseBridgeTest"
+
+# The `.universe` host table: the ABI layout and the per-call fail-closed behaviour a mod depends on.
+# The engine facilities (signature resolution, memory access, the local player) are stubbed, so the
+# test proves the table wires each capability to its facility and answers "no" rather than faulting
+# when the engine is absent — the half that matters before the table ever reaches a real mod.
+echo "== UniverseHostTableTest =="
+"$cxx" -std=c++20 -O1 -g -DFMT_HEADER_ONLY \
+  -I"$here/../host-shims" -I"$here" -I"$root/include" -I"$root/src" -I"$fmt_include" \
+  "$root/src/pl/engine/UniverseHostTable.cpp" \
+  "$here/UniverseHostTestStubs.cpp" \
+  "$here/UniverseHostTableTest.cpp" \
+  -o "$work/UniverseHostTableTest"
+"$work/UniverseHostTableTest"
 
 # The RTTI vtable-slot resolver: given a type name and a string, find the vtable slot whose function
 # references that string. It is what the player-render seam uses to self-locate without a byte
