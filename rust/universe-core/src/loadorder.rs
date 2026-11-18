@@ -23,9 +23,10 @@ pub struct ModNode {
 /// The result of ordering a set of mods.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoadOrder {
-    /// The mod ids in the order they should be loaded.
+    /// The mod ids in the order they should be loaded. A mod that is part of a cycle is *not*
+    /// placed here: its position is undefined, so it is only named in `cycle`.
     pub order: Vec<String>,
-    /// The ids that form a cycle, when one was found.
+    /// Every id that forms a dependency cycle, across all cycles found. Empty when there is none.
     pub cycle: Vec<String>,
 }
 
@@ -62,6 +63,7 @@ pub fn resolve(mods: &[ModNode]) -> LoadOrder {
     let mut state: HashMap<&str, State> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     let mut cycle: Vec<String> = Vec::new();
+    let mut cycle_members: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // An explicit frame stack rather than recursion: a hostile package could declare a deep
     // dependency chain, and a recursive walk would overflow the game thread's stack.
@@ -105,11 +107,19 @@ pub fn resolve(mods: &[ModNode]) -> LoadOrder {
                         });
                     }
                     State::OnStack => {
-                        if cycle.is_empty() {
-                            if let Some(start) = stack.iter().position(|f| f.id == dependency) {
-                                cycle = stack[start..].iter().map(|f| f.id.to_string()).collect();
-                            } else {
-                                cycle.push(dependency.to_string());
+                        // Record every cycle, not just the first, so a user fixing their
+                        // dependencies sees them all. A member is marked so it is kept out of the
+                        // load order below: a mod in a cycle has no valid place to load.
+                        let members: Vec<String> =
+                            match stack.iter().position(|f| f.id == dependency) {
+                                Some(start) => {
+                                    stack[start..].iter().map(|f| f.id.to_string()).collect()
+                                }
+                                None => vec![dependency.to_string()],
+                            };
+                        for member in &members {
+                            if cycle_members.insert(member.clone()) {
+                                cycle.push(member.clone());
                             }
                         }
                     }
@@ -117,7 +127,10 @@ pub fn resolve(mods: &[ModNode]) -> LoadOrder {
                 continue;
             }
             state.insert(id, State::Done);
-            order.push(id.to_string());
+            // A cyclic mod is reported but not placed in the order: its position is undefined.
+            if !cycle_members.contains(id) {
+                order.push(id.to_string());
+            }
             stack.pop();
         }
     }
@@ -166,6 +179,40 @@ mod tests {
         assert!(order.has_cycle());
         assert!(order.cycle.contains(&"a".to_string()));
         assert!(order.cycle.contains(&"b".to_string()));
+        assert!(
+            order.order.is_empty(),
+            "a mod in a cycle has no valid place to load: {:?}",
+            order.order
+        );
+    }
+
+    #[test]
+    fn a_cyclic_mod_is_kept_out_of_the_order() {
+        // A mod in a cycle has no valid position, so it must not be handed to the loader as if it
+        // had one. A mod with no cycle still loads.
+        let mods = vec![node("a", &["b"]), node("b", &["a"]), node("good", &[])];
+        let order = resolve(&mods);
+        assert!(!order.order.contains(&"a".to_string()), "{:?}", order.order);
+        assert!(!order.order.contains(&"b".to_string()), "{:?}", order.order);
+        assert!(order.order.contains(&"good".to_string()));
+    }
+
+    #[test]
+    fn every_cycle_is_reported_not_just_the_first() {
+        let mods = vec![
+            node("a", &["b"]),
+            node("b", &["a"]),
+            node("c", &["d"]),
+            node("d", &["c"]),
+        ];
+        let order = resolve(&mods);
+        for id in ["a", "b", "c", "d"] {
+            assert!(
+                order.cycle.contains(&id.to_string()),
+                "cycle should name {id}: {:?}",
+                order.cycle
+            );
+        }
     }
 
     #[test]

@@ -58,10 +58,9 @@ pub fn plan(specs: &[ModSpec], tracker: &FaultTracker) -> LoadPlan {
     let resolved = loadorder::resolve(&nodes);
 
     let mut plan = LoadPlan::default();
+    // `resolved.order` already excludes cyclic mods (their position is undefined), so anything in
+    // it is either loadable or disabled.
     for id in &resolved.order {
-        if resolved.cycle.contains(id) {
-            continue;
-        }
         if tracker.is_disabled(id) {
             plan.disabled.push(id.clone());
             continue;
