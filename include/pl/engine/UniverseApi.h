@@ -38,12 +38,15 @@ PL_EXPORT bool UniverseAvailable();
 PL_EXPORT std::string UniverseClientVersion();
 
 /**
- * @brief Hands the loader the BerryAPI API table.
+ * @brief Hands the loader the BerryAPI API table and the running client's version.
  *
- * <p>Called once at session start with the pointer the launcher received from BerryAPI. Passing
- * null is allowed and leaves the memory bridge off (fail-closed).
+ * <p>Called once at session start with the pointer the launcher received from BerryAPI, and the
+ * build's own release name ({@code BETA6}, {@code OV.2}). Passing null for the pointer is allowed
+ * and leaves the memory bridge off (fail-closed). The version is what a package's
+ * {@code min_client_version} is checked against, so it must be the real running version, not the
+ * crate's own {@code 1.0.0}.
  */
-PL_EXPORT bool UniverseInit(void *berryApiPointer);
+PL_EXPORT bool UniverseInit(void *berryApiPointer, const std::string &clientVersion);
 
 /** Frees a message returned by any function in this file. Null is a no-op. */
 PL_EXPORT void FreeMessage(char *message);

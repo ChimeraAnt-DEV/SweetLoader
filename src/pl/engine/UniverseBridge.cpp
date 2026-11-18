@@ -18,8 +18,9 @@ namespace {
 // rather than an error.
 constexpr const char *kLibraryName = "libcaramel_universe.so";
 
-// The C ABI the loader exports. `init` takes the BerryAPI pointer; the rest are queries.
-using InitFn = char *(*)(void *);
+// The C ABI the loader exports. `init` takes the BerryAPI pointer and the running client version;
+// the rest are queries.
+using InitFn = char *(*)(void *, const char *);
 using ValidateFn = char *(*)(const char *);
 using ExtractFn = char *(*)(const char *, const char *, const char *);
 using FreeFn = void (*)(char *);
@@ -109,10 +110,10 @@ std::string UniverseClientVersion() {
   return version != nullptr ? std::string(version) : std::string();
 }
 
-bool UniverseInit(void *berryApiPointer) {
+bool UniverseInit(void *berryApiPointer, const std::string &clientVersion) {
   if (!EnsureUniverseLoaded() || g_init == nullptr) return false;
   // `init` returns a message pointer, which the loader only produces on a real failure.
-  return TakeMessage(g_init(berryApiPointer), nullptr);
+  return TakeMessage(g_init(berryApiPointer, clientVersion.c_str()), nullptr);
 }
 
 void FreeMessage(char *message) {

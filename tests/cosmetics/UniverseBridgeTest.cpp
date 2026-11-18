@@ -32,7 +32,7 @@ void everyOperationRefusesRatherThanCrashing() {
   assert(!error.empty());
 
   // Init must report failure rather than pretend it succeeded.
-  assert(!pl::engine::UniverseInit(nullptr));
+  assert(!pl::engine::UniverseInit(nullptr, "BETA6"));
 
   // The cancellation flag is false (never set) and setting it is a safe no-op.
   assert(!pl::engine::UniverseIsCancelled());

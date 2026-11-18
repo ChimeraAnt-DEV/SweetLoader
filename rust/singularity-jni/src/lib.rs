@@ -16,8 +16,33 @@ use jni::JNIEnv;
 /// The log tag every message from this library carries.
 pub const LOG_TAG: &str = "SweetLoader.Singularity";
 
-/// The client version this build ships with.
+/// The client version this build ships with, used only when the launcher has not supplied the
+/// running client's own version. See `universe-jni::CLIENT_VERSION`.
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The running client's version, set once by the launcher at init; the crate version is the
+/// fallback. Mirrors the `universe-jni` mechanism so both loaders gate on the same real version.
+static CLIENT_VERSION_OVERRIDE: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// Records the running client's version, as the launcher knows it (`BETA6`, `OV.2`, ...).
+pub fn set_client_version(version: &str) {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = CLIENT_VERSION_OVERRIDE.write() {
+        *guard = Some(trimmed.to_string());
+    }
+}
+
+/// The version a package's `min_client_version` is checked against.
+pub fn running_client_version() -> String {
+    CLIENT_VERSION_OVERRIDE
+        .read()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_else(|| CLIENT_VERSION.to_string())
+}
 
 /// Set when the engine wants world generation to stop (world unload, hot reload).
 static CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -129,15 +154,21 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_singularity_SingularityE
     mut env: JNIEnv,
     _class: JClass,
     pointer: *mut c_void,
+    client_version: JString,
 ) -> jstring {
     install_runtime();
+    let version = read_string(&mut env, &client_version);
     run_or_message(&mut env, "nativeInit", || {
         if !pointer.is_null() {
             let _ = BERRY_API.set(pointer as usize);
             log_info("BerryAPI pointer received");
         }
+        set_client_version(&version);
         set_cancelled(false);
-        log_info(&format!("initialized (client version {CLIENT_VERSION})"));
+        log_info(&format!(
+            "initialized (client version {})",
+            running_client_version()
+        ));
         Ok(())
     })
 }
@@ -157,7 +188,7 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_singularity_SingularityE
         let manifest = singularity_core::manifest::parse(&text).map_err(|e| e.to_string())?;
         universe_core::version::check_min_client_version(
             &manifest.min_client_version,
-            CLIENT_VERSION,
+            &running_client_version(),
         )
         .map_err(|e| e.to_string())?;
         log_info(&format!(
@@ -250,13 +281,18 @@ fn message_to_c(message: String) -> *mut c_char {
 /// [`caramel_singularity_free`].
 ///
 /// # Safety
-/// Every `*const c_char` must be null or a valid NUL-terminated string.
+/// `berry_api` must be null or an opaque pointer the caller owns. `client_version` must be null or
+/// a valid NUL-terminated string naming the running client's release (`BETA6`).
 #[no_mangle]
-pub unsafe extern "C" fn caramel_singularity_init(berry_api: *mut c_void) -> *mut c_char {
+pub unsafe extern "C" fn caramel_singularity_init(
+    berry_api: *mut c_void,
+    client_version: *const c_char,
+) -> *mut c_char {
     install_runtime();
     if !berry_api.is_null() {
         let _ = BERRY_API.set(berry_api as usize);
     }
+    set_client_version(&cstr(client_version));
     set_cancelled(false);
     log_info("initialized via C ABI");
     std::ptr::null_mut()
@@ -275,7 +311,7 @@ pub unsafe extern "C" fn caramel_singularity_validate_manifest(
         Ok(manifest) => {
             match universe_core::version::check_min_client_version(
                 &manifest.min_client_version,
-                CLIENT_VERSION,
+                &running_client_version(),
             ) {
                 Ok(()) => std::ptr::null_mut(),
                 Err(error) => message_to_c(error.to_string()),

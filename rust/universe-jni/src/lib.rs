@@ -37,9 +37,43 @@ pub mod loader;
 /// The log tag every message from this library carries.
 pub const LOG_TAG: &str = "SweetLoader";
 
-/// The client version this build of the loader ships with, checked against a package's
-/// `min_client_version`.
+/// The client version this build of the loader ships with, used only when the launcher has not
+/// supplied the running client's own version. The crate's `CARGO_PKG_VERSION` is `1.0.0`, which
+/// names no real release, so the launcher sets the true version (`BETA6`) at init.
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The running client's version, set once by the launcher at init. Until then the crate version is
+/// the best answer available. A `RwLock` rather than a `OnceLock` because it is written from `init`
+/// (which may run before the frame pump) and read from every version check afterwards.
+static CLIENT_VERSION_OVERRIDE: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// The C representation of [`CLIENT_VERSION_OVERRIDE`], so the C ABI's `client_version` can hand
+/// out a stable pointer without the caller freeing it.
+static CLIENT_VERSION_C: std::sync::OnceLock<CString> = std::sync::OnceLock::new();
+
+/// Records the running client's version, as the launcher knows it (`BETA6`, `OV.2`, ...).
+pub fn set_client_version(version: &str) {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = CLIENT_VERSION_OVERRIDE.write() {
+        *guard = Some(trimmed.to_string());
+    }
+    if let Ok(text) = CString::new(trimmed) {
+        let _ = CLIENT_VERSION_C.set(text);
+    }
+}
+
+/// The version a package's `min_client_version` is checked against: the launcher-supplied version
+/// when present, else this crate's own.
+pub fn running_client_version() -> String {
+    CLIENT_VERSION_OVERRIDE
+        .read()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_else(|| CLIENT_VERSION.to_string())
+}
 
 /// Set when the loader wants mods to stop touching shared state; mods poll it between frames.
 static CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -151,8 +185,10 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
     mut env: JNIEnv,
     _class: JClass,
     pointer: *mut c_void,
+    client_version: JString,
 ) -> jstring {
     install_runtime();
+    let version = read_string(&mut env, &client_version);
     run_or_message(&mut env, "nativeInit", || {
         if !pointer.is_null() {
             // The pointer is the BerryAPI API table the C++ side already resolved. It is stored
@@ -161,9 +197,11 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
             let _ = BERRY_API.set(pointer as usize);
             log_info("BerryAPI pointer received");
         }
+        set_client_version(&version);
         set_cancelled(false);
         log_info(&format!(
-            "initialized (client version {CLIENT_VERSION}, abi {})",
+            "initialized (client version {}, abi {})",
+            running_client_version(),
             universe_core::SUPPORTED_ABI
         ));
         Ok(())
@@ -184,7 +222,7 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
         let manifest = universe_core::archive::read_manifest(&path).map_err(|e| e.to_string())?;
         universe_core::version::check_min_client_version(
             &manifest.min_client_version,
-            CLIENT_VERSION,
+            &running_client_version(),
         )
         .map_err(|e| e.to_string())?;
         log_info(&format!(
@@ -269,7 +307,7 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
 ) -> jstring {
     let required = read_string(&mut env, &min_client_version);
     run_or_message(&mut env, "nativeCheckVersion", || {
-        universe_core::version::check_min_client_version(&required, CLIENT_VERSION)
+        universe_core::version::check_min_client_version(&required, &running_client_version())
             .map_err(|e| e.to_string())
     })
 }
@@ -281,7 +319,7 @@ pub unsafe extern "system" fn Java_org_chimeramc_client_universe_UniverseLoader_
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    new_message(&mut env, CLIENT_VERSION)
+    new_message(&mut env, &running_client_version())
 }
 
 /// A C-string helper used by the small C ABI below.
@@ -317,17 +355,24 @@ where
 /// the caller frees with [`caramel_universe_free`]. A null return means success.
 ///
 /// # Safety
-/// Every `*const c_char` must be null or a valid NUL-terminated string.
+/// `berry_api` must be null or an opaque pointer the caller owns. `client_version` must be null or
+/// a valid NUL-terminated string naming the running client's release (`BETA6`).
 #[no_mangle]
-pub unsafe extern "C" fn caramel_universe_init(berry_api: *mut c_void) -> *mut c_char {
+pub unsafe extern "C" fn caramel_universe_init(
+    berry_api: *mut c_void,
+    client_version: *const c_char,
+) -> *mut c_char {
     install_runtime();
+    let version = cstr(client_version);
     c_abi_guard("init", || {
         if !berry_api.is_null() {
             let _ = BERRY_API.set(berry_api as usize);
         }
+        set_client_version(&version);
         set_cancelled(false);
         log_info(&format!(
-            "initialized via C ABI (client version {CLIENT_VERSION})"
+            "initialized via C ABI (client version {})",
+            running_client_version()
         ));
         Ok(())
     })
@@ -344,7 +389,7 @@ pub unsafe extern "C" fn caramel_universe_validate(archive_path: *const c_char) 
         let manifest = universe_core::archive::read_manifest(&path).map_err(|e| e.to_string())?;
         universe_core::version::check_min_client_version(
             &manifest.min_client_version,
-            CLIENT_VERSION,
+            &running_client_version(),
         )
         .map_err(|e| e.to_string())
     })
@@ -396,13 +441,17 @@ pub extern "C" fn caramel_universe_set_cancelled(cancelled: bool) {
     set_cancelled(cancelled);
 }
 
-/// The loader's client version, as a static NUL-terminated string.
+/// The running client version, as a static NUL-terminated string.
 ///
-/// Static storage, so the caller must not free it.
+/// Static storage, so the caller must not free it. Returns the launcher-supplied version once
+/// `init` has run, else the crate's own version.
 #[no_mangle]
 pub extern "C" fn caramel_universe_client_version() -> *const c_char {
-    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
-    VERSION.as_ptr() as *const c_char
+    if let Some(text) = CLIENT_VERSION_C.get() {
+        return text.as_ptr();
+    }
+    static FALLBACK: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
+    FALLBACK.as_ptr() as *const c_char
 }
 
 /// Reads a package's bytes, refusing one over the archive size limit.
@@ -661,6 +710,23 @@ mod tests {
     #[test]
     fn client_version_is_well_formed() {
         assert!(universe_core::version::is_valid(CLIENT_VERSION));
+    }
+
+    #[test]
+    fn a_launcher_supplied_version_overrides_the_crate_version() {
+        // The crate version is `1.0.0`, which would let any `min_client_version` through. Once the
+        // launcher supplies `BETA6`, a package requiring a newer client must be refused.
+        set_client_version("BETA6");
+        assert_eq!(running_client_version(), "BETA6");
+        assert!(universe_core::version::check_min_client_version("1.0.0", "BETA6").is_ok());
+        assert!(universe_core::version::check_min_client_version("7", "BETA6").is_err());
+        // The C ABI pointer reflects the override too.
+        let pointer = caramel_universe_client_version();
+        assert!(!pointer.is_null());
+        let text = unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(text, "BETA6");
     }
 
     #[test]
