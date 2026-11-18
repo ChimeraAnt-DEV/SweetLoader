@@ -23,11 +23,16 @@ use universe_core::runtime::{self, ModSpec};
 use crate::{log_error, log_info};
 
 /// `universe_init(const universe_host_t *) -> int32_t`.
-type InitFn = unsafe extern "C" fn(*const c_void) -> i32;
+///
+/// `extern "C-unwind"`, not `extern "C"`: a mod written in Rust may panic, and a panic unwinding
+/// out of an `extern "C"` function is undefined behaviour (in practice an abort), so the
+/// `catch_unwind` around these calls would never get a chance to run. The `-unwind` ABI lets the
+/// panic reach the guard, which is the whole point of loading a mod behind one.
+type InitFn = unsafe extern "C-unwind" fn(*const c_void) -> i32;
 /// `universe_tick(uint64_t frame, float dt)`.
-type TickFn = unsafe extern "C" fn(u64, f32);
+type TickFn = unsafe extern "C-unwind" fn(u64, f32);
 /// `universe_shutdown(void)`.
-type ShutdownFn = unsafe extern "C" fn();
+type ShutdownFn = unsafe extern "C-unwind" fn();
 
 /// A mod that is loaded and live.
 struct LoadedMod {

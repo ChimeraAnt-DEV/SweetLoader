@@ -295,6 +295,22 @@ pub unsafe fn cstr(pointer: *const c_char) -> String {
     CStr::from_ptr(pointer).to_string_lossy().into_owned()
 }
 
+/// Runs `body`, catching a panic and turning it into a message. The C ABI has no JVM to catch an
+/// unwind for it, so without this a panic inside zip/JSON parsing aborts the game process.
+///
+/// The C ABI is `extern "C"`, so a panic must never be *allowed* to escape it: this converts the
+/// unwind into an ordinary error string, which is the same shape every other failure uses.
+fn c_abi_guard<F>(what: &str, body: F) -> *mut c_char
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(Ok(())) => std::ptr::null_mut(),
+        Ok(Err(error)) => message_to_c(error),
+        Err(_) => message_to_c(format!("{what} panicked")),
+    }
+}
+
 /// The C ABI the C++ preloader calls, so it does not need a JVM to reach the loader's logic.
 ///
 /// These mirror the JNI functions but take `const char*` and return a heap-allocated message that
@@ -305,14 +321,16 @@ pub unsafe fn cstr(pointer: *const c_char) -> String {
 #[no_mangle]
 pub unsafe extern "C" fn caramel_universe_init(berry_api: *mut c_void) -> *mut c_char {
     install_runtime();
-    if !berry_api.is_null() {
-        let _ = BERRY_API.set(berry_api as usize);
-    }
-    set_cancelled(false);
-    log_info(&format!(
-        "initialized via C ABI (client version {CLIENT_VERSION})"
-    ));
-    std::ptr::null_mut()
+    c_abi_guard("init", || {
+        if !berry_api.is_null() {
+            let _ = BERRY_API.set(berry_api as usize);
+        }
+        set_cancelled(false);
+        log_info(&format!(
+            "initialized via C ABI (client version {CLIENT_VERSION})"
+        ));
+        Ok(())
+    })
 }
 
 /// Validates a package's manifest and version gate. See [`caramel_universe_init`].
@@ -322,16 +340,14 @@ pub unsafe extern "C" fn caramel_universe_init(berry_api: *mut c_void) -> *mut c
 #[no_mangle]
 pub unsafe extern "C" fn caramel_universe_validate(archive_path: *const c_char) -> *mut c_char {
     let path = cstr(archive_path);
-    match universe_core::archive::read_manifest(&path) {
-        Ok(manifest) => match universe_core::version::check_min_client_version(
+    c_abi_guard("validate", || {
+        let manifest = universe_core::archive::read_manifest(&path).map_err(|e| e.to_string())?;
+        universe_core::version::check_min_client_version(
             &manifest.min_client_version,
             CLIENT_VERSION,
-        ) {
-            Ok(()) => std::ptr::null_mut(),
-            Err(error) => message_to_c(error.to_string()),
-        },
-        Err(error) => message_to_c(error.to_string()),
-    }
+        )
+        .map_err(|e| e.to_string())
+    })
 }
 
 /// Extracts a package. See [`caramel_universe_init`].
@@ -347,13 +363,13 @@ pub unsafe extern "C" fn caramel_universe_extract(
     let path = cstr(archive_path);
     let sandbox = cstr(sandbox_root);
     let allowed = cstr(allowed_root);
-    if let Err(error) = universe_core::archive::validate_sandbox_root(&sandbox, &allowed) {
-        return message_to_c(error.to_string());
-    }
-    match universe_core::archive::extract(&path, &sandbox) {
-        Ok(_) => std::ptr::null_mut(),
-        Err(error) => message_to_c(error.to_string()),
-    }
+    c_abi_guard("extract", || {
+        universe_core::archive::validate_sandbox_root(&sandbox, &allowed)
+            .map_err(|e| e.to_string())?;
+        universe_core::archive::extract(&path, &sandbox)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
 }
 
 /// Frees a message returned by the C ABI above.
@@ -428,10 +444,9 @@ pub unsafe extern "C" fn caramel_universe_verify_signature(
     let path = cstr(archive_path);
     let signature_text = cstr(signature_hex);
     let keys_text = cstr(trusted_keys_hex);
-    match verify_signature(&path, &signature_text, &keys_text) {
-        Ok(()) => std::ptr::null_mut(),
-        Err(error) => message_to_c(error),
-    }
+    c_abi_guard("verify_signature", || {
+        verify_signature(&path, &signature_text, &keys_text)
+    })
 }
 
 fn verify_signature(path: &str, signature_text: &str, keys_text: &str) -> Result<(), String> {
@@ -471,10 +486,9 @@ pub unsafe extern "C" fn caramel_universe_check_permissions(
     requested_csv: *const c_char,
     trusted: bool,
 ) -> *mut c_char {
-    match check_permissions(&cstr(declared_csv), &cstr(requested_csv), trusted) {
-        Ok(()) => std::ptr::null_mut(),
-        Err(error) => message_to_c(error),
-    }
+    c_abi_guard("check_permissions", || {
+        check_permissions(&cstr(declared_csv), &cstr(requested_csv), trusted)
+    })
 }
 
 fn check_permissions(declared_csv: &str, requested_csv: &str, trusted: bool) -> Result<(), String> {
@@ -511,7 +525,12 @@ pub unsafe extern "C" fn caramel_universe_resolve_load_order(
     nodes_json: *const c_char,
 ) -> *mut c_char {
     let json = cstr(nodes_json);
-    message_to_c(universe_core::report::resolve_load_order_json(&json))
+    match catch_unwind(AssertUnwindSafe(|| {
+        universe_core::report::resolve_load_order_json(&json)
+    })) {
+        Ok(report) => message_to_c(report),
+        Err(_) => message_to_c("{\"error\":\"resolve_load_order panicked\"}".to_string()),
+    }
 }
 
 /// The loader's live-mod state. One runtime per process; the C++ side drives it from the game
@@ -554,22 +573,30 @@ pub unsafe extern "C" fn caramel_universe_load_mods(
 ) -> *mut c_char {
     install_runtime();
     let json = cstr(specs_json);
-    let specs = match universe_core::report::parse_mod_specs(&json) {
-        Ok(specs) => specs,
-        Err(error) => {
-            return message_to_c(format!(
+    // A panic here would abort the game process (the C ABI cannot unwind), so the whole body is
+    // guarded. A malformed spec is an ordinary error report, not a crash.
+    let guarded = catch_unwind(AssertUnwindSafe(|| -> Result<*mut c_char, String> {
+        let specs = universe_core::report::parse_mod_specs(&json).map_err(|error| {
+            format!(
                 "{{\"error\":\"{}\"}}",
                 universe_core::report::escape_json(&error.to_string())
-            ))
+            )
+        })?;
+        match with_runtime(|runtime| {
+            runtime.set_host(host);
+            let plan = runtime.load(&specs);
+            let live = runtime.live_ids();
+            universe_core::report::load_plan_json(&plan, &live)
+        }) {
+            Some(report) => Ok(message_to_c(report)),
+            None => Err("{\"error\":\"the loader is busy\"}".to_string()),
         }
-    };
-    with_runtime(|runtime| {
-        runtime.set_host(host);
-        let plan = runtime.load(&specs);
-        let live = runtime.live_ids();
-        message_to_c(universe_core::report::load_plan_json(&plan, &live))
-    })
-    .unwrap_or_else(|| message_to_c("{\"error\":\"the loader is busy\"}".to_string()))
+    }));
+    match guarded {
+        Ok(Ok(message)) => message,
+        Ok(Err(report)) => message_to_c(report),
+        Err(_) => message_to_c("{\"error\":\"load_mods panicked\"}".to_string()),
+    }
 }
 
 /// Ticks every live mod once with the frame's delta time.
