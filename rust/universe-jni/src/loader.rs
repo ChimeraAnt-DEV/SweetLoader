@@ -105,6 +105,21 @@ impl ModRuntime {
     pub fn load(&mut self, specs: &[ModSpec]) -> universe_core::runtime::LoadPlan {
         let plan = runtime::plan(specs, &self.tracker);
         let by_id: HashMap<&str, &ModSpec> = specs.iter().map(|s| (s.id.as_str(), s)).collect();
+        // Unload any live mod that is no longer in the list, so a mod the user removed stops
+        // running: otherwise its hooks and threads outlive the entry in the mod list.
+        let wanted: std::collections::HashSet<&str> = specs.iter().map(|s| s.id.as_str()).collect();
+        let mut index = 0;
+        while index < self.loaded.len() {
+            if wanted.contains(self.loaded[index].id.as_str()) {
+                index += 1;
+            } else {
+                log_info(&format!(
+                    "unloading mod {}: it is no longer in the mod list",
+                    self.loaded[index].id
+                ));
+                self.unload_at(index);
+            }
+        }
         for id in &plan.load {
             if self.loaded.iter().any(|m| &m.id == id) {
                 continue;
@@ -365,6 +380,25 @@ uint64_t universe_test_frames(void) { return g_frames; }
             read_fixture_frames(&lib),
             0,
             "a refused mod is never ticked"
+        );
+    }
+
+    #[test]
+    fn a_mod_dropped_from_the_list_is_unloaded() {
+        // A mod removed from the list must stop running, not linger with live hooks and threads.
+        let Some(lib) = compile_fixture() else {
+            eprintln!("skipping: no host C compiler");
+            return;
+        };
+        let mut runtime = ModRuntime::new();
+        runtime.load(&[spec("fixture", &lib, &[])]);
+        assert_eq!(runtime.live_count(), 1);
+        // Re-planning with an empty list must unload the fixture.
+        runtime.load(&[]);
+        assert_eq!(
+            runtime.live_count(),
+            0,
+            "a mod absent from the new list must be unloaded"
         );
     }
 
